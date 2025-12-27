@@ -1,12 +1,10 @@
 @import "tailwindcss";
-
 @plugin "tailwindcss-animate";
-
 @custom-variant dark (&:is(.dark *));
 
 @theme {
   --font-sans: var(--font-sans);
-
+  --font-serif: var(--font-serif);
   /* Custom animations */
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
@@ -17,6 +15,7 @@
   from {
     height: 0;
   }
+
   to {
     height: var(--radix-accordion-content-height);
   }
@@ -26,6 +25,7 @@
   from {
     height: var(--radix-accordion-content-height);
   }
+
   to {
     height: 0;
   }
@@ -36,11 +36,170 @@
     opacity: 0;
     transform: translateY(20px);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0);
   }
 }
+
+#transition-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Opt out fixed UI */
+.vt-none {
+  view-transition-name: none;
+}
+
+/* ensure identical wrappers */
+.vt-frame {
+  border-radius: 0;
+}
+
+html,
+body {
+  height: 100%;
+  overscroll-behavior: none;
+  scroll-behavior: auto !important;
+  /* MUST: prevent native smooth scroll fighting GSAP */
+}
+
+/* This becomes the REAL scroll container */
+body {
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+
+#smooth-wrapper {
+  height: 100%;
+  overflow: hidden;
+}
+
+#smooth-content {
+  will-change: transform;
+  width: 100%;
+  overflow: visible;
+}
+
+.hs-section {
+  position: relative;
+  will-change: transform;
+  width: 100%;
+}
+
+
+.hs-rail {
+  position: relative;
+  will-change: transform;
+}
+
+
+/* Each panel must create real width */
+.panel {
+  min-width: 100vw;
+  height: 100vh;
+}
+
+:root {
+  --bg-color: #ffffff;
+  --text-color: #000000;
+}
+
+html,
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+}
+
+:root,
+html,
+body {
+  transition: background-color 260ms ease, color 260ms ease;
+}
+
+.contain-paint {
+  contain: paint;
+}
+
+/* globals.css */
+@media (pointer: fine) {
+
+  /* Only hide OS cursor inside .has-custom-cursor scope */
+  .has-custom-cursor {
+    cursor: none;
+  }
+
+  .has-custom-cursor a,
+  .has-custom-cursor button,
+  .has-custom-cursor [role="button"],
+  .has-custom-cursor label,
+  .has-custom-cursor summary,
+  .has-custom-cursor .cursor-pointer,
+  .has-custom-cursor [data-cursor] {
+    cursor: none !important;
+  }
+
+  /* Keep I-beam where you type */
+  .has-custom-cursor input[type="text"],
+  .has-custom-cursor input[type="search"],
+  .has-custom-cursor input[type="email"],
+  .has-custom-cursor input[type="password"],
+  .has-custom-cursor textarea,
+  .has-custom-cursor [contenteditable="true"] {
+    cursor: text !important;
+  }
+}
+
+/* ============================= */
+/* Global item-level dimming     */
+/* ============================= */
+
+/* Base dim behaviour */
+[data-dim-item] {
+  transition: opacity 200ms ease-out;
+}
+
+html[data-dim-items="true"] [data-dim-item] {
+  opacity: 0.25;
+}
+
+/* Force the active item and everything inside it back to full opacity */
+html[data-dim-items="true"] [data-dim-item="active"],
+html[data-dim-items="true"] [data-dim-item="active"] * {
+  opacity: 1 !important;
+}
+
+/*
+  CRITICAL FIX (project -> home):
+
+  You were hiding ALL [data-hero-slug] during transitions, which killed the tile target
+  and made it look like “project disappears, hero stays put”.
+
+  We now only hide the *active* target element that we mark at runtime with:
+  data-hero-active-target="true"
+
+  That way:
+  - home -> project: only the clicked source is hidden (inline), nothing else
+  - project -> home: only the matching tile target is hidden while overlay animates in
+*/
+html[data-transitioning="true"] [data-hero-active-target="true"] {
+  opacity: 0;
+}
+
+
+
+
+
+/* ============================= */
+/* Theme                         */
+/* ============================= */
+
+
+
+
 
 @theme inline {
   --color-background: var(--background);
@@ -118,8 +277,8 @@
 }
 
 .dark {
-  --background: oklch(0.13 0.028 261.692);
-  --foreground: oklch(0.985 0.002 247.839);
+  --background: #f2f2f2;
+  --foreground: oklch(0% 0 0);
   --card: oklch(0.21 0.034 264.665);
   --card-foreground: oklch(0.985 0.002 247.839);
   --popover: oklch(0.21 0.034 264.665);
@@ -157,18 +316,22 @@
   margin-right: auto;
   padding-left: 1rem;
   padding-right: 1rem;
-  @media (width >= theme(--breakpoint-sm)) {
+
+  @media (width >=theme(--breakpoint-sm)) {
     max-width: 640px;
     padding-left: 2rem;
     padding-right: 2rem;
   }
-  @media (width >= theme(--breakpoint-md)) {
+
+  @media (width >=theme(--breakpoint-md)) {
     max-width: 768px;
   }
-  @media (width >= theme(--breakpoint-lg)) {
+
+  @media (width >=theme(--breakpoint-lg)) {
     max-width: 1024px;
   }
-  @media (width >= theme(--breakpoint-xl)) {
+
+  @media (width >=theme(--breakpoint-xl)) {
     max-width: 1280px;
     padding-left: 4rem;
     padding-right: 4rem;
@@ -179,61 +342,71 @@
   * {
     @apply border-border outline-ring/50;
   }
+
+  /* Let ThemeFader show through, but preserve text color */
   body {
-    @apply bg-background text-foreground;
+    background: transparent;
+    @apply text-foreground;
   }
+
   h1 {
-    font-family: var(--font-sans);
+    font-family: var(--font-serif);
     font-size: 2.5rem;
     line-height: 1.2;
     font-weight: bold;
-    @media (width >= theme(--breakpoint-md)) {
+
+    @media (width >=theme(--breakpoint-md)) {
       font-size: 3.5rem;
     }
   }
 
   h2 {
-    font-family: var(--font-sans);
+    font-family: var(--font-serif);
     font-size: 2rem;
     line-height: 1.2;
     font-weight: bold;
-    @media (width >= theme(--breakpoint-md)) {
+
+    @media (width >=theme(--breakpoint-md)) {
       font-size: 2.5rem;
     }
   }
 
   h3 {
-    font-family: var(--font-sans);
+    font-family: var(--font-serif);
     font-size: 1.5rem;
     line-height: 1.2;
-    @media (width >= theme(--breakpoint-md)) {
+
+    @media (width >=theme(--breakpoint-md)) {
       font-size: 2rem;
     }
   }
 
   h4 {
-    font-family: var(--font-sans);
+    font-family: var(--font-serif);
     font-size: 1.25rem;
     line-height: 1.3;
-    @media (width >= theme(--breakpoint-md)) {
+
+    @media (width >=theme(--breakpoint-md)) {
       font-size: 1.5rem;
     }
   }
 
   h5 {
-    font-family: var(--font-sans);
+    font-family: var(--font-serif);
     font-size: 1.125rem;
     line-height: 1.4;
-    @media (width >= theme(--breakpoint-md)) {
+
+    @media (width >=theme(--breakpoint-md)) {
       font-size: 1.25rem;
     }
   }
 
   h6 {
-    font-family: var(--font-sans);
+    font-family: var(--font-serif);
     font-size: 1rem;
     line-height: 1.4;
-    @media (width >= theme(--breakpoint-md)) {
+
+    @media (width >=theme(--breakpoint-md)) {
       font-size: 1rem;
     }
   }

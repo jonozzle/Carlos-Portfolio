@@ -1,3 +1,4 @@
+//components/ui/section-container.tsx
 import { cn } from "@/lib/utils";
 import { SectionPadding, ColorVariant } from "@/sanity.types";
 
@@ -17,13 +18,9 @@ export default function SectionContainer({
   return (
     <div
       className={cn(
-        `bg-${color} relative`,
-        padding?.top ? "pt-16 xl:pt-20" : undefined,
-        padding?.bottom ? "pb-16 xl:pb-20" : undefined,
-        className
       )}
     >
-      <div className="container">{children}</div>
+      <div >{children}</div>
     </div>
   );
 }

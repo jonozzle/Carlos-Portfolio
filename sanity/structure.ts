@@ -1,13 +1,6 @@
+// desk/structure.ts
 import { orderableDocumentListDeskItem } from "@sanity/orderable-document-list";
-import {
-  Files,
-  BookA,
-  User,
-  ListCollapse,
-  Quote,
-  Menu,
-  Settings,
-} from "lucide-react";
+import { Files, BookA, Menu, Settings, LayoutTemplate } from "lucide-react";
 
 export const structure = (S: any, context: any) =>
   S.list()
@@ -20,43 +13,16 @@ export const structure = (S: any, context: any) =>
         S,
         context,
       }),
-      S.listItem()
-        .title("Posts")
-        .schemaType("post")
-        .child(
-          S.documentTypeList("post")
-            .title("Post")
-            .defaultOrdering([{ field: "_createdAt", direction: "desc" }]) // Default ordering
-        ),
       orderableDocumentListDeskItem({
-        type: "category",
-        title: "Categories",
+        type: "project",
+        title: "Projects",
         icon: BookA,
         S,
         context,
       }),
-      orderableDocumentListDeskItem({
-        type: "author",
-        title: "Authors",
-        icon: User,
-        S,
-        context,
-      }),
-      orderableDocumentListDeskItem({
-        type: "faq",
-        title: "FAQs",
-        icon: ListCollapse,
-        S,
-        context,
-      }),
-      orderableDocumentListDeskItem({
-        type: "testimonial",
-        title: "Testimonials",
-        icon: Quote,
-        S,
-        context,
-      }),
+
       S.divider({ title: "Global" }),
+
       S.listItem()
         .title("Navigation")
         .icon(Menu)
@@ -64,8 +30,19 @@ export const structure = (S: any, context: any) =>
           S.editor()
             .id("navigation")
             .schemaType("navigation")
-            .documentId("navigation")
+            .documentId("navigation"),
         ),
+
+      S.listItem()
+        .title("Footer")
+        .icon(LayoutTemplate)
+        .child(
+          S.editor()
+            .id("footer")
+            .schemaType("footer")
+            .documentId("footer"),
+        ),
+
       S.listItem()
         .title("Settings")
         .icon(Settings)
@@ -73,6 +50,6 @@ export const structure = (S: any, context: any) =>
           S.editor()
             .id("settings")
             .schemaType("settings")
-            .documentId("settings")
+            .documentId("settings"),
         ),
     ]);

@@ -1,9 +1,13 @@
+//app/layout.tsx
 import type { Metadata } from "next";
 import { Inter as FontSans } from "next/font/google";
+import { corporateAPro, fontVars } from "./fonts";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { ViewTransitions } from "next-view-transitions";
+
 
 const isProduction = process.env.NEXT_PUBLIC_SITE_ENV === "production";
 
@@ -25,6 +29,7 @@ export const metadata: Metadata = {
     type: "website",
   },
   robots: !isProduction ? "noindex, nofollow" : "index, follow",
+  icons: { icon: "/favicon.ico" },
 };
 
 const fontSans = FontSans({
@@ -39,24 +44,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <link rel="icon" href="/favicon.ico" />
-      <body
-        className={cn(
-          "min-h-screen bg-background font-sans antialiased overscroll-none",
-          fontSans.variable
-        )}
-      >
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
+
+      <html lang="en" suppressHydrationWarning>
+        <head />
+        <body
+          className={cn(
+            "min-h-screen bg-background font-sans antialiased overscroll-none",
+            fontSans.variable,
+            fontVars
+          )}
         >
+
           {children}
-        </ThemeProvider>
-        <Toaster position="top-center" richColors />
-      </body>
-    </html>
+
+        </body>
+      </html>
+
   );
 }

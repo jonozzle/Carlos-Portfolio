@@ -1,3 +1,4 @@
+// schemas/documents/page.ts
 import { defineField, defineType } from "sanity";
 import { Files } from "lucide-react";
 import { orderRankField } from "@sanity/orderable-document-list";
@@ -8,21 +9,17 @@ export default defineType({
   title: "Page",
   icon: Files,
   groups: [
-    {
-      name: "content",
-      title: "Content",
-    },
-    {
-      name: "seo",
-      title: "SEO",
-    },
-    {
-      name: "settings",
-      title: "Settings",
-    },
+    { name: "content", title: "Content" },
+    { name: "seo", title: "SEO" },
+    { name: "settings", title: "Settings" },
   ],
   fields: [
-    defineField({ name: "title", type: "string", group: "content" }),
+    defineField({
+      name: "title",
+      type: "string",
+      group: "content",
+    }),
+
     defineField({
       name: "slug",
       title: "Slug",
@@ -34,6 +31,45 @@ export default defineType({
       },
       validation: (Rule) => Rule.required(),
     }),
+
+    // Featured image for hero / transitions
+    defineField({
+      name: "featuredImage",
+      title: "Featured Image",
+      type: "image",
+      group: "content",
+      options: { hotspot: true },
+      fields: [
+        defineField({
+          name: "alt",
+          type: "string",
+          title: "Alt",
+        }),
+      ],
+    }),
+
+    // NEW: page-level theme (works with ThemeProvider)
+    defineField({
+      name: "theme",
+      title: "Theme",
+      type: "object",
+      group: "content",
+      fields: [
+        defineField({
+          name: "bg",
+          title: "Background color",
+          type: "string",
+          description: "Hex or CSS color",
+        }),
+        defineField({
+          name: "text",
+          title: "Text color",
+          type: "string",
+          description: "Hex or CSS color",
+        }),
+      ],
+    }),
+
     defineField({
       name: "blocks",
       type: "array",
@@ -41,6 +77,7 @@ export default defineType({
       of: [
         { type: "hero-1" },
         { type: "hero-2" },
+        { type: "hero-contents" },
         { type: "section-header" },
         { type: "split-row" },
         { type: "grid-row" },
@@ -52,6 +89,13 @@ export default defineType({
         { type: "faqs" },
         { type: "form-newsletter" },
         { type: "all-posts" },
+        { type: "three-gallery" },
+        { type: "ad-section" },
+        { type: "half-width-single-project" },
+        { type: "half-width-double-project" },
+        { type: "page-link-section" },
+        { type: "single-image" },
+        { type: "project-block" },
       ],
       options: {
         insertMenu: {
@@ -115,13 +159,16 @@ export default defineType({
           views: [
             {
               name: "grid",
-              previewImageUrl: (block) => `/sanity/preview/${block}.jpg`,
+              previewImageUrl: (block) =>
+                `/sanity/preview/${block}.jpg`,
             },
             { name: "list" },
           ],
         },
       },
     }),
+
+    // SEO
     defineField({
       name: "meta_title",
       title: "Meta Title",
@@ -147,6 +194,7 @@ export default defineType({
       type: "image",
       group: "seo",
     }),
+
     orderRankField({ type: "page" }),
   ],
 });

@@ -1,0 +1,551 @@
+// components/project/project-block.tsx
+"use client";
+
+import React, {
+    useCallback,
+    useMemo,
+    useRef,
+    useState,
+    useEffect,
+    useLayoutEffect,
+} from "react";
+import SmoothImage from "@/components/ui/smooth-image";
+import { useTheme } from "@/components/theme-provider";
+import PageTransitionButton from "@/components/page-transition-button";
+import { completeHeroTransition } from "@/lib/hero-transition";
+import { gsap } from "gsap";
+import ScrollTrigger from "gsap/ScrollTrigger";
+
+const SCROLL_IDLE_DELAY = 500;
+
+if (typeof window !== "undefined") {
+    gsap.registerPlugin(ScrollTrigger);
+}
+
+type Theme = {
+    bg?: any;
+    text?: any;
+} | null;
+
+type SingleGalleryItem = {
+    slug?: string | null;
+    title?: string | null;
+    client?: string | null;
+    year?: number | null;
+    theme?: Theme;
+    image?: {
+        asset?: { url?: string | null } | null;
+        alt?: string | null;
+    } | null;
+};
+
+type ThemeContext = ReturnType<typeof useTheme>;
+
+type Slot = {
+    img: { col: string; row: string };
+    info: { col: string; row: string; align?: "left" | "right" };
+};
+
+type ProjectLayoutEntry = {
+    project: SingleGalleryItem;
+    imageRowStart: number;
+    imageRowEnd: number;
+    imageColStart: number;
+    imageColEnd: number;
+    infoRowStart: number;
+    infoRowEnd: number;
+    infoColStart: number;
+    infoColEnd: number;
+};
+
+type Props = {
+    _type: "project-block";
+    _key: string;
+    title?: string | null;
+    width?: string | null;
+    projects?: {
+        project?: SingleGalleryItem | null;
+        imageRowStart?: number | null;
+        imageRowEnd?: number | null;
+        imageColStart?: number | null;
+        imageColEnd?: number | null;
+        infoRowStart?: number | null;
+        infoRowEnd?: number | null;
+        infoColStart?: number | null;
+        infoColEnd?: number | null;
+    }[] | null;
+};
+
+type CellProps = {
+    item: SingleGalleryItem;
+    slot: Slot;
+    themeCtx: ThemeContext;
+    index: number;
+    activeIndex: number | null;
+    setActiveIndex: React.Dispatch<React.SetStateAction<number | null>>;
+    isScrollingRef: React.MutableRefObject<boolean>;
+};
+
+const ProjectBlockCell = React.memo(function ProjectBlockCell({
+    item,
+    slot,
+    themeCtx,
+    index,
+    activeIndex,
+    setActiveIndex,
+    isScrollingRef,
+}: CellProps) {
+    const tileRef = useRef<HTMLDivElement | null>(null);
+
+    const slug = item?.slug ?? "";
+    const href = slug ? `/projects/${slug}` : "#";
+    const imgUrl = item?.image?.asset?.url || "";
+    const alt = item?.image?.alt ?? item?.title ?? "Project image";
+    const theme = item?.theme ?? null;
+    const hasTheme = !!(theme?.bg || theme?.text);
+
+    const { previewTheme, clearPreview } = themeCtx;
+
+    const isActive = activeIndex === index && !isScrollingRef.current;
+    const dimState: "active" | "inactive" = isActive ? "active" : "inactive";
+
+    const clearHover = useCallback(() => {
+        if (hasTheme) clearPreview();
+        setActiveIndex((prev) => (prev === index ? null : prev));
+    }, [hasTheme, clearPreview, setActiveIndex, index]);
+
+    const handleEnter = useCallback(() => {
+        if (isScrollingRef.current) return;
+        if (hasTheme) previewTheme(theme);
+        setActiveIndex(index);
+    }, [hasTheme, previewTheme, theme, setActiveIndex, index, isScrollingRef]);
+
+    const handleLeave = useCallback(() => {
+        if (isScrollingRef.current) return;
+        clearHover();
+    }, [clearHover, isScrollingRef]);
+
+    // Project -> Home: overlay targets this tile
+    // Tightened: ONLY listen to "home-hs-restored" once. No hs-ready, no timeout.
+    useLayoutEffect(() => {
+        if (typeof window === "undefined") return;
+        if (!slug) return;
+        if (!tileRef.current) return;
+
+        const pending = (window as any).__heroPending as { slug?: string } | undefined;
+        const match = !!pending && pending.slug === slug;
+        if (!match) return;
+
+        let ran = false;
+
+        const run = () => {
+            if (ran) return;
+            ran = true;
+            if (!tileRef.current) return;
+
+            completeHeroTransition({
+                slug,
+                targetEl: tileRef.current,
+                mode: "parkThenPage",
+            });
+        };
+
+        const onHomeRestored = () => {
+            // Let layout settle 2 frames so rect is final
+            requestAnimationFrame(() => requestAnimationFrame(run));
+        };
+
+        window.addEventListener("home-hs-restored", onHomeRestored, { once: true });
+
+        return () => {
+            window.removeEventListener("home-hs-restored", onHomeRestored as any);
+        };
+    }, [slug]);
+
+    const buttonCommonProps = slug
+        ? {
+            href,
+            direction: "up" as const,
+            heroSlug: slug,
+            heroSourceRef: tileRef as React.RefObject<HTMLDivElement | null>,
+            heroImgUrl: imgUrl,
+        }
+        : { href, direction: "up" as const };
+
+    return (
+        <div
+            className="contents"
+            onMouseEnter={handleEnter}
+            onMouseLeave={handleLeave}
+            onFocusCapture={handleEnter}
+            onBlurCapture={handleLeave}
+        >
+            {/* IMAGE TILE */}
+            <div
+                ref={tileRef}
+                className="relative block cursor-pointer z-10"
+                style={{ gridColumn: slot.img.col, gridRow: slot.img.row }}
+                data-dim-item={dimState}
+                data-hero-slug={slug || undefined}
+                data-hero-target="home"
+                data-speed-x="0.95"
+            >
+                <PageTransitionButton
+                    {...buttonCommonProps}
+                    className="block w-full h-full cursor-pointer"
+                >
+                    <div className="relative w-full h-full overflow-hidden">
+                        {imgUrl ? (
+                            <SmoothImage
+                                src={imgUrl}
+                                alt={alt}
+                                fill
+                                sizes="(max-width: 768px) 100vw, 25vw"
+                                lqipWidth={16}
+                                hiMaxWidth={900}
+                                fetchPriority="high"
+                                objectFit="cover"
+                                loading="lazy"
+                            />
+                        ) : (
+                            <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
+                                No image
+                            </div>
+                        )}
+                    </div>
+                </PageTransitionButton>
+            </div>
+
+            {/* INFO BLOCK */}
+            <div
+                className="relative z-10 flex flex-col justify-start text-left flex-start"
+                style={{ gridColumn: slot.info.col, gridRow: slot.info.row }}
+                data-dim-item={dimState}
+            >
+                <PageTransitionButton
+                    {...buttonCommonProps}
+                    className="flex flex-col items-start text-left"
+                >
+                    <h3
+                        className="text-lg md:text-4xl font-serif font-bold leading-tight tracking-tighter"
+                        data-speed-x="0.9"
+                    >
+                        {item?.title ?? "Untitled"}
+                    </h3>
+                    <div
+                        className="-mt-1 flex w-full font-serif text-sm md:text-base tracking-tighter"
+                        data-speed-x="0.89"
+                    >
+                        <span>{item?.year ? String(item.year) : "\u00A0"}</span>
+                        <span className="mr-1">,</span>
+                        <span className="italic">{item?.client ?? "\u00A0"}</span>
+                    </div>
+                </PageTransitionButton>
+            </div>
+        </div>
+    );
+});
+
+export default function ProjectBlock(props: Props) {
+    const themeCtx = useTheme();
+    const { clearPreview } = themeCtx;
+
+    const sectionRef = useRef<HTMLElement | null>(null);
+    const progressRef = useRef<HTMLDivElement | null>(null);
+    const isScrollingRef = useRef(false);
+    const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+    const width = props.width || "50vw";
+
+    const entries: ProjectLayoutEntry[] = useMemo(() => {
+        const raw = props.projects ?? [];
+
+        const defaults: ProjectLayoutEntry[] = [
+            {
+                project: (raw[0]?.project ?? null) as any,
+                imageRowStart: 2,
+                imageRowEnd: 5,
+                imageColStart: 2,
+                imageColEnd: 8,
+                infoRowStart: 5,
+                infoRowEnd: 6,
+                infoColStart: 2,
+                infoColEnd: 10,
+            },
+            {
+                project: (raw[1]?.project ?? null) as any,
+                imageRowStart: 7,
+                imageRowEnd: 11,
+                imageColStart: 4,
+                imageColEnd: 10,
+                infoRowStart: 10,
+                infoRowEnd: 11,
+                infoColStart: 2,
+                infoColEnd: 10,
+            },
+            {
+                project: (raw[2]?.project ?? null) as any,
+                imageRowStart: 2,
+                imageRowEnd: 6,
+                imageColStart: 6,
+                imageColEnd: 12,
+                infoRowStart: 6,
+                infoRowEnd: 7,
+                infoColStart: 6,
+                infoColEnd: 12,
+            },
+            {
+                project: (raw[3]?.project ?? null) as any,
+                imageRowStart: 7,
+                imageRowEnd: 11,
+                imageColStart: 3,
+                imageColEnd: 9,
+                infoRowStart: 11,
+                infoRowEnd: 12,
+                infoColStart: 3,
+                infoColEnd: 9,
+            },
+        ];
+
+        const clamp = (value: number, min: number, max: number) =>
+            Math.min(max, Math.max(min, value));
+
+        return raw
+            .slice(0, 4)
+            .map((p, index) => {
+                const project = p?.project;
+                if (!project) return null;
+
+                const fallback = defaults[index] ?? defaults[0];
+
+                let imageRowStart =
+                    typeof p.imageRowStart === "number" && p.imageRowStart > 0
+                        ? p.imageRowStart
+                        : fallback.imageRowStart;
+                imageRowStart = clamp(imageRowStart, 1, 12);
+
+                let imageRowEnd =
+                    typeof p.imageRowEnd === "number" && p.imageRowEnd > imageRowStart
+                        ? p.imageRowEnd
+                        : fallback.imageRowEnd;
+                imageRowEnd = clamp(imageRowEnd, imageRowStart + 1, 13);
+
+                let imageColStart =
+                    typeof p.imageColStart === "number" && p.imageColStart > 0
+                        ? p.imageColStart
+                        : fallback.imageColStart;
+                imageColStart = clamp(imageColStart, 1, 12);
+
+                let imageColEnd =
+                    typeof p.imageColEnd === "number" && p.imageColEnd > imageColStart
+                        ? p.imageColEnd
+                        : fallback.imageColEnd;
+                imageColEnd = clamp(imageColEnd, imageColStart + 1, 13);
+
+                let infoRowStart =
+                    typeof p.infoRowStart === "number" && p.infoRowStart > 0
+                        ? p.infoRowStart
+                        : fallback.infoRowStart;
+                infoRowStart = clamp(infoRowStart, 1, 12);
+
+                let infoRowEnd =
+                    typeof p.infoRowEnd === "number" && p.infoRowEnd > infoRowStart
+                        ? p.infoRowEnd
+                        : fallback.infoRowEnd;
+                infoRowEnd = clamp(infoRowEnd, infoRowStart + 1, 13);
+
+                let infoColStart =
+                    typeof p.infoColStart === "number" && p.infoColStart > 0
+                        ? p.infoColStart
+                        : fallback.infoColStart;
+                infoColStart = clamp(infoColStart, 1, 12);
+
+                let infoColEnd =
+                    typeof p.infoColEnd === "number" && p.infoColEnd > infoColStart
+                        ? p.infoColEnd
+                        : fallback.infoColEnd;
+                infoColEnd = clamp(infoColEnd, infoColStart + 1, 13);
+
+                return {
+                    project,
+                    imageRowStart,
+                    imageRowEnd,
+                    imageColStart,
+                    imageColEnd,
+                    infoRowStart,
+                    infoRowEnd,
+                    infoColStart,
+                    infoColEnd,
+                };
+            })
+            .filter((x): x is ProjectLayoutEntry => !!x);
+    }, [props.projects]);
+
+    const hasProjects = entries.length > 0;
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        let timeoutId: number | null = null;
+
+        const onScroll = () => {
+            if (!isScrollingRef.current) {
+                isScrollingRef.current = true;
+
+                if (sectionRef.current) {
+                    sectionRef.current.style.pointerEvents = "none";
+                }
+
+                const root = document.documentElement;
+                delete (root as any).dataset.dimItems;
+            }
+
+            if (timeoutId !== null) {
+                window.clearTimeout(timeoutId);
+            }
+
+            timeoutId = window.setTimeout(() => {
+                isScrollingRef.current = false;
+                if (sectionRef.current) {
+                    sectionRef.current.style.pointerEvents = "";
+                }
+            }, SCROLL_IDLE_DELAY);
+        };
+
+        window.addEventListener("scroll", onScroll, { passive: true });
+
+        return () => {
+            window.removeEventListener("scroll", onScroll);
+            if (timeoutId !== null) window.clearTimeout(timeoutId);
+        };
+    }, [clearPreview]);
+
+    useEffect(() => {
+        if (typeof document === "undefined") return;
+        const root = document.documentElement;
+
+        if (activeIndex !== null && !isScrollingRef.current) {
+            (root as any).dataset.dimItems = "true";
+        } else {
+            delete (root as any).dataset.dimItems;
+        }
+    }, [activeIndex]);
+
+    // PROGRESS BAR – sync with horizontal scroller ScrollTrigger (id: "hs-horizontal")
+    useLayoutEffect(() => {
+        if (typeof window === "undefined") return;
+        const progressEl = progressRef.current;
+        if (!progressEl) return;
+
+        gsap.set(progressEl, { scaleX: 0, transformOrigin: "left center" });
+
+        let syncTrigger: ScrollTrigger | null = null;
+        let checkId: number | null = null;
+
+        const END_FRACTION = 0.5;
+
+        const setup = () => {
+            const horizontalST = ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null;
+            if (!horizontalST) return false;
+
+            syncTrigger = ScrollTrigger.create({
+                trigger: horizontalST.trigger,
+                start: () => horizontalST.start,
+                end: () => horizontalST.end,
+                scrub: true,
+                onUpdate: (self) => {
+                    const raw = self.progress / END_FRACTION;
+                    const clamped = Math.max(0, Math.min(1, raw));
+                    gsap.set(progressEl, { scaleX: clamped });
+                },
+            });
+
+            ScrollTrigger.refresh();
+            return true;
+        };
+
+        if (!setup()) {
+            const trySetup = () => {
+                if (setup()) return;
+                checkId = window.setTimeout(trySetup, 100);
+            };
+            checkId = window.setTimeout(trySetup, 100);
+        }
+
+        return () => {
+            if (syncTrigger) syncTrigger.kill();
+            if (checkId !== null) window.clearTimeout(checkId);
+        };
+    }, []);
+
+    return (
+        <section
+            ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
+            className="h-screen p-2 gap-2 grid grid-cols-12 grid-rows-12 relative overflow-hidden will-change-transform transform-gpu"
+            style={{ width, containIntrinsicSize: "100vh 50vw" }}
+        >
+            {props.title ? (
+                <div
+                    className="pointer-events-none px-4 md:px-6 will-change-transform transform-gpu"
+                    style={{
+                        gridColumn: "1 / span 8",
+                        gridRow: "1 / span 1",
+                        alignSelf: "center",
+                    }}
+                >
+                    <h2 className="text-base md:text-xl italic tracking-tight will-change-transform transform-gpu">{props.title}</h2>
+                </div>
+            ) : null}
+
+            {hasProjects ? (
+                entries.map((entry, index) => {
+                    const key = entry.project.slug ?? String(index);
+
+                    const slot: Slot = {
+                        img: {
+                            col: `${entry.imageColStart} / ${entry.imageColEnd}`,
+                            row: `${entry.imageRowStart} / ${entry.imageRowEnd}`,
+                        },
+                        info: {
+                            col: `${entry.infoColStart} / ${entry.infoColEnd}`,
+                            row: `${entry.infoRowStart} / ${entry.infoRowEnd}`,
+                            align: entry.infoColStart >= 7 ? "right" : "left",
+                        },
+                    };
+
+                    return (
+                        <ProjectBlockCell
+                            key={key}
+                            item={entry.project}
+                            slot={slot}
+                            themeCtx={themeCtx}
+                            index={index}
+                            activeIndex={activeIndex}
+                            setActiveIndex={setActiveIndex}
+                            isScrollingRef={isScrollingRef}
+                        />
+                    );
+                })
+            ) : (
+                <div
+                    className="col-span-12 row-span-12 grid place-items-center text-xs opacity-60"
+                    style={{ gridColumn: "1 / span 12", gridRow: "1 / span 12" }}
+                >
+                    No projects
+                </div>
+            )}
+
+            {/* BOTTOM PROGRESS LINE */}
+            <div className="pointer-events-none absolute left-0 right-0 bottom-10 px-2 md:px-4 will-change-transform transform-gpu">
+                <div className="relative h-px w-full">
+                    <div className="absolute inset-0 bg-current opacity-10" />
+                    <div
+                        ref={progressRef}
+                        className="absolute inset-0 bg-current origin-left will-change-transform transform-gpu"
+                        style={{ transform: "scaleX(0)" }}
+                    />
+                </div>
+            </div>
+        </section>
+    );
+}

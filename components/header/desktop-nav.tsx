@@ -19,14 +19,15 @@ export default function DesktopNav({
           target={navItem.target ? "_blank" : undefined}
           rel={navItem.target ? "noopener noreferrer" : undefined}
           className={cn(
+            "relative group",
             buttonVariants({
               variant: navItem.buttonVariant || "default",
             }),
             navItem.buttonVariant === "ghost" &&
-              "transition-colors hover:text-foreground/80 text-foreground/60 text-sm p-0 h-auto hover:bg-transparent"
+            "transition-colors hover:text-foreground/80 text-foreground/60 text-sm p-0 h-auto hover:bg-transparent"
           )}
         >
-          {navItem.title}
+
         </Link>
       ))}
     </div>

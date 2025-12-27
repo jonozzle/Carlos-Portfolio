@@ -8,6 +8,7 @@ import faq from "./schemas/documents/faq";
 import testimonial from "./schemas/documents/testimonial";
 import navigation from "./schemas/documents/navigation";
 import settings from "./schemas/documents/settings";
+import project from "./schemas/documents/project";
 
 // Schema UI shared objects
 import blockContent from "./schemas/blocks/shared/block-content";
@@ -39,6 +40,16 @@ import logoCloud1 from "./schemas/blocks/logo-cloud/logo-cloud-1";
 import faqs from "./schemas/blocks/faqs";
 import newsletter from "./schemas/blocks/forms/newsletter";
 import allPosts from "./schemas/blocks/all-posts";
+import heroContents from "./schemas/blocks/hero/hero-contents";
+import threeGallery from "./schemas/blocks/three-gallery";
+import projectDetails from "./schemas/blocks/project-details";
+import halfWidthSingleProject from "./schemas/blocks/half-width-single-project";
+import halfWidthDoubleProject from "./schemas/blocks/half-width-double-project";
+import adSection from "./schemas/blocks/ad-section";
+import pageLinkSection from "./schemas/blocks/page-link-section";
+import footer from "./schemas/blocks/footer";
+import singleImage from "./schemas/blocks/single-image";
+import projectBlock from "./schemas/blocks/project/project-block";
 
 export const schema: { types: SchemaTypeDefinition[] } = {
   types: [
@@ -51,6 +62,8 @@ export const schema: { types: SchemaTypeDefinition[] } = {
     testimonial,
     navigation,
     settings,
+    project,
+    footer,
     // shared objects
     blockContent,
     link,
@@ -60,6 +73,7 @@ export const schema: { types: SchemaTypeDefinition[] } = {
     // blocks
     hero1,
     hero2,
+    heroContents,
     sectionHeader,
     splitRow,
     splitContent,
@@ -81,5 +95,13 @@ export const schema: { types: SchemaTypeDefinition[] } = {
     faqs,
     newsletter,
     allPosts,
+    threeGallery,
+    projectDetails,
+    adSection,
+    halfWidthSingleProject,
+    halfWidthDoubleProject,
+    pageLinkSection,
+    singleImage,
+    projectBlock,
   ],
 };

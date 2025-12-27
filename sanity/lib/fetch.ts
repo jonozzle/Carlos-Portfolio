@@ -1,4 +1,6 @@
+// sanity/lib/fetch.ts
 import { sanityFetch } from "@/sanity/lib/live";
+
 import { PAGE_QUERY, PAGES_SLUGS_QUERY } from "@/sanity/queries/page";
 import { NAVIGATION_QUERY } from "@/sanity/queries/navigation";
 import { SETTINGS_QUERY } from "@/sanity/queries/settings";
@@ -7,6 +9,9 @@ import {
   POSTS_QUERY,
   POSTS_SLUGS_QUERY,
 } from "@/sanity/queries/post";
+import { PROJECT_QUERY, PROJECTS_SLUGS_QUERY } from "@/sanity/queries/project";
+import { FOOTER_QUERY } from "@/sanity/queries/footer";
+
 import {
   PAGE_QUERYResult,
   PAGES_SLUGS_QUERYResult,
@@ -15,6 +20,9 @@ import {
   POSTS_SLUGS_QUERYResult,
   NAVIGATION_QUERYResult,
   SETTINGS_QUERYResult,
+  PROJECT_QUERYResult,
+  PROJECTS_SLUGS_QUERYResult,
+  // you can keep FOOTER_QUERYResult here if you want, but we won't rely on it
 } from "@/sanity.types";
 
 export const fetchSanityPageBySlug = async ({
@@ -88,4 +96,62 @@ export const fetchSanitySettings = async (): Promise<SETTINGS_QUERYResult> => {
   });
 
   return data;
+};
+
+export const fetchSanityProjectBySlug = async ({
+  slug,
+}: {
+  slug: string;
+}): Promise<PROJECT_QUERYResult> => {
+  const { data } = await sanityFetch({
+    query: PROJECT_QUERY,
+    params: { slug },
+  });
+
+  return data;
+};
+
+export const fetchSanityProjectsStaticParams =
+  async (): Promise<PROJECTS_SLUGS_QUERYResult> => {
+    const { data } = await sanityFetch({
+      query: PROJECTS_SLUGS_QUERY,
+      perspective: "published",
+      stega: false,
+    });
+
+    return data;
+  };
+
+/**
+ * Footer type that matches your GROQ query
+ */
+export type FooterData = {
+  _id?: string;
+  title?: string | null;
+  copyright?: string | null;
+  links?:
+  | {
+    _key: string;
+    label?: string | null;
+    href?: string | null;
+  }[]
+  | null;
+  images?:
+  | {
+    _key: string;
+    url?: string | null;
+    alt?: string | null;
+  }[]
+  | null;
+};
+
+/**
+ * Fetch footer document (or null if not set)
+ */
+export const fetchSanityFooter = async (): Promise<FooterData | null> => {
+  const { data } = await sanityFetch({
+    query: FOOTER_QUERY,
+  });
+
+  return (data ?? null) as FooterData | null;
 };
