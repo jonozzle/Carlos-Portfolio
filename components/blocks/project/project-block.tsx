@@ -96,6 +96,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     isScrollingRef,
 }: CellProps) {
     const tileRef = useRef<HTMLDivElement | null>(null);
+    const imgScaleRef = useRef<HTMLDivElement | null>(null);
 
     const slug = item?.slug ?? "";
     const href = slug ? `/projects/${slug}` : "#";
@@ -109,16 +110,30 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     const isActive = activeIndex === index && !isScrollingRef.current;
     const dimState: "active" | "inactive" = isActive ? "active" : "inactive";
 
+    const animateScale = useCallback((to: number) => {
+        const el = imgScaleRef.current;
+        if (!el) return;
+        gsap.killTweensOf(el);
+        gsap.to(el, {
+            scale: to,
+            duration: 0.55,
+            ease: "power3.out",
+            overwrite: true,
+        });
+    }, []);
+
     const clearHover = useCallback(() => {
         if (hasTheme) clearPreview();
         setActiveIndex((prev) => (prev === index ? null : prev));
-    }, [hasTheme, clearPreview, setActiveIndex, index]);
+        animateScale(1);
+    }, [hasTheme, clearPreview, setActiveIndex, index, animateScale]);
 
     const handleEnter = useCallback(() => {
         if (isScrollingRef.current) return;
         if (hasTheme) previewTheme(theme);
         setActiveIndex(index);
-    }, [hasTheme, previewTheme, theme, setActiveIndex, index, isScrollingRef]);
+        animateScale(1.1);
+    }, [hasTheme, previewTheme, theme, setActiveIndex, index, isScrollingRef, animateScale]);
 
     const handleLeave = useCallback(() => {
         if (isScrollingRef.current) return;
@@ -151,7 +166,6 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         };
 
         const onHomeRestored = () => {
-            // Let layout settle 2 frames so rect is final
             requestAnimationFrame(() => requestAnimationFrame(run));
         };
 
@@ -161,6 +175,15 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             window.removeEventListener("home-hs-restored", onHomeRestored as any);
         };
     }, [slug]);
+
+    useLayoutEffect(() => {
+        const el = imgScaleRef.current;
+        if (!el) return;
+        gsap.set(el, { scale: 1, transformOrigin: "50% 50%" });
+        return () => {
+            gsap.killTweensOf(el);
+        };
+    }, []);
 
     const buttonCommonProps = slug
         ? {
@@ -190,28 +213,31 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 data-hero-target="home"
                 data-speed-x="0.97"
             >
-                <PageTransitionButton
-                    {...buttonCommonProps}
-                    className="block w-full h-full cursor-pointer"
-                >
+                <PageTransitionButton {...buttonCommonProps} className="block w-full h-full cursor-pointer">
+                    {/* overflow-hidden crops the scaled image */}
                     <div className="relative w-full h-full overflow-hidden">
-                        {imgUrl ? (
-                            <SmoothImage
-                                src={imgUrl}
-                                alt={alt}
-                                fill
-                                sizes="(max-width: 768px) 100vw, 25vw"
-                                lqipWidth={16}
-                                hiMaxWidth={900}
-                                fetchPriority="high"
-                                objectFit="cover"
-                                loading="lazy"
-                            />
-                        ) : (
-                            <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
-                                No image
-                            </div>
-                        )}
+                        <div
+                            ref={imgScaleRef}
+                            className="relative w-full h-full will-change-transform transform-gpu"
+                        >
+                            {imgUrl ? (
+                                <SmoothImage
+                                    src={imgUrl}
+                                    alt={alt}
+                                    fill
+                                    sizes="(max-width: 768px) 100vw, 25vw"
+                                    lqipWidth={16}
+                                    hiMaxWidth={900}
+                                    fetchPriority="high"
+                                    objectFit="cover"
+                                    loading="lazy"
+                                />
+                            ) : (
+                                <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
+                                    No image
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </PageTransitionButton>
             </div>
@@ -222,10 +248,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 style={{ gridColumn: slot.info.col, gridRow: slot.info.row }}
                 data-dim-item={dimState}
             >
-                <PageTransitionButton
-                    {...buttonCommonProps}
-                    className="flex flex-col items-start text-left"
-                >
+                <PageTransitionButton {...buttonCommonProps} className="flex flex-col items-start text-left">
                     <h3
                         className="text-lg md:text-4xl font-serif font-bold leading-tight tracking-tighter"
                         data-speed-x="0.96"
@@ -307,8 +330,7 @@ export default function ProjectBlock(props: Props) {
             },
         ];
 
-        const clamp = (value: number, min: number, max: number) =>
-            Math.min(max, Math.max(min, value));
+        const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
         return raw
             .slice(0, 4)
@@ -431,36 +453,43 @@ export default function ProjectBlock(props: Props) {
         }
     }, [activeIndex]);
 
-    // PROGRESS BAR – sync with horizontal scroller ScrollTrigger (id: "hs-horizontal")
+    // BOTTOM PROGRESS LINE – per-block progress (fixes "only first block works")
+    // Uses containerAnimation tied to the horizontal timeline (id: "hs-horizontal").
     useLayoutEffect(() => {
         if (typeof window === "undefined") return;
+
+        const sectionEl = sectionRef.current;
         const progressEl = progressRef.current;
-        if (!progressEl) return;
+        if (!sectionEl || !progressEl) return;
 
         gsap.set(progressEl, { scaleX: 0, transformOrigin: "left center" });
 
-        let syncTrigger: ScrollTrigger | null = null;
+        let st: ScrollTrigger | null = null;
         let checkId: number | null = null;
-
-        const END_FRACTION = 0.5;
 
         const setup = () => {
             const horizontalST = ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null;
-            if (!horizontalST) return false;
+            const containerAnim = horizontalST?.animation as gsap.core.Animation | undefined;
+            if (!horizontalST || !containerAnim) return false;
 
-            syncTrigger = ScrollTrigger.create({
-                trigger: horizontalST.trigger,
-                start: () => horizontalST.start,
-                end: () => horizontalST.end,
+            st?.kill();
+            st = ScrollTrigger.create({
+                trigger: sectionEl,
+                containerAnimation: containerAnim,
+                start: "left 80%",
+                end: "right 20%",
                 scrub: true,
                 onUpdate: (self) => {
-                    const raw = self.progress / END_FRACTION;
-                    const clamped = Math.max(0, Math.min(1, raw));
-                    gsap.set(progressEl, { scaleX: clamped });
+                    gsap.set(progressEl, { scaleX: self.progress });
                 },
             });
 
-            ScrollTrigger.refresh();
+            try {
+                ScrollTrigger.refresh();
+            } catch {
+                // ignore
+            }
+
             return true;
         };
 
@@ -473,7 +502,7 @@ export default function ProjectBlock(props: Props) {
         }
 
         return () => {
-            if (syncTrigger) syncTrigger.kill();
+            st?.kill();
             if (checkId !== null) window.clearTimeout(checkId);
         };
     }, []);
@@ -493,7 +522,9 @@ export default function ProjectBlock(props: Props) {
                         alignSelf: "center",
                     }}
                 >
-                    <h2 className="text-base md:text-xl italic tracking-tight will-change-transform transform-gpu">{props.title}</h2>
+                    <h2 className="text-base md:text-xl italic tracking-tight will-change-transform transform-gpu">
+                        {props.title}
+                    </h2>
                 </div>
             ) : null}
 
