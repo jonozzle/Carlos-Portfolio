@@ -1,5 +1,6 @@
 // app/(main)/[slug]/page.tsx
 
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Blocks from "@/components/blocks";
 import HScrollerWrapper from "@/components/hscroller-wrapper";
@@ -12,20 +13,34 @@ import PageHeroImage from "@/components/page/page-hero-image";
 import PageThemeSetter from "@/components/page-theme-setter";
 import { StylizedLabel } from "@/components/ui/stylised-label";
 
+type PageProps = {
+  // Next.js 15+ passes params as a Promise in App Router
+  params: Promise<{ slug: string }>;
+};
+
 export async function generateStaticParams() {
   const pages = await fetchSanityPagesStaticParams();
-  return pages.map((p) => ({ slug: p.slug?.current }));
+
+  return pages
+    .map((p) => p.slug?.current)
+    .filter((slug): slug is string => typeof slug === "string" && slug.length > 0)
+    .map((slug) => ({ slug }));
 }
 
-export async function generateMetadata({ params }: { params: { slug: string } }) {
-  const { slug } = params;
+export async function generateMetadata({
+  params,
+}: PageProps): Promise<Metadata> {
+  const { slug } = await params;
+
   const page = await fetchSanityPageBySlug({ slug });
   if (!page) notFound();
+
   return generatePageMetadata({ page, slug });
 }
 
-export default async function Page({ params }: { params: { slug: string } }) {
-  const { slug } = params;
+export default async function Page({ params }: PageProps) {
+  const { slug } = await params;
+
   const page = await fetchSanityPageBySlug({ slug });
   if (!page) notFound();
 

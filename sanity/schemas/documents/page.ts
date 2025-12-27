@@ -87,7 +87,6 @@ export default defineType({
         { type: "cta-1" },
         { type: "logo-cloud-1" },
         { type: "faqs" },
-        { type: "form-newsletter" },
         { type: "all-posts" },
         { type: "three-gallery" },
         { type: "ad-section" },
@@ -144,11 +143,6 @@ export default defineType({
               name: "faqs",
               title: "FAQs",
               of: ["faqs"],
-            },
-            {
-              name: "forms",
-              title: "Forms",
-              of: ["form-newsletter"],
             },
             {
               name: "all-posts",

@@ -1,14 +1,8 @@
+// components/blocks/hero/hero-contents-legacy.tsx
 "use client";
 
 import type React from "react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useCallback,
-  useLayoutEffect,
-} from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, useLayoutEffect } from "react";
 import SmoothImage from "@/components/ui/smooth-image";
 import BioBlock from "@/components/blocks/hero/bio-block";
 import { PAGE_QUERYResult } from "@/sanity.types";
@@ -84,9 +78,7 @@ export default function HeroContents(props: Props) {
   // RAW ITEMS FROM PROPS
   const items: HeroItem[] = useMemo(() => {
     const raw = ((props as any)?.items ?? []) as unknown[];
-    return raw.filter(
-      (it): it is HeroItem => !!it && typeof it === "object"
-    );
+    return raw.filter((it): it is HeroItem => !!it && typeof it === "object");
   }, [props]);
 
   // ENSURE KEYS
@@ -107,15 +99,13 @@ export default function HeroContents(props: Props) {
 
   // ONLY ITEMS WITH IMAGES ARE PREVIEWABLE
   const previewables: HeroItemWithKey[] = useMemo(
-    () => keyed.filter((i) => i.image?.asset?.url),
+    () => keyed.filter((i) => !!i.image?.asset?.url),
     [keyed]
   );
 
   const previewByKey = useMemo(() => {
     const map = new Map<string, HeroItemWithKey>();
-    for (const it of previewables) {
-      if (it._key) map.set(it._key, it);
-    }
+    for (const it of previewables) map.set(it._key, it);
     return map;
   }, [previewables]);
 
@@ -123,8 +113,9 @@ export default function HeroContents(props: Props) {
   const initialPreviewKey = previewables[0]?._key ?? null;
 
   const [activeKey, setActiveKey] = useState<string | null>(initialKey);
-  const [displayedPreviewKey, setDisplayedPreviewKey] =
-    useState<string | null>(initialPreviewKey);
+  const [displayedPreviewKey, setDisplayedPreviewKey] = useState<string | null>(
+    initialPreviewKey
+  );
 
   const prefersNoMotionRef = useRef(false);
   useEffect(() => {
@@ -140,21 +131,21 @@ export default function HeroContents(props: Props) {
     return () => mq.removeEventListener("change", listener);
   }, []);
 
-  const displayedPreviewItem: HeroItemWithKey | null =
-    (displayedPreviewKey && previewByKey.get(displayedPreviewKey)) ?? null;
+  // ✅ FIX: avoid `displayedPreviewKey && ...` returning "" | HeroItemWithKey
+  const displayedPreviewItem: HeroItemWithKey | null = useMemo(() => {
+    if (!displayedPreviewKey) return null;
+    return previewByKey.get(displayedPreviewKey) ?? null;
+  }, [displayedPreviewKey, previewByKey]);
 
   const activeAlt =
     displayedPreviewItem?.image?.alt ??
     displayedPreviewItem?.title ??
     "Featured image";
 
-  const activeLayout: HeroLayout = normalizeLayout(
-    displayedPreviewItem?.layout
-  );
+  const activeLayout: HeroLayout = normalizeLayout(displayedPreviewItem?.layout);
 
   const handleActivate = useCallback(
     (it: HeroItemWithKey) => {
-      if (!it) return;
       if (it._key === activeKey) return;
       setActiveKey(it._key);
     },
@@ -314,10 +305,6 @@ export default function HeroContents(props: Props) {
     };
 
     void run();
-
-    return () => {
-      // flag reset in onComplete
-    };
   }, [activeKey, displayedPreviewKey, loaderDone, previewByKey]);
 
   /**
@@ -352,14 +339,11 @@ export default function HeroContents(props: Props) {
       return;
     }
 
-    const charsIn =
-      titleNow.querySelectorAll<HTMLElement>("[data-char]");
+    const charsIn = titleNow.querySelectorAll<HTMLElement>("[data-char]");
 
     // Initial states for IN
     gsap.set(maskNow, { xPercent: 120, autoAlpha: 0 });
-    if (charsIn.length) {
-      gsap.set(charsIn, { autoAlpha: 0 });
-    }
+    if (charsIn.length) gsap.set(charsIn, { autoAlpha: 0 });
 
     gsap.set(leftPanel, { autoAlpha: 1 });
 
@@ -393,8 +377,7 @@ export default function HeroContents(props: Props) {
   }, [displayedPreviewKey, loaderDone]);
 
   const titleText: string =
-    (displayedPreviewItem?.title as string | undefined) ??
-    "Untitled project";
+    (displayedPreviewItem?.title as string | undefined) ?? "Untitled project";
   const titleYear = displayedPreviewItem?.year;
 
   // MANUAL CHAR SPLITTING – AVOIDS KERNING JUMPS BETWEEN IN/OUT
@@ -404,11 +387,7 @@ export default function HeroContents(props: Props) {
   ) => (
     <h3 ref={extraRef} className={className}>
       {titleText.split("").map((ch: string, idx: number) => (
-        <span
-          key={idx}
-          data-char
-          className="inline-block will-change-opacity"
-        >
+        <span key={idx} data-char className="inline-block will-change-opacity">
           {ch === " " ? "\u00A0" : ch}
         </span>
       ))}
@@ -471,19 +450,14 @@ export default function HeroContents(props: Props) {
 
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId);
-      if (ro) {
-        ro.disconnect();
-      } else {
-        window.removeEventListener("resize", onResize);
-      }
+      if (ro) ro.disconnect();
+      else window.removeEventListener("resize", onResize);
     };
   }, [displayedPreviewKey, activeLayout, titleText]);
 
   const imageUrl = displayedPreviewItem?.image?.asset?.url ?? null;
-  const overlayImageUrl =
-    displayedPreviewItem?.overlayImage?.asset?.url ?? null;
-  const overlayAlt =
-    displayedPreviewItem?.overlayImage?.alt ?? activeAlt;
+  const overlayImageUrl = displayedPreviewItem?.overlayImage?.asset?.url ?? null;
+  const overlayAlt = displayedPreviewItem?.overlayImage?.alt ?? activeAlt;
 
   return (
     <section
@@ -499,10 +473,7 @@ export default function HeroContents(props: Props) {
         {/* LAYOUT 1: FEATURE LEFT – text at top of image, center */}
         {activeLayout === "feature-left" && (
           <div className="relative w-full h-full px-6 py-6 md:px-0 md:py-0">
-            <div
-              ref={imageMaskRef}
-              className="relative w-full h-full overflow-hidden"
-            >
+            <div ref={imageMaskRef} className="relative w-full h-full overflow-hidden">
               {/* Base background image */}
               {imageUrl ? (
                 <SmoothImage
@@ -609,10 +580,7 @@ export default function HeroContents(props: Props) {
         {/* LAYOUT 3: CENTER OVERLAY – image with centered overlay text */}
         {activeLayout === "center-overlay" && (
           <div className="relative w-full h-full px-6 py-6 md:px-0 md:py-0">
-            <div
-              ref={imageMaskRef}
-              className="relative w-full h-full overflow-hidden"
-            >
+            <div ref={imageMaskRef} className="relative w-full h-full overflow-hidden">
               {imageUrl ? (
                 <SmoothImage
                   key={imageUrl}
@@ -694,9 +662,7 @@ export default function HeroContents(props: Props) {
                     "py-1 px-2 text-lg md:text-xl font-serif font-normal tracking-tighter inline-block",
                     "transform-gpu origin-center transition-transform duration-200",
                     !isActive && "hover:scale-[1.08]",
-                    isActive
-                      ? "opacity-100"
-                      : "opacity-70 hover:opacity-100",
+                    isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
                   ]
                     .filter(Boolean)
                     .join(" ")}

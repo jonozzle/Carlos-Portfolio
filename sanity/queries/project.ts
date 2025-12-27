@@ -11,7 +11,6 @@ import { timelineQuery } from "./timeline";
 import { cta1Query } from "./cta/cta-1";
 import { logoCloud1Query } from "./logo-cloud/logo-cloud-1";
 import { faqsQuery } from "./faqs";
-import { formNewsletterQuery } from "./forms/newsletter";
 import { allPostsQuery } from "./all-posts";
 import { singleImageBlockQuery } from "./single-image";
 
@@ -47,7 +46,6 @@ export const PROJECT_QUERY = groq`
     ${cta1Query},
     ${logoCloud1Query},
     ${faqsQuery},
-    ${formNewsletterQuery},
     ${allPostsQuery},
     ${singleImageBlockQuery},
   }
