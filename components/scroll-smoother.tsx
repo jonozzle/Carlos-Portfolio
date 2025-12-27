@@ -2,18 +2,35 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import ScrollSmoother from "gsap/ScrollSmoother";
 import { predecodeNextImages } from "@/lib/predecode";
+import { useLoader } from "@/components/loader-context";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
 }
 
+function openFoucGateSoon() {
+  if (typeof window === "undefined") return;
+  const html = document.documentElement;
+  if (html.classList.contains("fouc-ready")) return;
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      html.classList.add("fouc-ready");
+    });
+  });
+}
+
 export default function SmoothScroller({ children }: { children: React.ReactNode }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  const pathname = usePathname();
+  const { loaderDone } = useLoader();
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
@@ -24,6 +41,14 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
       }
     } catch {
       // ignore
+    }
+
+    // CRITICAL:
+    // If we're on "/" and the loader is not done yet, do NOT open the gate here.
+    // HomeLoaderCC will open it AFTER it positions #page-root offscreen.
+    const homeLoaderActive = pathname === "/" && !loaderDone;
+    if (!homeLoaderActive) {
+      openFoucGateSoon();
     }
 
     // Ensure only one instance
@@ -50,10 +75,8 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
       }
     };
 
-    // Initial refresh (after layout settles)
     requestAnimationFrame(() => requestAnimationFrame(refresh));
 
-    // Refresh after your HERO overlay transition resolves (home<->project)
     window.addEventListener("hero-transition-done", refresh);
     window.addEventListener("hero-page-hero-show", refresh);
 
@@ -62,7 +85,7 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
       window.removeEventListener("hero-page-hero-show", refresh);
       smoother.kill();
     };
-  }, []);
+  }, [pathname, loaderDone]);
 
   return (
     <div id="smooth-wrapper" ref={wrapperRef}>

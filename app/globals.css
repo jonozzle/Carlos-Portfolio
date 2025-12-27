@@ -189,7 +189,13 @@ html[data-transitioning="true"] [data-hero-active-target="true"] {
   opacity: 0;
 }
 
+html:not(.fouc-ready) [data-fouc] {
+  visibility: hidden;
+}
 
+html.fouc-ready [data-fouc] {
+  visibility: visible;
+}
 
 
 

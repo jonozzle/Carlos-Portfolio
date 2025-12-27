@@ -4855,6 +4855,34 @@
           },
           "optional": true
         },
+        "showNumbers": {
+          "type": "objectAttribute",
+          "value": {
+            "type": "boolean"
+          },
+          "optional": true
+        },
+        "linksLayout": {
+          "type": "objectAttribute",
+          "value": {
+            "type": "union",
+            "of": [
+              {
+                "type": "string",
+                "value": "custom"
+              },
+              {
+                "type": "string",
+                "value": "center"
+              },
+              {
+                "type": "string",
+                "value": "two-column"
+              }
+            ]
+          },
+          "optional": true
+        },
         "items": {
           "type": "objectAttribute",
           "value": {

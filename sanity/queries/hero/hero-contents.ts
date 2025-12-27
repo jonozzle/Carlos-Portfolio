@@ -1,3 +1,4 @@
+// sanity/queries/hero-contents.ts
 import { groq } from "next-sanity";
 
 // @sanity-typegen-ignore
@@ -6,6 +7,8 @@ export const heroContentsQuery = groq`
     _type,
     _key,
     title,
+    "showNumbers": coalesce(showNumbers, false),
+    "linksLayout": coalesce(linksLayout, "custom"),
     "items": items[]{
       "title": coalesce(project->title, "Untitled"),
       "slug": project->slug.current,

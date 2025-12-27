@@ -1,3 +1,4 @@
+// sanity/schemas/objects/hero-contents.ts
 import { defineType, defineField } from "sanity";
 import { LayoutTemplate, Image as ImageIcon } from "lucide-react";
 
@@ -11,6 +12,31 @@ export default defineType({
       name: "title",
       type: "string",
       description: "Optional heading",
+    }),
+
+    defineField({
+      name: "showNumbers",
+      title: "Show numbering",
+      type: "boolean",
+      initialValue: false,
+      description: "Adds an index number to the left of each link title.",
+    }),
+
+    defineField({
+      name: "linksLayout",
+      title: "Links layout",
+      type: "string",
+      initialValue: "custom",
+      options: {
+        list: [
+          { title: "Custom placement (use X/Y per item)", value: "custom" },
+          { title: "Centered list", value: "center" },
+          { title: "Two-column list", value: "two-column" },
+        ],
+        layout: "radio",
+      },
+      description:
+        "Default is Custom placement. Choose Center or Two-column to ignore X/Y and render a list layout instead.",
     }),
 
     defineField({
@@ -77,14 +103,16 @@ export default defineType({
               title: "X position (%)",
               type: "number",
               validation: (r) => r.min(0).max(100),
-              description: "0–100. Horizontal position of the link.",
+              description:
+                "0–100. Horizontal position of the link (used only in Custom placement).",
             }),
             defineField({
               name: "y",
               title: "Y position (%)",
               type: "number",
               validation: (r) => r.min(0).max(100),
-              description: "0–100. Vertical position of the link.",
+              description:
+                "0–100. Vertical position of the link (used only in Custom placement).",
             }),
           ],
           preview: {
