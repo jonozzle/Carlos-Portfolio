@@ -12,7 +12,6 @@ import React, {
 import SmoothImage from "@/components/ui/smooth-image";
 import { useTheme } from "@/components/theme-provider";
 import PageTransitionButton from "@/components/page-transition-button";
-import { predecodeNextImages } from "@/lib/predecode";
 
 const SCROLL_IDLE_DELAY = 500;
 
@@ -88,7 +87,7 @@ function StylizedLabel({ text }: { text: string }) {
 }
 
 /* -------------------------------------------------------
-   Tile – now shares hover/idle behaviour with ProjectBlock
+   Tile
 ------------------------------------------------------- */
 const PageLinkTile = React.memo(function PageLinkTile({
   item,
@@ -117,7 +116,6 @@ const PageLinkTile = React.memo(function PageLinkTile({
     (item.textPosition as TextPosition | undefined) ?? "below-left";
 
   const labelText = item.label ?? item.page?.title ?? "Untitled";
-
   const sizes = isHalf ? "50vw" : "33vw";
 
   const isActive = activeIndex === index && !isScrollingRef.current;
@@ -171,49 +169,62 @@ const PageLinkTile = React.memo(function PageLinkTile({
     }
     : null;
 
+  const renderImage = () => {
+    // IMPORTANT: the direct parent of `fill` MUST be `relative` and have real size
+    return (
+      <div className="relative w-full h-full">
+        {imgUrl ? (
+          <SmoothImage
+            src={imgUrl}
+            alt={alt}
+            fill
+            sizes={sizes}
+            lqipWidth={16}
+            objectFit="cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
+            No image
+          </div>
+        )}
+      </div>
+    );
+  };
+
   /* -------------------------------------------------------
      Layout variants
   ------------------------------------------------------- */
   const renderContent = () => {
+    // Non-clickable tile fallback
     if (!href) {
-      // Non-clickable tile fallback
       return (
-        <div className="flex flex-col h-full will-change-transform transform-gpu">
-          <div className="relative w-full aspect-[4/3] overflow-hidden">
-            {imgUrl ? (
-              <SmoothImage
-                src={imgUrl}
-                alt={alt}
-                fill
-                sizes={sizes}
-                lqipWidth={16}
-                objectFit="cover"
-                loading="lazy"
-              />
-            ) : (
-              <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
-                No image
-              </div>
-            )}
+        <div className="flex flex-col h-full min-h-0 will-change-transform transform-gpu">
+          <div className="relative w-full flex-1 min-h-0 overflow-hidden">
+            {renderImage()}
           </div>
-          <div className="mt-3">{textBlock}</div>
+          <div className="mt-3 shrink-0">{textBlock}</div>
         </div>
       );
     }
 
     // Internal links → PageTransitionButton; external → <a>
+    // IMPORTANT: wrapper must be `relative block w-full h-full` (no inset-0 unless absolute)
     const ImageWrapper: React.ComponentType<{ children: React.ReactNode }> =
       isInternal
         ? ({ children }) => (
           <PageTransitionButton
             {...(heroProps as any)}
-            className="relative w-full h-full overflow-hidden block"
+            className="relative block w-full h-full overflow-hidden"
           >
             {children}
           </PageTransitionButton>
         )
         : ({ children }) => (
-          <a href={href} className="relative w-full h-full overflow-hidden block">
+          <a
+            href={href}
+            className="relative block w-full h-full overflow-hidden"
+          >
             {children}
           </a>
         );
@@ -236,31 +247,14 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
     switch (textPosition) {
       case "top-right":
-        // FIX: give the image column real height (aspect), so the fill image can render
         return (
-          <div className="grid grid-cols-[3fr,2fr] gap-2 md:gap-3 items-start">
+          <div className="grid grid-cols-[3fr,2fr] gap-2 md:gap-3 h-full min-h-0 items-stretch">
             <div
               ref={imgTileRef}
               data-hero-slug={isInternal ? slug : undefined}
-              className="relative w-full aspect-[4/3] overflow-hidden"
+              className="relative w-full h-full min-h-0 overflow-hidden"
             >
-              <ImageWrapper>
-                {imgUrl ? (
-                  <SmoothImage
-                    src={imgUrl}
-                    alt={alt}
-                    fill
-                    sizes={sizes}
-                    lqipWidth={16}
-                    objectFit="cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
-                    No image
-                  </div>
-                )}
-              </ImageWrapper>
+              <ImageWrapper>{renderImage()}</ImageWrapper>
             </div>
 
             <div className="self-start">
@@ -270,30 +264,13 @@ const PageLinkTile = React.memo(function PageLinkTile({
         );
 
       case "center-over":
-        // FIX: use aspect ratio (not h-full) so the absolute fill image has height
         return (
           <div
             ref={imgTileRef}
             data-hero-slug={isInternal ? slug : undefined}
-            className="relative w-full aspect-[4/3] overflow-hidden"
+            className="relative w-full h-full min-h-0 overflow-hidden"
           >
-            <ImageWrapper>
-              {imgUrl ? (
-                <SmoothImage
-                  src={imgUrl}
-                  alt={alt}
-                  fill
-                  sizes={sizes}
-                  lqipWidth={16}
-                  objectFit="cover"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
-                  No image
-                </div>
-              )}
-            </ImageWrapper>
+            <ImageWrapper>{renderImage()}</ImageWrapper>
 
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
               <div className="inline-flex flex-col items-center text-center">
@@ -313,32 +290,16 @@ const PageLinkTile = React.memo(function PageLinkTile({
       case "below-left":
       default:
         return (
-          <div className="flex flex-col h-full">
+          <div className="flex flex-col h-full min-h-0">
             <div
               ref={imgTileRef}
               data-hero-slug={isInternal ? slug : undefined}
-              className="relative w-full aspect-[4/3] overflow-hidden"
+              className="relative w-full flex-1 min-h-0 overflow-hidden"
             >
-              <ImageWrapper>
-                {imgUrl ? (
-                  <SmoothImage
-                    src={imgUrl}
-                    alt={alt}
-                    fill
-                    sizes={sizes}
-                    lqipWidth={16}
-                    objectFit="cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
-                    No image
-                  </div>
-                )}
-              </ImageWrapper>
+              <ImageWrapper>{renderImage()}</ImageWrapper>
             </div>
 
-            <div className="mt-3">
+            <div className="mt-3 shrink-0">
               <TextWrapper>{textBlock}</TextWrapper>
             </div>
           </div>
@@ -348,13 +309,12 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
   return (
     <div
-      className="flex flex-col text-left cursor-pointer"
+      className="flex flex-col text-left cursor-pointer h-full min-h-0"
       data-dim-item={dimState}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onFocus={handleEnter}
       onBlur={handleLeave}
-      // Capture-phase so this runs before PageTransitionButton's handler
       onClickCapture={handleInternalClickCapture}
     >
       {renderContent()}
@@ -363,7 +323,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
 });
 
 /* -------------------------------------------------------
-   Section wrapper – now with scroll idle + dimming
+   Section wrapper
 ------------------------------------------------------- */
 export default function PageLinkSection(props: Props) {
   const themeCtx = useTheme();
@@ -414,15 +374,11 @@ export default function PageLinkSection(props: Props) {
         delete (root as any).dataset.dimItems;
       }
 
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
 
       timeoutId = window.setTimeout(() => {
         isScrollingRef.current = false;
-        if (sectionRef.current) {
-          sectionRef.current.style.pointerEvents = "";
-        }
+        if (sectionRef.current) sectionRef.current.style.pointerEvents = "";
 
         setActiveIndex(null);
         clearPreview();
@@ -437,7 +393,6 @@ export default function PageLinkSection(props: Props) {
     };
   }, [clearPreview]);
 
-  // Toggle global dim flag based on active state
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
@@ -456,11 +411,12 @@ export default function PageLinkSection(props: Props) {
       style={sectionStyle}
     >
       <div
-        className="col-span-12 row-span-12 grid"
+        className="col-span-12 row-span-12 grid h-full min-h-0 items-stretch"
         style={{
           gridColumn: "1 / span 12",
           gridRow: "1 / span 12",
           gridTemplateColumns: tileColumns,
+          gridAutoRows: "1fr",
         }}
       >
         {items.length ? (

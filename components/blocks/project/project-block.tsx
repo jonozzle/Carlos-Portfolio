@@ -188,7 +188,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 data-dim-item={dimState}
                 data-hero-slug={slug || undefined}
                 data-hero-target="home"
-                data-speed-x="0.95"
+                data-speed-x="0.97"
             >
                 <PageTransitionButton
                     {...buttonCommonProps}
@@ -228,13 +228,13 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 >
                     <h3
                         className="text-lg md:text-4xl font-serif font-bold leading-tight tracking-tighter"
-                        data-speed-x="0.9"
+                        data-speed-x="0.96"
                     >
                         {item?.title ?? "Untitled"}
                     </h3>
                     <div
                         className="-mt-1 flex w-full font-serif text-sm md:text-base tracking-tighter"
-                        data-speed-x="0.89"
+                        data-speed-x="0.95"
                     >
                         <span>{item?.year ? String(item.year) : "\u00A0"}</span>
                         <span className="mr-1">,</span>
