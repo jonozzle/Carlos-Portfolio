@@ -8,7 +8,6 @@ import ScrollTrigger from "gsap/ScrollTrigger";
 import ScrollSmoother from "gsap/ScrollSmoother";
 import { saveScrollForPath, getScrollForPath, setCurrentScrollY } from "@/lib/scroll-state";
 import { saveHsProgressNow, getSavedHsProgress, restoreHsProgressNow } from "@/lib/hs-scroll";
-import { scheduleScrollTriggerRefresh } from "@/lib/refresh-manager";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
@@ -26,10 +25,17 @@ function restoreWithFrames(fn: () => void, onDone?: () => void) {
   requestAnimationFrame(() => requestAnimationFrame(tick));
 }
 
+function hasHsTrigger() {
+  const st = ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null;
+  return !!(st && (st as any).animation);
+}
+
 export default function ScrollRestorer() {
   const pathname = usePathname();
   const lastPathRef = useRef<string | null>(null);
-  const homeRestoredRef = useRef(false);
+
+  // Gate: DO NOT persist HOME progress until we’ve actually restored HOME once.
+  const homeCanPersistRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -41,41 +47,74 @@ export default function ScrollRestorer() {
     }
   }, []);
 
-  // Save previous route
+  // Save previous route on pathname change
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const prev = lastPathRef.current;
+
     if (prev && prev !== pathname) {
+      // Save normal scroll for non-home routes
       saveScrollForPath(prev);
-      if (prev === "/") saveHsProgressNow();
+
+      // Save HOME HS progress only if:
+      // - we were on home
+      // - HS trigger exists (built)
+      // - we’ve already restored home at least once in this entry
+      if (prev === "/" && homeCanPersistRef.current && hasHsTrigger()) {
+        saveHsProgressNow();
+      }
     }
 
     lastPathRef.current = pathname;
 
-    if (pathname === "/") homeRestoredRef.current = false;
+    // entering home: reset gate until restore completes
+    if (pathname === "/") {
+      homeCanPersistRef.current = false;
+    }
   }, [pathname]);
 
-  // While on "/", persist progress (fine)
+  // Persist HOME HS progress while on "/" — BUT only after home is restored.
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (pathname !== "/") return;
 
     let raf = 0;
     let last = 0;
+    let enabled = false;
 
     const loop = () => {
       raf = requestAnimationFrame(loop);
+
+      if (!enabled) return;
+      if (!homeCanPersistRef.current) return;
+      if (!hasHsTrigger()) return;
+
       const now = performance.now();
       if (now - last < 150) return;
       last = now;
+
       saveHsProgressNow();
     };
 
+    const enablePersist = () => {
+      enabled = true;
+      homeCanPersistRef.current = true;
+    };
+
+    // Only start persisting AFTER restore announces completion.
+    window.addEventListener("home-hs-restored", enablePersist, { once: true });
+
     raf = requestAnimationFrame(loop);
+
     return () => {
+      window.removeEventListener("home-hs-restored", enablePersist as any);
       if (raf) cancelAnimationFrame(raf);
-      saveHsProgressNow();
+
+      // On leaving home, if it was enabled and HS exists, save one last time.
+      if (enabled && hasHsTrigger()) {
+        saveHsProgressNow();
+      }
     };
   }, [pathname]);
 
@@ -98,46 +137,43 @@ export default function ScrollRestorer() {
     };
 
     const restoreHomeOnceAfterHsReady = () => {
-      if (homeRestoredRef.current) return;
-      homeRestoredRef.current = true;
-
       const p = getSavedHsProgress();
-      if (typeof p === "number") {
+
+      // If we have a saved HS progress AND HS trigger exists, restore it.
+      if (typeof p === "number" && hasHsTrigger()) {
         restoreWithFrames(
           () => restoreHsProgressNow(p),
           () => {
-            // IMPORTANT: never refresh immediately; schedule to idle/not-scrolling.
-            scheduleScrollTriggerRefresh();
+            try {
+              ScrollTrigger.refresh();
+            } catch {
+              // ignore
+            }
             dispatchHomeRestored();
           }
         );
         return;
       }
 
+      // Otherwise: treat as “go to top”
       dispatchHomeRestored();
     };
 
+    // Non-home: restore immediately
     if (pathname !== "/") {
       restoreNonHome();
+      return;
     }
 
+    // Home: wait for HS build
     const onHsReady = () => {
       if (pathname === "/") restoreHomeOnceAfterHsReady();
     };
 
-    const onHeroEvents = () => {
-      // IMPORTANT: schedule, don’t refresh right now.
-      scheduleScrollTriggerRefresh();
-    };
-
-    window.addEventListener("hs-ready", onHsReady);
-    window.addEventListener("hero-transition-done", onHeroEvents);
-    window.addEventListener("hero-page-hero-show", onHeroEvents);
+    window.addEventListener("hs-ready", onHsReady, { once: true });
 
     return () => {
-      window.removeEventListener("hs-ready", onHsReady);
-      window.removeEventListener("hero-transition-done", onHeroEvents);
-      window.removeEventListener("hero-page-hero-show", onHeroEvents);
+      window.removeEventListener("hs-ready", onHsReady as any);
     };
   }, [pathname]);
 
