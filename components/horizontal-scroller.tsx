@@ -3,11 +3,9 @@
 
 import type React from "react";
 import { useLayoutEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
-import { saveScrollForPath, getCurrentScrollY } from "@/lib/scroll-state";
-import { APP_EVENTS } from "@/lib/app-events";
+import { scheduleScrollTriggerRefresh } from "@/lib/refresh-manager";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
@@ -16,14 +14,9 @@ if (typeof window !== "undefined") {
 type Props = { children: React.ReactNode; className?: string };
 
 export default function HorizontalScroller({ children, className = "" }: Props) {
-  const pathname = usePathname();
-
   const containerRef = useRef<HTMLElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
-
-  const pathRef = useRef<string>(pathname);
-  pathRef.current = pathname;
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
@@ -35,25 +28,10 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
 
     let ctx: gsap.Context | null = null;
     let st: ScrollTrigger | null = null;
+    let raf1 = 0;
+    let raf2 = 0;
 
-    let rafBuild = 0;
-    let rafRefresh = 0;
-    let ro: ResizeObserver | null = null;
-
-    const cancel = (id: number) => {
-      try {
-        if (id) cancelAnimationFrame(id);
-      } catch {
-        // ignore
-      }
-    };
-
-    const kill = () => {
-      cancel(rafBuild);
-      cancel(rafRefresh);
-      rafBuild = 0;
-      rafRefresh = 0;
-
+    const killPinnedTrigger = () => {
       try {
         st?.kill(true);
       } catch {
@@ -81,19 +59,15 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
       }
     };
 
-    const measure = () => {
-      gsap.set(track, { x: 0 });
-      const trackWidth = track.scrollWidth || 0;
-      const viewportWidth = container.getBoundingClientRect().width || window.innerWidth || 0;
-      return Math.max(0, trackWidth - viewportWidth);
-    };
-
-    const build = () => {
-      kill();
+    const setup = () => {
+      killPinnedTrigger();
 
       ctx = gsap.context(() => {
-        const amountToScroll = measure();
+        const trackWidth = track.scrollWidth;
+        const windowWidth = window.innerWidth;
+        const amountToScroll = trackWidth - windowWidth;
 
+        // Not wide enough -> no pinning
         if (amountToScroll <= 0) {
           spacer.style.height = "0px";
           gsap.set(track, { x: 0 });
@@ -107,13 +81,12 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
             id: "hs-horizontal",
             trigger: container,
             start: "top top",
-            end: () => `+=${measure()}`,
+            end: `+=${amountToScroll}`,
             pin: true,
             pinSpacing: false,
-            scrub: true,
-            anticipatePin: 1,
+            scrub: 0,
+            anticipatePin: 0,
             invalidateOnRefresh: true,
-            fastScrollEnd: true,
           },
         });
 
@@ -122,10 +95,9 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
         tl.to(
           track,
           {
-            x: () => -measure(),
+            x: -amountToScroll,
             ease: "none",
             autoRound: false,
-            force3D: true,
           },
           0
         );
@@ -139,84 +111,49 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
           tl.to(
             el,
             {
-              x: () => (1 - speed) * measure(),
+              x: () => (1 - speed) * amountToScroll,
               ease: "none",
-              autoRound: false,
-              force3D: true,
             },
             0
           );
         });
       }, container);
 
-      rafRefresh = requestAnimationFrame(() => {
-        rafRefresh = requestAnimationFrame(() => {
-          try {
-            ScrollTrigger.refresh();
-          } catch {
-            // ignore
-          }
-          try {
-            window.dispatchEvent(new Event(APP_EVENTS.HS_READY));
-          } catch {
-            // ignore
-          }
-        });
+      // IMPORTANT: never refresh immediately if the user is scrolling; queue it.
+      scheduleScrollTriggerRefresh(() => {
+        try {
+          window.dispatchEvent(new Event("hs-ready"));
+        } catch {
+          // ignore
+        }
       });
     };
 
-    let queued = false;
-    const queueBuild = () => {
-      if (queued) return;
-      queued = true;
-      cancel(rafBuild);
-      rafBuild = requestAnimationFrame(() => {
-        rafBuild = requestAnimationFrame(() => {
-          queued = false;
-          build();
-        });
-      });
-    };
+    const onResize = () => setup();
 
-    queueBuild();
+    // Initial setup after 2 RAFs (layout settles)
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setup());
+    });
 
-    const onResize = () => queueBuild();
     window.addEventListener("resize", onResize);
-
-    try {
-      ro = new ResizeObserver(() => queueBuild());
-      ro.observe(track);
-      ro.observe(container);
-    } catch {
-      // ignore
-    }
 
     return () => {
       window.removeEventListener("resize", onResize);
 
-      try {
-        ro?.disconnect();
-      } catch {
-        // ignore
-      }
-      ro = null;
+      if (raf1) cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
 
-      // IMPORTANT:
-      // Save scroll *before* killing the pin so we don’t overwrite home with 0 on unmount.
-      try {
-        const y = getCurrentScrollY();
-        saveScrollForPath(pathRef.current, y);
-      } catch {
-        // ignore
-      }
-
-      kill();
+      killPinnedTrigger();
     };
   }, []);
 
   return (
     <>
-      <section ref={containerRef as React.MutableRefObject<HTMLElement | null>} className="relative h-screen w-full overflow-hidden">
+      <section
+        ref={containerRef as React.MutableRefObject<HTMLElement | null>}
+        className="relative h-screen w-full overflow-hidden"
+      >
         <div
           ref={trackRef}
           className={`hs-rail flex h-full w-max [transform:translate3d(0,0,0)] ${className}`}

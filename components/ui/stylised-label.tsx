@@ -1,19 +1,28 @@
+// components/ui/stylised-label.tsx
 "use client";
 
 import { useRef } from "react";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
+import { scheduleScrollTriggerRefresh } from "@/lib/refresh-manager";
 
 gsap.registerPlugin(ScrollTrigger);
 
 type StylizedLabelProps = {
   text: string;
-  // Loader / one-shot mode
   animateOnMount?: boolean;
-  // Section / scroll-based mode
   animateOnScroll?: boolean;
 };
+
+function requestIdle(fn: () => void, timeout = 350) {
+  // @ts-ignore
+  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+    // @ts-ignore
+    return window.requestIdleCallback(fn, { timeout });
+  }
+  return window.setTimeout(fn, 0);
+}
 
 export function StylizedLabel({
   text,
@@ -33,11 +42,9 @@ export function StylizedLabel({
       const letters = container.querySelectorAll<HTMLElement>("[data-letter]");
       if (!letters.length) return;
 
-      // --- MODE 1: animate once on mount (loader), no ScrollTrigger ---
+      // MODE 1: animate once on mount (no ScrollTrigger)
       if (animateOnMount && !animateOnScroll) {
         const tl = gsap.timeline();
-
-        // Clear any previous inline transform/opacity
         gsap.set(letters, { clearProps: "transform,opacity" });
 
         tl.fromTo(
@@ -52,15 +59,10 @@ export function StylizedLabel({
           }
         );
 
-        return () => {
-          tl.kill();
-        };
+        return () => tl.kill();
       }
 
-      // If no scroll animation requested, we’re done.
       if (!animateOnScroll) return;
-
-      // --- MODE 2: Scroll-triggered animation (sections) ---
 
       const panel = container.closest("section") as HTMLElement | null;
       const rail = panel?.closest(".hs-rail") as HTMLElement | null;
@@ -76,11 +78,11 @@ export function StylizedLabel({
         immediateRender: true,
       });
 
+      let st: ScrollTrigger | null = null;
+
       const setupAnimation = () => {
         const parentST = ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null;
         const containerAnimation = (parentST as any)?.animation;
-
-        let st: ScrollTrigger | null = null;
 
         const callbacks = {
           onEnter: () => timeline.play(0),
@@ -88,6 +90,8 @@ export function StylizedLabel({
           onEnterBack: () => timeline.play(),
           onLeaveBack: () => timeline.reverse(0),
         };
+
+        st?.kill();
 
         if (panel && rail && containerAnimation) {
           st = ScrollTrigger.create({
@@ -106,36 +110,38 @@ export function StylizedLabel({
           });
         }
 
-        ScrollTrigger.refresh(true);
-
-        return { st, timeline };
+        // IMPORTANT: do NOT call ScrollTrigger.refresh(true) here.
+        // Queue refresh so it never happens at scroll settle.
+        scheduleScrollTriggerRefresh();
       };
 
-      const shouldWait = rail && !ScrollTrigger.getById("hs-horizontal");
-      let cleanup:
-        | {
-          st: ScrollTrigger | null;
-          timeline: gsap.core.Timeline;
-        }
-        | undefined;
+      const shouldWaitForHs = !!(rail && !ScrollTrigger.getById("hs-horizontal"));
 
-      if (shouldWait) {
-        const timer = setTimeout(() => {
-          cleanup = setupAnimation();
-        }, 100);
+      if (shouldWaitForHs) {
+        // Prefer event; fallback to idle (no timers hitting scroll end)
+        const onReady = () => setupAnimation();
+        window.addEventListener("hs-ready", onReady, { once: true });
+
+        const idleId = requestIdle(() => {
+          // if HS never arrives, still set up a normal trigger
+          setupAnimation();
+        });
 
         return () => {
-          clearTimeout(timer);
-          cleanup?.st?.kill();
-          cleanup?.timeline.kill();
+          window.removeEventListener("hs-ready", onReady as any);
+          // @ts-ignore
+          if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idleId);
+          else clearTimeout(idleId);
+          st?.kill();
+          timeline.kill();
         };
-      } else {
-        cleanup = setupAnimation();
       }
 
+      setupAnimation();
+
       return () => {
-        cleanup?.st?.kill();
-        cleanup?.timeline.kill();
+        st?.kill();
+        timeline.kill();
       };
     },
     {
@@ -143,8 +149,6 @@ export function StylizedLabel({
       dependencies: [animateOnMount, animateOnScroll, text],
     }
   );
-
-  // --- RENDERING + HOVER ---
 
   const words = text.trim().split(/\s+/);
 
@@ -155,10 +159,7 @@ export function StylizedLabel({
         const letters = Array.from(word);
 
         return (
-          <span
-            key={wordIndex}
-            className="inline-block mr-2 align-baseline"
-          >
+          <span key={wordIndex} className="inline-block mr-2 align-baseline">
             {letters.map((char, charIndex) => {
               const isFirstLetter = charIndex === 0;
 

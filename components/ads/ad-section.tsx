@@ -102,16 +102,10 @@ export default function AdSection({
             data-cursor-blend="normal"
         >
             {isVertical ? (
-                <VerticalImageSlider
-                    images={imgs ?? []}
-                    size="half"
-                    label={sliderLabel}
+                <div
                 />
             ) : (
-                <HorizontalImageSlider
-                    images={imgs ?? []}
-                    size="half"
-                    label={sliderLabel}
+                <div
                 />
             )}
         </section>

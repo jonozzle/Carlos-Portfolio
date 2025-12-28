@@ -13,7 +13,7 @@ import SmoothImage from "@/components/ui/smooth-image";
 import { useTheme } from "@/components/theme-provider";
 import PageTransitionButton from "@/components/page-transition-button";
 
-const SCROLL_IDLE_DELAY = 500;
+const SCROLL_IDLE_DELAY = 140;
 
 type Theme = { bg?: string | null; text?: string | null } | null;
 
@@ -64,9 +64,6 @@ type TileProps = {
   isScrollingRef: React.MutableRefObject<boolean>;
 };
 
-/* -------------------------------------------------------
-   Stylized label renderer (first letter large)
-------------------------------------------------------- */
 function StylizedLabel({ text }: { text: string }) {
   return (
     <span>
@@ -86,9 +83,6 @@ function StylizedLabel({ text }: { text: string }) {
   );
 }
 
-/* -------------------------------------------------------
-   Tile
-------------------------------------------------------- */
 const PageLinkTile = React.memo(function PageLinkTile({
   item,
   isHalf,
@@ -137,14 +131,10 @@ const PageLinkTile = React.memo(function PageLinkTile({
     clearHover();
   }, [clearHover, isScrollingRef]);
 
-  // Lock theme just before internal navigation kicks in.
   const handleInternalClickCapture = useCallback(() => {
     if (isInternal && hasTheme) lockTheme(theme);
   }, [isInternal, hasTheme, lockTheme, theme]);
 
-  /* -------------------------------------------------------
-     Shared text block
-  ------------------------------------------------------- */
   const textBlock = (
     <div className="flex flex-col items-start text-left">
       <div className="text-xl md:text-4xl font-serif font-semibold leading-tight tracking-tighter">
@@ -158,7 +148,6 @@ const PageLinkTile = React.memo(function PageLinkTile({
     </div>
   );
 
-  // Props for hero-enabled internal nav
   const heroProps = isInternal
     ? {
       href,
@@ -170,7 +159,6 @@ const PageLinkTile = React.memo(function PageLinkTile({
     : null;
 
   const renderImage = () => {
-    // IMPORTANT: the direct parent of `fill` MUST be `relative` and have real size
     return (
       <div className="relative w-full h-full">
         {imgUrl ? (
@@ -192,11 +180,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
     );
   };
 
-  /* -------------------------------------------------------
-     Layout variants
-  ------------------------------------------------------- */
   const renderContent = () => {
-    // Non-clickable tile fallback
     if (!href) {
       return (
         <div className="flex flex-col h-full min-h-0 will-change-transform transform-gpu">
@@ -208,8 +192,6 @@ const PageLinkTile = React.memo(function PageLinkTile({
       );
     }
 
-    // Internal links → PageTransitionButton; external → <a>
-    // IMPORTANT: wrapper must be `relative block w-full h-full` (no inset-0 unless absolute)
     const ImageWrapper: React.ComponentType<{ children: React.ReactNode }> =
       isInternal
         ? ({ children }) => (
@@ -221,10 +203,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
           </PageTransitionButton>
         )
         : ({ children }) => (
-          <a
-            href={href}
-            className="relative block w-full h-full overflow-hidden"
-          >
+          <a href={href} className="relative block w-full h-full overflow-hidden">
             {children}
           </a>
         );
@@ -232,10 +211,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
     const TextWrapper: React.ComponentType<{ children: React.ReactNode }> =
       isInternal
         ? ({ children }) => (
-          <PageTransitionButton
-            {...(heroProps as any)}
-            className="inline-flex flex-col text-left"
-          >
+          <PageTransitionButton {...(heroProps as any)} className="inline-flex flex-col text-left">
             {children}
           </PageTransitionButton>
         )
@@ -322,9 +298,6 @@ const PageLinkTile = React.memo(function PageLinkTile({
   );
 });
 
-/* -------------------------------------------------------
-   Section wrapper
-------------------------------------------------------- */
 export default function PageLinkSection(props: Props) {
   const themeCtx = useTheme();
   const { clearPreview } = themeCtx;
@@ -357,6 +330,11 @@ export default function PageLinkSection(props: Props) {
     ? "repeat(1, minmax(0, 1fr))"
     : "repeat(3, minmax(0, 1fr))";
 
+  /**
+   * CRITICAL: no DOM writes or state/theme work at scroll end.
+   * - On scroll START: clear preview + active index
+   * - On scroll END: only flip the ref back to false
+   */
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -366,22 +344,16 @@ export default function PageLinkSection(props: Props) {
       if (!isScrollingRef.current) {
         isScrollingRef.current = true;
 
-        if (sectionRef.current) {
-          sectionRef.current.style.pointerEvents = "none";
-        }
-
-        const root = document.documentElement;
-        delete (root as any).dataset.dimItems;
+        // Do any work at scroll START (not end)
+        setActiveIndex(null);
+        clearPreview();
       }
 
       if (timeoutId !== null) window.clearTimeout(timeoutId);
 
       timeoutId = window.setTimeout(() => {
+        // End: only ref flip. No DOM writes, no setState, no theme work.
         isScrollingRef.current = false;
-        if (sectionRef.current) sectionRef.current.style.pointerEvents = "";
-
-        setActiveIndex(null);
-        clearPreview();
       }, SCROLL_IDLE_DELAY);
     };
 
@@ -393,6 +365,7 @@ export default function PageLinkSection(props: Props) {
     };
   }, [clearPreview]);
 
+  // Keep your existing global dim mechanism (NOT tied to scroll end anymore)
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
