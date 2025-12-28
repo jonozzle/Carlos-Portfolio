@@ -5,8 +5,8 @@ import { useLayoutEffect, useRef } from "react";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import ScrollSmoother from "gsap/ScrollSmoother";
-import { APP_EVENTS } from "@/lib/app-events";
 import { predecodeNextImages } from "@/lib/predecode";
+import { scheduleScrollTriggerRefresh } from "@/lib/refresh-manager";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
@@ -19,7 +19,7 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
 
-    // This removes the tiny “snap” GSAP can introduce when it re-syncs time after motion settles.
+    // Prevent “catch up” snapping.
     gsap.ticker.lagSmoothing(0);
 
     try {
@@ -35,42 +35,41 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
     const smoother = ScrollSmoother.create({
       wrapper: wrapperRef.current!,
       content: contentRef.current!,
-      smooth: 0.9,
-      smoothTouch: 0.12,
-      effects: false, // IMPORTANT: prevents extra work on scroll end
-      normalizeScroll: false,
-      ignoreMobileResize: true,
+      smooth: 0.5,
+      smoothTouch: 0.1,
+      effects: true,
+      normalizeScroll: true,
     });
 
     if (contentRef.current) {
       predecodeNextImages(contentRef.current, 10);
     }
 
-    // Only refresh on explicit layout events (not scroll end).
-    const refresh = () => {
-      try {
-        ScrollTrigger.refresh();
-      } catch {
-        // ignore
-      }
-    };
+    const refresh = () => scheduleScrollTriggerRefresh();
 
+    // Initial refresh after layout settles
     requestAnimationFrame(() => requestAnimationFrame(refresh));
-    window.addEventListener(APP_EVENTS.IMAGES_PRELOADED, refresh);
-    window.addEventListener(APP_EVENTS.HERO_TRANSITION_DONE, refresh);
-    window.addEventListener(APP_EVENTS.HERO_PAGE_HERO_SHOW, refresh);
+
+    // These events can happen while the smoother is still settling — so schedule, don’t refresh directly.
+    window.addEventListener("hero-transition-done", refresh);
+    window.addEventListener("hero-page-hero-show", refresh);
+    window.addEventListener("images-preloaded", refresh);
 
     return () => {
-      window.removeEventListener(APP_EVENTS.IMAGES_PRELOADED, refresh);
-      window.removeEventListener(APP_EVENTS.HERO_TRANSITION_DONE, refresh);
-      window.removeEventListener(APP_EVENTS.HERO_PAGE_HERO_SHOW, refresh);
+      window.removeEventListener("hero-transition-done", refresh);
+      window.removeEventListener("hero-page-hero-show", refresh);
+      window.removeEventListener("images-preloaded", refresh);
       smoother.kill();
     };
   }, []);
 
   return (
     <div id="smooth-wrapper" ref={wrapperRef}>
-      <div id="smooth-content" ref={contentRef} className="will-change-transform [transform:translate3d(0,0,0)]">
+      <div
+        id="smooth-content"
+        ref={contentRef}
+        className="will-change-transform [transform:translate3d(0,0,0)]"
+      >
         {children}
       </div>
     </div>

@@ -265,29 +265,35 @@ export default function ProjectBlock(props: Props) {
 
     const width = props.width || "50vw";
 
-    // Global scroll flags (replaces per-block scroll listeners that cause end-of-scroll hitch)
     useEffect(() => {
         if (typeof window === "undefined") return;
 
-        const onStart = () => {
-            isScrollingRef.current = true;
-            // clear hover state at scroll START only (no end-of-scroll work)
-            clearPreview();
-            setActiveIndex(null);
+        let timeoutId: number | null = null;
+
+        const onScroll = () => {
+            // scroll START: do any state work here (not at end)
+            if (!isScrollingRef.current) {
+                isScrollingRef.current = true;
+                clearPreview();
+                setActiveIndex(null);
+            }
+
+            if (timeoutId !== null) window.clearTimeout(timeoutId);
+
+            // scroll END: NO DOM writes, no state updates
+            timeoutId = window.setTimeout(() => {
+                isScrollingRef.current = false;
+            }, 140);
         };
 
-        const onEnd = () => {
-            isScrollingRef.current = false;
-        };
-
-        window.addEventListener(APP_EVENTS.SCROLL_START, onStart);
-        window.addEventListener(APP_EVENTS.SCROLL_END, onEnd);
+        window.addEventListener("scroll", onScroll, { passive: true });
 
         return () => {
-            window.removeEventListener(APP_EVENTS.SCROLL_START, onStart);
-            window.removeEventListener(APP_EVENTS.SCROLL_END, onEnd);
+            window.removeEventListener("scroll", onScroll);
+            if (timeoutId !== null) window.clearTimeout(timeoutId);
         };
     }, [clearPreview]);
+
 
     useEffect(() => {
         if (typeof document === "undefined") return;

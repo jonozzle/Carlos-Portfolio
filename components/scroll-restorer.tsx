@@ -7,12 +7,11 @@ import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import ScrollSmoother from "gsap/ScrollSmoother";
 import { saveScrollForPath, getScrollForPath, setCurrentScrollY } from "@/lib/scroll-state";
-import { peekNavIntent, consumeNavIntent } from "@/lib/nav-intent";
-import { APP_EVENTS } from "@/lib/app-events";
+import { saveHsProgressNow, getSavedHsProgress, restoreHsProgressNow } from "@/lib/hs-scroll";
+import { scheduleScrollTriggerRefresh } from "@/lib/refresh-manager";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
-  ScrollTrigger.config({ limitCallbacks: true });
 }
 
 function restoreWithFrames(fn: () => void, onDone?: () => void) {
@@ -30,18 +29,54 @@ function restoreWithFrames(fn: () => void, onDone?: () => void) {
 export default function ScrollRestorer() {
   const pathname = usePathname();
   const lastPathRef = useRef<string | null>(null);
+  const homeRestoredRef = useRef(false);
 
-  // Save previous route on route change
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && "scrollRestoration" in window.history) {
+        window.history.scrollRestoration = "manual";
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Save previous route
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const prev = lastPathRef.current;
     if (prev && prev !== pathname) {
-      // DO NOT save "/" here — HorizontalScroller saves it correctly before unpin.
-      if (prev !== "/") saveScrollForPath(prev);
+      saveScrollForPath(prev);
+      if (prev === "/") saveHsProgressNow();
     }
 
     lastPathRef.current = pathname;
+
+    if (pathname === "/") homeRestoredRef.current = false;
+  }, [pathname]);
+
+  // While on "/", persist progress (fine)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (pathname !== "/") return;
+
+    let raf = 0;
+    let last = 0;
+
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      if (now - last < 150) return;
+      last = now;
+      saveHsProgressNow();
+    };
+
+    raf = requestAnimationFrame(loop);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      saveHsProgressNow();
+    };
   }, [pathname]);
 
   // Restore on entry
@@ -50,42 +85,60 @@ export default function ScrollRestorer() {
 
     const dispatchHomeRestored = () => {
       try {
-        window.dispatchEvent(new Event(APP_EVENTS.HOME_HS_RESTORED));
+        window.dispatchEvent(new Event("home-hs-restored"));
       } catch {
         // ignore
       }
     };
 
-    if (pathname !== "/") {
+    const restoreNonHome = () => {
       const saved = getScrollForPath(pathname);
       const target = typeof saved === "number" ? saved : 0;
       restoreWithFrames(() => setCurrentScrollY(target));
-      return;
-    }
-
-    // Home: restore only when intent says project→home; else top.
-    const intent = peekNavIntent();
-    const targetY = intent.kind === "project-to-home" ? intent.restoreY : 0;
-
-    let ran = false;
-    const run = () => {
-      if (ran) return;
-      ran = true;
-
-      restoreWithFrames(
-        () => setCurrentScrollY(targetY),
-        () => {
-          // Don’t refresh here (this was a major source of end-of-scroll micro hitches).
-          dispatchHomeRestored();
-          consumeNavIntent();
-        }
-      );
     };
 
-    window.addEventListener(APP_EVENTS.HS_READY, run, { once: true });
-    requestAnimationFrame(() => requestAnimationFrame(run));
+    const restoreHomeOnceAfterHsReady = () => {
+      if (homeRestoredRef.current) return;
+      homeRestoredRef.current = true;
 
-    return () => window.removeEventListener(APP_EVENTS.HS_READY, run as any);
+      const p = getSavedHsProgress();
+      if (typeof p === "number") {
+        restoreWithFrames(
+          () => restoreHsProgressNow(p),
+          () => {
+            // IMPORTANT: never refresh immediately; schedule to idle/not-scrolling.
+            scheduleScrollTriggerRefresh();
+            dispatchHomeRestored();
+          }
+        );
+        return;
+      }
+
+      dispatchHomeRestored();
+    };
+
+    if (pathname !== "/") {
+      restoreNonHome();
+    }
+
+    const onHsReady = () => {
+      if (pathname === "/") restoreHomeOnceAfterHsReady();
+    };
+
+    const onHeroEvents = () => {
+      // IMPORTANT: schedule, don’t refresh right now.
+      scheduleScrollTriggerRefresh();
+    };
+
+    window.addEventListener("hs-ready", onHsReady);
+    window.addEventListener("hero-transition-done", onHeroEvents);
+    window.addEventListener("hero-page-hero-show", onHeroEvents);
+
+    return () => {
+      window.removeEventListener("hs-ready", onHsReady);
+      window.removeEventListener("hero-transition-done", onHeroEvents);
+      window.removeEventListener("hero-page-hero-show", onHeroEvents);
+    };
   }, [pathname]);
 
   return null;
