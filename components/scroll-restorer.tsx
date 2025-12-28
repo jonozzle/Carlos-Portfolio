@@ -7,15 +7,17 @@ import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import ScrollSmoother from "gsap/ScrollSmoother";
 import { saveScrollForPath, getScrollForPath, setCurrentScrollY } from "@/lib/scroll-state";
-import { saveHsProgressNow, getSavedHsProgress, restoreHsProgressNow } from "@/lib/hs-scroll";
+import { peekNavIntent, consumeNavIntent } from "@/lib/nav-intent";
+import { APP_EVENTS } from "@/lib/app-events";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
+  ScrollTrigger.config({ limitCallbacks: true });
 }
 
 function restoreWithFrames(fn: () => void, onDone?: () => void) {
   let i = 0;
-  const max = 10; // fewer frames = less fighting with pin/smoother
+  const max = 10;
   const tick = () => {
     i += 1;
     fn();
@@ -28,55 +30,18 @@ function restoreWithFrames(fn: () => void, onDone?: () => void) {
 export default function ScrollRestorer() {
   const pathname = usePathname();
   const lastPathRef = useRef<string | null>(null);
-  const homeRestoredRef = useRef(false);
 
-  useEffect(() => {
-    try {
-      if (typeof window !== "undefined" && "scrollRestoration" in window.history) {
-        window.history.scrollRestoration = "manual";
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Save previous route
+  // Save previous route on route change
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const prev = lastPathRef.current;
     if (prev && prev !== pathname) {
-      saveScrollForPath(prev);
-      if (prev === "/") saveHsProgressNow();
+      // DO NOT save "/" here — HorizontalScroller saves it correctly before unpin.
+      if (prev !== "/") saveScrollForPath(prev);
     }
 
     lastPathRef.current = pathname;
-
-    // reset per-entry flag
-    if (pathname === "/") homeRestoredRef.current = false;
-  }, [pathname]);
-
-  // While on "/", persist progress (fine)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (pathname !== "/") return;
-
-    let raf = 0;
-    let last = 0;
-
-    const loop = () => {
-      raf = requestAnimationFrame(loop);
-      const now = performance.now();
-      if (now - last < 150) return;
-      last = now;
-      saveHsProgressNow();
-    };
-
-    raf = requestAnimationFrame(loop);
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      saveHsProgressNow();
-    };
   }, [pathname]);
 
   // Restore on entry
@@ -85,70 +50,42 @@ export default function ScrollRestorer() {
 
     const dispatchHomeRestored = () => {
       try {
-        window.dispatchEvent(new Event("home-hs-restored"));
+        window.dispatchEvent(new Event(APP_EVENTS.HOME_HS_RESTORED));
       } catch {
         // ignore
       }
     };
 
-    const restoreNonHome = () => {
+    if (pathname !== "/") {
       const saved = getScrollForPath(pathname);
       const target = typeof saved === "number" ? saved : 0;
       restoreWithFrames(() => setCurrentScrollY(target));
-    };
-
-    const restoreHomeOnceAfterHsReady = () => {
-      if (homeRestoredRef.current) return;
-      homeRestoredRef.current = true;
-
-      const p = getSavedHsProgress();
-      if (typeof p === "number") {
-        restoreWithFrames(
-          () => restoreHsProgressNow(p),
-          () => {
-            // One refresh AFTER restore, not 50 refreshes during build
-            try {
-              ScrollTrigger.refresh();
-            } catch {
-              // ignore
-            }
-            dispatchHomeRestored();
-          }
-        );
-        return;
-      }
-
-      dispatchHomeRestored();
-    };
-
-    // Non-home: restore immediately
-    if (pathname !== "/") {
-      restoreNonHome();
+      return;
     }
 
-    // Home: ONLY restore after HS has built
-    const onHsReady = () => {
-      if (pathname === "/") restoreHomeOnceAfterHsReady();
+    // Home: restore only when intent says project→home; else top.
+    const intent = peekNavIntent();
+    const targetY = intent.kind === "project-to-home" ? intent.restoreY : 0;
+
+    let ran = false;
+    const run = () => {
+      if (ran) return;
+      ran = true;
+
+      restoreWithFrames(
+        () => setCurrentScrollY(targetY),
+        () => {
+          // Don’t refresh here (this was a major source of end-of-scroll micro hitches).
+          dispatchHomeRestored();
+          consumeNavIntent();
+        }
+      );
     };
 
-    const onHeroEvents = () => {
-      // hero transitions can change layout; refresh, but don't re-run home restore endlessly
-      try {
-        ScrollTrigger.refresh();
-      } catch {
-        // ignore
-      }
-    };
+    window.addEventListener(APP_EVENTS.HS_READY, run, { once: true });
+    requestAnimationFrame(() => requestAnimationFrame(run));
 
-    window.addEventListener("hs-ready", onHsReady);
-    window.addEventListener("hero-transition-done", onHeroEvents);
-    window.addEventListener("hero-page-hero-show", onHeroEvents);
-
-    return () => {
-      window.removeEventListener("hs-ready", onHsReady);
-      window.removeEventListener("hero-transition-done", onHeroEvents);
-      window.removeEventListener("hero-page-hero-show", onHeroEvents);
-    };
+    return () => window.removeEventListener(APP_EVENTS.HS_READY, run as any);
   }, [pathname]);
 
   return null;

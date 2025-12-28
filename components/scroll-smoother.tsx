@@ -2,38 +2,25 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import ScrollSmoother from "gsap/ScrollSmoother";
+import { APP_EVENTS } from "@/lib/app-events";
 import { predecodeNextImages } from "@/lib/predecode";
-import { useLoader } from "@/components/loader-context";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
-}
-
-function openFoucGateSoon() {
-  if (typeof window === "undefined") return;
-  const html = document.documentElement;
-  if (html.classList.contains("fouc-ready")) return;
-
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      html.classList.add("fouc-ready");
-    });
-  });
 }
 
 export default function SmoothScroller({ children }: { children: React.ReactNode }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const pathname = usePathname();
-  const { loaderDone } = useLoader();
-
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
+
+    // This removes the tiny “snap” GSAP can introduce when it re-syncs time after motion settles.
+    gsap.ticker.lagSmoothing(0);
 
     try {
       if ("scrollRestoration" in window.history) {
@@ -43,30 +30,23 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
       // ignore
     }
 
-    // CRITICAL:
-    // If we're on "/" and the loader is not done yet, do NOT open the gate here.
-    // HomeLoaderCC will open it AFTER it positions #page-root offscreen.
-    const homeLoaderActive = pathname === "/" && !loaderDone;
-    if (!homeLoaderActive) {
-      openFoucGateSoon();
-    }
-
-    // Ensure only one instance
     ScrollSmoother.get()?.kill();
 
     const smoother = ScrollSmoother.create({
       wrapper: wrapperRef.current!,
       content: contentRef.current!,
-      smooth: 0.5,
-      smoothTouch: 0.1,
-      effects: true,
-      normalizeScroll: true,
+      smooth: 0.9,
+      smoothTouch: 0.12,
+      effects: false, // IMPORTANT: prevents extra work on scroll end
+      normalizeScroll: false,
+      ignoreMobileResize: true,
     });
 
     if (contentRef.current) {
       predecodeNextImages(contentRef.current, 10);
     }
 
+    // Only refresh on explicit layout events (not scroll end).
     const refresh = () => {
       try {
         ScrollTrigger.refresh();
@@ -76,24 +56,21 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
     };
 
     requestAnimationFrame(() => requestAnimationFrame(refresh));
-
-    window.addEventListener("hero-transition-done", refresh);
-    window.addEventListener("hero-page-hero-show", refresh);
+    window.addEventListener(APP_EVENTS.IMAGES_PRELOADED, refresh);
+    window.addEventListener(APP_EVENTS.HERO_TRANSITION_DONE, refresh);
+    window.addEventListener(APP_EVENTS.HERO_PAGE_HERO_SHOW, refresh);
 
     return () => {
-      window.removeEventListener("hero-transition-done", refresh);
-      window.removeEventListener("hero-page-hero-show", refresh);
+      window.removeEventListener(APP_EVENTS.IMAGES_PRELOADED, refresh);
+      window.removeEventListener(APP_EVENTS.HERO_TRANSITION_DONE, refresh);
+      window.removeEventListener(APP_EVENTS.HERO_PAGE_HERO_SHOW, refresh);
       smoother.kill();
     };
-  }, [pathname, loaderDone]);
+  }, []);
 
   return (
     <div id="smooth-wrapper" ref={wrapperRef}>
-      <div
-        id="smooth-content"
-        ref={contentRef}
-        className="will-change-transform [transform:translate3d(0,0,0)]"
-      >
+      <div id="smooth-content" ref={contentRef} className="will-change-transform [transform:translate3d(0,0,0)]">
         {children}
       </div>
     </div>

@@ -6,16 +6,11 @@ import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { SplitText } from "gsap/SplitText";
+import ScrollSmoother from "gsap/ScrollSmoother";
 import { useLoader } from "@/components/loader-context";
 import { preloadAndDecodeImages } from "@/lib/preload-images";
-
-/**
- * Toggle this to force the loader to play on every visit to "/"
- * (ignores the session key).
- */
-const PLAY_EVERY_TIME = true;
-
-const SESSION_KEY = "homeLoaderSeen";
+import { setCurrentScrollY } from "@/lib/scroll-state";
+import { peekNavIntent } from "@/lib/nav-intent";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(SplitText);
@@ -23,37 +18,11 @@ if (typeof window !== "undefined") {
 
 type Props = {
   enable?: boolean;
-  /**
-   * Legacy prop: no-op.
-   */
   positionOnly?: boolean;
 };
 
-function readLoaderFlags() {
-  if (typeof window === "undefined") {
-    return { force: false, disable: false, reset: false };
-  }
-  const url = new URL(window.location.href);
-  const p = url.searchParams;
-
-  const force = p.get("loader") === "1" || p.get("forceLoader") === "1";
-  const disable = p.get("loader") === "0";
-  const reset = p.get("resetLoader") === "1";
-
-  return { force, disable, reset };
-}
-
-function stripParam(param: string) {
-  if (typeof window === "undefined") return;
-  try {
-    const url = new URL(window.location.href);
-    if (!url.searchParams.has(param)) return;
-    url.searchParams.delete(param);
-    window.history.replaceState({}, "", url.toString());
-  } catch {
-    // ignore
-  }
-}
+const GLOBAL_PLAYED_FLAG = "__homeLoaderPlayedThisTab";
+const GLOBAL_INITIAL_PATH = "__initialPathAtLoad";
 
 function openFoucGateNow() {
   if (typeof window === "undefined") return;
@@ -63,6 +32,18 @@ function openFoucGateNow() {
 function closeFoucGateNow() {
   if (typeof window === "undefined") return;
   document.documentElement.classList.remove("fouc-ready");
+}
+
+function getNavigationType(): "navigate" | "reload" | "back_forward" | "prerender" | "unknown" {
+  if (typeof window === "undefined") return "unknown";
+  const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  if (nav?.type) return nav.type;
+  // legacy fallback
+  // @ts-ignore
+  const legacyType = performance.navigation?.type;
+  if (legacyType === 1) return "reload";
+  if (legacyType === 2) return "back_forward";
+  return "unknown";
 }
 
 export default function HomeLoaderCC({ enable = true, positionOnly = false }: Props) {
@@ -82,6 +63,11 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    // record the path the tab actually loaded on (so project reload → home doesn’t trigger loader)
+    if (!(window as any)[GLOBAL_INITIAL_PATH]) {
+      (window as any)[GLOBAL_INITIAL_PATH] = window.location.pathname;
+    }
+
     if (!enable || positionOnly) {
       setAllowed(false);
       setDone(true);
@@ -99,9 +85,10 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       return;
     }
 
-    const flags = readLoaderFlags();
-
-    if (flags.disable) {
+    // Never run loader when returning from project (intent set).
+    // (This also covers “nav.type stays reload for the entire tab”.)
+    const intent = peekNavIntent();
+    if (intent.kind === "project-to-home") {
       setAllowed(false);
       setDone(true);
       setLoaderDone(true);
@@ -109,39 +96,25 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       return;
     }
 
-    if (flags.reset) {
-      try {
-        window.sessionStorage.removeItem(SESSION_KEY);
-      } catch {
-        // ignore
-      }
-      stripParam("resetLoader");
+    // Only run on a TRUE reload of the tab AND only if the tab loaded on "/"
+    const navType = getNavigationType();
+    const initialPath = (window as any)[GLOBAL_INITIAL_PATH] as string | undefined;
+    const alreadyPlayed = !!(window as any)[GLOBAL_PLAYED_FLAG];
+
+    const shouldPlay = navType === "reload" && initialPath === "/" && !alreadyPlayed;
+
+    if (!shouldPlay) {
+      setAllowed(false);
+      setDone(true);
+      setLoaderDone(true);
+      openFoucGateNow();
+      return;
     }
 
-    if (!PLAY_EVERY_TIME && !flags.force) {
-      let seen = false;
-      try {
-        seen = window.sessionStorage.getItem(SESSION_KEY) === "1";
-      } catch {
-        // ignore
-      }
-      if (seen) {
-        setAllowed(false);
-        setDone(true);
-        setLoaderDone(true);
-        openFoucGateNow();
-        return;
-      }
-    }
+    // mark immediately so SPA navigations back to "/" don’t re-trigger
+    (window as any)[GLOBAL_PLAYED_FLAG] = true;
 
-    if (flags.force) {
-      stripParam("loader");
-      stripParam("forceLoader");
-    }
-
-    // We are going to play the loader: close the gate for this entry.
     closeFoucGateNow();
-
     setDone(false);
     setAllowed(true);
     setLoaderDone(false);
@@ -161,24 +134,15 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
 
       if (!root || !nameRow || !bigC || !smallC || !restFirst || !restSecond) return;
 
-      const reduced =
-        typeof window !== "undefined" &&
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
       const markDone = () => {
-        try {
-          if (!PLAY_EVERY_TIME) {
-            window.sessionStorage.setItem(SESSION_KEY, "1");
-          }
-        } catch {
-          // ignore
-        }
         setDone(true);
         setAllowed(false);
         setLoaderDone(true);
       };
 
-      // Let page shells know they must NOT run their own initial fade/entrance.
+      // Loader owns initial entry visuals; stop PageEnterShell fade
       (window as any).__pageEnterSkipInitial = true;
       try {
         window.dispatchEvent(new Event("page-enter-skip-initial"));
@@ -186,14 +150,29 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         // ignore
       }
 
+      // Force home to top on cold reload
+      try {
+        ScrollSmoother.get()?.scrollTo(0, false);
+      } catch {
+        // ignore
+      }
+      try {
+        window.scrollTo(0, 0);
+      } catch {
+        // ignore
+      }
+      try {
+        setCurrentScrollY(0);
+      } catch {
+        // ignore
+      }
+
       gsap.set(root, { autoAlpha: 1, xPercent: 0 });
 
-      // Page off-screen right, but visible (so you can see it slide in).
       if (pageRoot) {
         gsap.set(pageRoot, { xPercent: 100, opacity: 1 });
       }
 
-      // Now that initial transforms are set, open the gate (no flash).
       openFoucGateNow();
 
       if (reduced) {

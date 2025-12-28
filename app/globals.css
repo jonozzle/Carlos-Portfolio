@@ -114,11 +114,19 @@ body {
   color: var(--text-color);
 }
 
+/* globals.css */
+html[data-theme-anim="true"],
+html[data-theme-anim="true"] body {
+  transition: background-color 260ms ease, color 260ms ease;
+}
+
+/* default: no transition during scroll/compositing */
 :root,
 html,
 body {
-  transition: background-color 260ms ease, color 260ms ease;
+  transition: none;
 }
+
 
 .contain-paint {
   contain: paint;

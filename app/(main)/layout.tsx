@@ -9,6 +9,7 @@ import { LoaderProvider } from "@/components/loader-context";
 import ScrollRestorer from "@/components/scroll-restorer";
 import PageEnterShell from "@/components/page-enter-shell";
 import DomDebugger from "@/components/dom-debugger";
+import ScrollCoordinator from "@/components/scroll-coordinator";
 import Script from "next/script";
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
@@ -17,7 +18,6 @@ export default async function MainLayout({ children }: { children: React.ReactNo
 
   return (
     <LoaderProvider>
-      {/* BEFORE hydration: enables the CSS FOUC gate immediately */}
       <Script
         id="js-class"
         strategy="beforeInteractive"
@@ -27,14 +27,12 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       />
 
       <div className="has-custom-cursor">
-        {/* Loader: once per session on "/" (see HomeLoaderCC) */}
         <HomeLoader enable={true} />
 
         <ThemeProvider>
           <DomDebugger />
           <Header />
 
-          {/* Must be outside SmoothScroller so it stays viewport-fixed */}
           <div
             id="transition-layer"
             aria-hidden="true"
@@ -42,6 +40,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
           />
 
           <SmoothScroller>
+            <ScrollCoordinator />
             <ScrollRestorer />
             <PageEnterShell>
               <main id="page-root">{children}</main>

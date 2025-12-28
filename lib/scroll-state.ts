@@ -1,98 +1,92 @@
 // lib/scroll-state.ts
 "use client";
 
-import { gsap } from "gsap";
+import ScrollSmoother from "gsap/ScrollSmoother";
 
-const KEY = "scroll-state-v2";
+type Store = Map<string, number>;
 
-type ScrollMap = Record<string, number>;
+const mem: Store = new Map();
+const KEY = "__scrollByPath_v1";
 
-function safeParse<T>(raw: string | null, fallback: T): T {
-  if (!raw) return fallback;
+function readSmootherY(): number | null {
   try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function readMap(): ScrollMap {
-  if (typeof window === "undefined") return {};
-  return safeParse<ScrollMap>(window.sessionStorage.getItem(KEY), {});
-}
-
-function writeMap(map: ScrollMap) {
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(KEY, JSON.stringify(map));
-  } catch {
-    // ignore
-  }
-}
-
-function normalizePath(path: string) {
-  const i = path.indexOf("#");
-  return i >= 0 ? path.slice(0, i) : path;
-}
-
-function getSmoother(): any | null {
-  try {
-    const ScrollSmoother = (gsap as any)?.core?.globals?.("ScrollSmoother");
-    return ScrollSmoother?.get?.() ?? null;
+    const s = ScrollSmoother.get();
+    if (!s) return null;
+    // ScrollSmoother API: scrollTop() returns current scroll position
+    const y = s.scrollTop();
+    return typeof y === "number" && Number.isFinite(y) ? y : null;
   } catch {
     return null;
   }
 }
 
 export function getCurrentScrollY(): number {
+  const sy = readSmootherY();
+  if (sy != null) return sy;
   if (typeof window === "undefined") return 0;
-
-  const smoother = getSmoother();
-  if (smoother && typeof smoother.scrollTop === "function") {
-    const y = smoother.scrollTop();
-    if (Number.isFinite(y)) return y;
-  }
-
   return window.scrollY || 0;
 }
 
 export function setCurrentScrollY(y: number) {
-  if (typeof window === "undefined") return;
+  const yy = Number.isFinite(y) ? Math.max(0, y) : 0;
 
-  const v = Number.isFinite(y) ? Math.max(0, y) : 0;
-
-  const smoother = getSmoother();
-  if (smoother && typeof smoother.scrollTop === "function") {
-    smoother.scrollTop(v);
-    return;
+  try {
+    const s = ScrollSmoother.get();
+    if (s) s.scrollTo(yy, false);
+  } catch {
+    // ignore
   }
 
-  window.scrollTo(0, v);
+  try {
+    if (typeof window !== "undefined") window.scrollTo(0, yy);
+  } catch {
+    // ignore
+  }
 }
 
-export function saveScrollForPath(path: string) {
-  if (typeof window === "undefined") return;
+function loadPersisted(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.sessionStorage.getItem(KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
 
-  const key = normalizePath(path);
-  const map = readMap();
-  map[key] = getCurrentScrollY();
-  writeMap(map);
+function persistNow() {
+  if (typeof window === "undefined") return;
+  try {
+    const obj: Record<string, number> = loadPersisted();
+    for (const [k, v] of mem.entries()) obj[k] = v;
+    window.sessionStorage.setItem(KEY, JSON.stringify(obj));
+  } catch {
+    // ignore
+  }
+}
+
+export function saveScrollForPath(path: string, yOverride?: number) {
+  const y = typeof yOverride === "number" ? yOverride : getCurrentScrollY();
+  const yy = Number.isFinite(y) ? Math.max(0, y) : 0;
+
+  mem.set(path, yy);
+
+  // Persist asynchronously to avoid end-of-scroll hitches.
+  try {
+    requestAnimationFrame(() => persistNow());
+  } catch {
+    persistNow();
+  }
 }
 
 export function getScrollForPath(path: string): number | null {
-  if (typeof window === "undefined") return null;
+  const fromMem = mem.get(path);
+  if (typeof fromMem === "number") return fromMem;
 
-  const key = normalizePath(path);
-  const map = readMap();
-  const v = map[key];
+  const obj = loadPersisted();
+  const v = obj[path];
   return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-export function clearScrollForPath(path: string) {
-  if (typeof window === "undefined") return;
-
-  const key = normalizePath(path);
-  const map = readMap();
-  delete map[key];
-  writeMap(map);
 }

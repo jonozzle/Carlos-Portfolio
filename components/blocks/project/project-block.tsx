@@ -15,8 +15,7 @@ import PageTransitionButton from "@/components/page-transition-button";
 import { completeHeroTransition } from "@/lib/hero-transition";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
-
-const SCROLL_IDLE_DELAY = 500;
+import { APP_EVENTS } from "@/lib/app-events";
 
 if (typeof window !== "undefined") {
     gsap.registerPlugin(ScrollTrigger);
@@ -141,7 +140,6 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     }, [clearHover, isScrollingRef]);
 
     // Project -> Home: overlay targets this tile
-    // Tightened: ONLY listen to "home-hs-restored" once. No hs-ready, no timeout.
     useLayoutEffect(() => {
         if (typeof window === "undefined") return;
         if (!slug) return;
@@ -169,10 +167,10 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             requestAnimationFrame(() => requestAnimationFrame(run));
         };
 
-        window.addEventListener("home-hs-restored", onHomeRestored, { once: true });
+        window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored, { once: true });
 
         return () => {
-            window.removeEventListener("home-hs-restored", onHomeRestored as any);
+            window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored as any);
         };
     }, [slug]);
 
@@ -203,7 +201,6 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             onFocusCapture={handleEnter}
             onBlurCapture={handleLeave}
         >
-            {/* IMAGE TILE */}
             <div
                 ref={tileRef}
                 className="relative block cursor-pointer z-10"
@@ -214,12 +211,8 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 data-speed-x="0.97"
             >
                 <PageTransitionButton {...buttonCommonProps} className="block w-full h-full cursor-pointer">
-                    {/* overflow-hidden crops the scaled image */}
                     <div className="relative w-full h-full overflow-hidden">
-                        <div
-                            ref={imgScaleRef}
-                            className="relative w-full h-full will-change-transform transform-gpu"
-                        >
+                        <div ref={imgScaleRef} className="relative w-full h-full will-change-transform transform-gpu">
                             {imgUrl ? (
                                 <SmoothImage
                                     src={imgUrl}
@@ -233,32 +226,23 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                                     loading="lazy"
                                 />
                             ) : (
-                                <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
-                                    No image
-                                </div>
+                                <div className="absolute inset-0 grid place-items-center text-xs opacity-60">No image</div>
                             )}
                         </div>
                     </div>
                 </PageTransitionButton>
             </div>
 
-            {/* INFO BLOCK */}
             <div
                 className="relative z-10 flex flex-col justify-start text-left flex-start"
                 style={{ gridColumn: slot.info.col, gridRow: slot.info.row }}
                 data-dim-item={dimState}
             >
                 <PageTransitionButton {...buttonCommonProps} className="flex flex-col items-start text-left">
-                    <h3
-                        className="text-lg md:text-4xl font-serif font-bold leading-tight tracking-tighter"
-                        data-speed-x="0.96"
-                    >
+                    <h3 className="text-lg md:text-4xl font-serif font-bold leading-tight tracking-tighter" data-speed-x="0.96">
                         {item?.title ?? "Untitled"}
                     </h3>
-                    <div
-                        className="-mt-1 flex w-full font-serif text-sm md:text-base tracking-tighter"
-                        data-speed-x="0.95"
-                    >
+                    <div className="-mt-1 flex w-full font-serif text-sm md:text-base tracking-tighter" data-speed-x="0.95">
                         <span>{item?.year ? String(item.year) : "\u00A0"}</span>
                         <span className="mr-1">,</span>
                         <span className="italic">{item?.client ?? "\u00A0"}</span>
@@ -275,10 +259,46 @@ export default function ProjectBlock(props: Props) {
 
     const sectionRef = useRef<HTMLElement | null>(null);
     const progressRef = useRef<HTMLDivElement | null>(null);
+
     const isScrollingRef = useRef(false);
     const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
     const width = props.width || "50vw";
+
+    // Global scroll flags (replaces per-block scroll listeners that cause end-of-scroll hitch)
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const onStart = () => {
+            isScrollingRef.current = true;
+            // clear hover state at scroll START only (no end-of-scroll work)
+            clearPreview();
+            setActiveIndex(null);
+        };
+
+        const onEnd = () => {
+            isScrollingRef.current = false;
+        };
+
+        window.addEventListener(APP_EVENTS.SCROLL_START, onStart);
+        window.addEventListener(APP_EVENTS.SCROLL_END, onEnd);
+
+        return () => {
+            window.removeEventListener(APP_EVENTS.SCROLL_START, onStart);
+            window.removeEventListener(APP_EVENTS.SCROLL_END, onEnd);
+        };
+    }, [clearPreview]);
+
+    useEffect(() => {
+        if (typeof document === "undefined") return;
+        const root = document.documentElement;
+
+        if (activeIndex !== null && !isScrollingRef.current) {
+            (root as any).dataset.dimItems = "true";
+        } else {
+            delete (root as any).dataset.dimItems;
+        }
+    }, [activeIndex]);
 
     const entries: ProjectLayoutEntry[] = useMemo(() => {
         const raw = props.projects ?? [];
@@ -341,51 +361,35 @@ export default function ProjectBlock(props: Props) {
                 const fallback = defaults[index] ?? defaults[0];
 
                 let imageRowStart =
-                    typeof p.imageRowStart === "number" && p.imageRowStart > 0
-                        ? p.imageRowStart
-                        : fallback.imageRowStart;
+                    typeof p.imageRowStart === "number" && p.imageRowStart > 0 ? p.imageRowStart : fallback.imageRowStart;
                 imageRowStart = clamp(imageRowStart, 1, 12);
 
                 let imageRowEnd =
-                    typeof p.imageRowEnd === "number" && p.imageRowEnd > imageRowStart
-                        ? p.imageRowEnd
-                        : fallback.imageRowEnd;
+                    typeof p.imageRowEnd === "number" && p.imageRowEnd > imageRowStart ? p.imageRowEnd : fallback.imageRowEnd;
                 imageRowEnd = clamp(imageRowEnd, imageRowStart + 1, 13);
 
                 let imageColStart =
-                    typeof p.imageColStart === "number" && p.imageColStart > 0
-                        ? p.imageColStart
-                        : fallback.imageColStart;
+                    typeof p.imageColStart === "number" && p.imageColStart > 0 ? p.imageColStart : fallback.imageColStart;
                 imageColStart = clamp(imageColStart, 1, 12);
 
                 let imageColEnd =
-                    typeof p.imageColEnd === "number" && p.imageColEnd > imageColStart
-                        ? p.imageColEnd
-                        : fallback.imageColEnd;
+                    typeof p.imageColEnd === "number" && p.imageColEnd > imageColStart ? p.imageColEnd : fallback.imageColEnd;
                 imageColEnd = clamp(imageColEnd, imageColStart + 1, 13);
 
                 let infoRowStart =
-                    typeof p.infoRowStart === "number" && p.infoRowStart > 0
-                        ? p.infoRowStart
-                        : fallback.infoRowStart;
+                    typeof p.infoRowStart === "number" && p.infoRowStart > 0 ? p.infoRowStart : fallback.infoRowStart;
                 infoRowStart = clamp(infoRowStart, 1, 12);
 
                 let infoRowEnd =
-                    typeof p.infoRowEnd === "number" && p.infoRowEnd > infoRowStart
-                        ? p.infoRowEnd
-                        : fallback.infoRowEnd;
+                    typeof p.infoRowEnd === "number" && p.infoRowEnd > infoRowStart ? p.infoRowEnd : fallback.infoRowEnd;
                 infoRowEnd = clamp(infoRowEnd, infoRowStart + 1, 13);
 
                 let infoColStart =
-                    typeof p.infoColStart === "number" && p.infoColStart > 0
-                        ? p.infoColStart
-                        : fallback.infoColStart;
+                    typeof p.infoColStart === "number" && p.infoColStart > 0 ? p.infoColStart : fallback.infoColStart;
                 infoColStart = clamp(infoColStart, 1, 12);
 
                 let infoColEnd =
-                    typeof p.infoColEnd === "number" && p.infoColEnd > infoColStart
-                        ? p.infoColEnd
-                        : fallback.infoColEnd;
+                    typeof p.infoColEnd === "number" && p.infoColEnd > infoColStart ? p.infoColEnd : fallback.infoColEnd;
                 infoColEnd = clamp(infoColEnd, infoColStart + 1, 13);
 
                 return {
@@ -405,56 +409,7 @@ export default function ProjectBlock(props: Props) {
 
     const hasProjects = entries.length > 0;
 
-    useEffect(() => {
-        if (typeof window === "undefined") return;
-
-        let timeoutId: number | null = null;
-
-        const onScroll = () => {
-            if (!isScrollingRef.current) {
-                isScrollingRef.current = true;
-
-                if (sectionRef.current) {
-                    sectionRef.current.style.pointerEvents = "none";
-                }
-
-                const root = document.documentElement;
-                delete (root as any).dataset.dimItems;
-            }
-
-            if (timeoutId !== null) {
-                window.clearTimeout(timeoutId);
-            }
-
-            timeoutId = window.setTimeout(() => {
-                isScrollingRef.current = false;
-                if (sectionRef.current) {
-                    sectionRef.current.style.pointerEvents = "";
-                }
-            }, SCROLL_IDLE_DELAY);
-        };
-
-        window.addEventListener("scroll", onScroll, { passive: true });
-
-        return () => {
-            window.removeEventListener("scroll", onScroll);
-            if (timeoutId !== null) window.clearTimeout(timeoutId);
-        };
-    }, [clearPreview]);
-
-    useEffect(() => {
-        if (typeof document === "undefined") return;
-        const root = document.documentElement;
-
-        if (activeIndex !== null && !isScrollingRef.current) {
-            (root as any).dataset.dimItems = "true";
-        } else {
-            delete (root as any).dataset.dimItems;
-        }
-    }, [activeIndex]);
-
-    // BOTTOM PROGRESS LINE – per-block progress (fixes "only first block works")
-    // Uses containerAnimation tied to the horizontal timeline (id: "hs-horizontal").
+    // Progress line (unchanged behavior)
     useLayoutEffect(() => {
         if (typeof window === "undefined") return;
 
@@ -483,12 +438,6 @@ export default function ProjectBlock(props: Props) {
                     gsap.set(progressEl, { scaleX: self.progress });
                 },
             });
-
-            try {
-                ScrollTrigger.refresh();
-            } catch {
-                // ignore
-            }
 
             return true;
         };
@@ -566,7 +515,6 @@ export default function ProjectBlock(props: Props) {
                 </div>
             )}
 
-            {/* BOTTOM PROGRESS LINE */}
             <div className="pointer-events-none absolute left-0 right-0 bottom-10 px-2 md:px-4 will-change-transform transform-gpu">
                 <div className="relative h-px w-full">
                     <div className="absolute inset-0 bg-current opacity-10" />
