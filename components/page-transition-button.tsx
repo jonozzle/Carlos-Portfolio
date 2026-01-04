@@ -1,4 +1,3 @@
-// PageTransitionButton
 // components/page-transition-button.tsx
 "use client";
 
@@ -9,6 +8,7 @@ import type { PageDirection, PageTransitionKind } from "@/lib/transitions/state"
 import { saveScrollForPath } from "@/lib/scroll-state";
 import { getActiveHomeSection, saveActiveHomeSectionNow } from "@/lib/home-section";
 import { lockAppScroll } from "@/lib/scroll-lock";
+import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 
 type Props = React.PropsWithChildren<{
   href: string;
@@ -51,7 +51,7 @@ export default function PageTransitionButton({
   );
 
   const onClick = useCallback(
-    (e: React.MouseEvent) => {
+    async (e: React.MouseEvent) => {
       if (disabled) return;
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       if (e.button !== 0) return;
@@ -69,10 +69,12 @@ export default function PageTransitionButton({
       const slug = heroSlug?.trim();
       const sourceEl = heroSourceRef?.current ?? null;
 
+      const isProjectRoute = href.startsWith("/projects/");
+
       // Decide transition kind
       let kind: PageTransitionKind = "simple";
 
-      const isProjectRoute = href.startsWith("/projects/");
+      // Real hero flight (do NOT do page fade-out; overlay is the transition)
       if (slug && sourceEl && heroImgUrl) {
         kind = "hero";
         startHeroTransition({
@@ -88,6 +90,9 @@ export default function PageTransitionButton({
       if (pathname === "/" && isProjectRoute && activeHome?.type === "hero-contents") {
         kind = "fadeHero";
       }
+
+      // For non-hero transitions: fade OUT current page first, then navigate.
+      await fadeOutPageRoot({ duration: 0.26 });
 
       onNavigate(kind, activeHome?.id ?? null, activeHome?.type ?? null);
     },

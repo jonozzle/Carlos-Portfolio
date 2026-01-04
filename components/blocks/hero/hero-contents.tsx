@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import SmoothImage from "@/components/ui/smooth-image";
 import BioBlock from "@/components/blocks/hero/bio-block";
 import UnderlineLink from "@/components/ui/underline-link";
@@ -9,6 +10,11 @@ import { PAGE_QUERYResult } from "@/sanity.types";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { useLoader } from "@/components/loader/loader-context";
+import type { PageDirection, PageTransitionKind } from "@/lib/transitions/state";
+import { saveScrollForPath } from "@/lib/scroll-state";
+import { getActiveHomeSection, saveActiveHomeSectionNow } from "@/lib/home-section";
+import { lockAppScroll } from "@/lib/scroll-lock";
+import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
 type Props = Extract<Block, { _type: "hero-contents" }>;
@@ -142,6 +148,8 @@ function InlineArrow() {
 }
 
 export default function HeroContents(props: Props & { onIndexAction?: RuntimeIndexAction }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const { loaderDone } = useLoader();
 
   // If this component mounted while the loader was still running, skip the
@@ -378,6 +386,63 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       );
     },
     [showNumbers]
+  );
+
+  // ---------------------------------------
+  // PAGE TRANSITION (non-hero): fade-out -> theme lock -> push -> PageEnterShell fades in
+  // ---------------------------------------
+  const NAV_DIRECTION: PageDirection = "down";
+
+  const navigateWithTransition = useCallback(
+    (href: string, kind: PageTransitionKind, homeSectionId?: string | null, homeSectionType?: string | null) => {
+      (window as any).__pageTransitionPending = {
+        direction: NAV_DIRECTION,
+        fromPath: pathname,
+        kind,
+        homeSectionId: homeSectionId ?? null,
+        homeSectionType: homeSectionType ?? null,
+      };
+
+      router.push(href);
+    },
+    [pathname, router]
+  );
+
+  const handleTransitionClick = useCallback(
+    async (e: React.MouseEvent, href: string, afterFade?: () => void) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (e.button !== 0) return;
+
+      const safeHref = (href ?? "").trim();
+      if (!safeHref || safeHref === "#") {
+        e.preventDefault();
+        return;
+      }
+
+      e.preventDefault();
+
+      lockAppScroll();
+
+      // Snapshot BEFORE fade
+      const activeHome = pathname === "/" ? getActiveHomeSection() : null;
+      if (pathname === "/") saveActiveHomeSectionNow();
+      else saveScrollForPath(pathname);
+
+      let kind: PageTransitionKind = "simple";
+      const isProjectRoute = safeHref.startsWith("/projects/");
+      if (pathname === "/" && isProjectRoute && activeHome?.type === "hero-contents") {
+        kind = "fadeHero";
+      }
+
+      // Fade OUT first (hides any theme locking / hover resets)
+      await fadeOutPageRoot({ duration: 0.26 });
+
+      // Theme lock happens while hidden
+      afterFade?.();
+
+      navigateWithTransition(safeHref, kind, activeHome?.id ?? null, activeHome?.type ?? null);
+    },
+    [navigateWithTransition, pathname]
   );
 
   // ---------------------------------------
@@ -620,6 +685,8 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
           const isActive = it._key === activeKey;
           const scale = isActive ? ACTIVE_SCALE : BASE_SCALE;
 
+          const href = it.slug ? `/projects/${it.slug}` : "#";
+
           return (
             <div
               key={it._key}
@@ -630,7 +697,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
               data-index={index}
             >
               <UnderlineLink
-                href={it.slug ? `/projects/${it.slug}` : "#"}
+                href={href}
                 active={isActive}
                 className={[
                   "py-1 px-2 text-lg md:text-xl font-serif font-normal tracking-tighter",
@@ -644,7 +711,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                 aria-current={isActive ? "true" : undefined}
                 data-cursor="link"
                 data-index={index}
-                onClick={() => runIndexAction(index, it, "click")}
+                onClick={(e) => {
+                  // make it feel “chosen” immediately, but DO NOT run theme lock yet
+                  if (it._key !== activeKey) setActiveKey(it._key);
+
+                  handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
+                }}
               >
                 {renderIndexedTitle(it.title ?? "Untitled", index)}
               </UnderlineLink>
@@ -653,7 +725,14 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         })}
       </>
     );
-  }, [activeKey, handleActivate, keyed, renderIndexedTitle, runIndexAction]);
+  }, [
+    activeKey,
+    handleActivate,
+    handleTransitionClick,
+    keyed,
+    renderIndexedTitle,
+    runIndexAction,
+  ]);
 
   const renderLinksList = useCallback(() => {
     if (linksLayout === "center") {
@@ -662,10 +741,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
           <div className="flex flex-col items-center text-center gap-1">
             {keyed.map((it, index) => {
               const isActive = it._key === activeKey;
+              const href = it.slug ? `/projects/${it.slug}` : "#";
+
               return (
                 <UnderlineLink
                   key={it._key}
-                  href={it.slug ? `/projects/${it.slug}` : "#"}
+                  href={href}
                   active={isActive}
                   className={[
                     "text-lg md:text-xl font-serif tracking-tighter inline-block px-2 py-1",
@@ -677,7 +758,10 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                     .join(" ")}
                   onMouseEnter={() => handleActivate(it, index, "hover")}
                   onFocus={() => handleActivate(it, index, "focus")}
-                  onClick={() => runIndexAction(index, it, "click")}
+                  onClick={(e) => {
+                    if (it._key !== activeKey) setActiveKey(it._key);
+                    handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
+                  }}
                   aria-current={isActive ? "true" : undefined}
                   data-cursor="link"
                   data-index={index}
@@ -696,10 +780,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-1 place-content-center">
           {keyed.map((it, index) => {
             const isActive = it._key === activeKey;
+            const href = it.slug ? `/projects/${it.slug}` : "#";
+
             return (
               <UnderlineLink
                 key={it._key}
-                href={it.slug ? `/projects/${it.slug}` : "#"}
+                href={href}
                 active={isActive}
                 className={[
                   "text-lg md:text-xl font-serif tracking-tighter inline-block px-2 py-1",
@@ -711,7 +797,10 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                   .join(" ")}
                 onMouseEnter={() => handleActivate(it, index, "hover")}
                 onFocus={() => handleActivate(it, index, "focus")}
-                onClick={() => runIndexAction(index, it, "click")}
+                onClick={(e) => {
+                  if (it._key !== activeKey) setActiveKey(it._key);
+                  handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
+                }}
                 aria-current={isActive ? "true" : undefined}
                 data-cursor="link"
                 data-index={index}
@@ -723,7 +812,15 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         </div>
       </div>
     );
-  }, [activeKey, handleActivate, keyed, linksLayout, renderIndexedTitle, runIndexAction]);
+  }, [
+    activeKey,
+    handleActivate,
+    handleTransitionClick,
+    keyed,
+    linksLayout,
+    renderIndexedTitle,
+    runIndexAction,
+  ]);
 
   // Featured project fallback: if no explicit featured project, use first hero item.
   const featuredResolved = useMemo(() => {
@@ -735,6 +832,17 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
 
     return null;
   }, [featuredProjectFromSanity, keyed]);
+
+  // If featured slug matches a hero item, use it for click theme lock.
+  const featuredMatch = useMemo(() => {
+    const slug = featuredResolved?.slug ?? null;
+    if (!slug) return null;
+
+    const idx = keyed.findIndex((k) => (k.slug ?? "") === slug);
+    if (idx < 0) return null;
+
+    return { idx, item: keyed[idx] };
+  }, [featuredResolved?.slug, keyed]);
 
   const shouldShowFeatured = !!(featuredLabel && featuredResolved?.slug && featuredResolved?.title);
 
@@ -840,6 +948,19 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                   hoverUnderline
                   className="group inline-flex items-baseline gap-2"
                   data-cursor="link"
+                  onClick={(e) => {
+                    const href = `/projects/${featuredResolved!.slug}`;
+
+                    // If we can map it to a hero item, lock theme after fade.
+                    if (featuredMatch) {
+                      handleTransitionClick(e, href, () =>
+                        runIndexAction(featuredMatch.idx, featuredMatch.item, "click")
+                      );
+                      return;
+                    }
+
+                    handleTransitionClick(e, href);
+                  }}
                 >
                   <span className="inline-flex items-baseline gap-2">
                     <span className="font-serif tracking-tighter">{featuredResolved!.title}</span>

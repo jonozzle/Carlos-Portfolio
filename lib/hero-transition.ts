@@ -52,8 +52,23 @@ function rectLooksValid(r: DOMRect) {
   );
 }
 
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+
+function visualScale(el: HTMLElement): number {
+  try {
+    const rect = el.getBoundingClientRect();
+    const base = (el as any).offsetWidth || (el as any).clientWidth || rect.width;
+    if (!base || !Number.isFinite(base)) return 1;
+    const s = rect.width / base;
+    return Number.isFinite(s) && s > 0 ? s : 1;
+  } catch {
+    return 1;
+  }
+}
+
 function parseBestFromSrcset(srcset: string): string | null {
-  // "url 640w, url2 750w, url3 1080w"
   const parts = srcset
     .split(",")
     .map((s) => s.trim())
@@ -67,7 +82,6 @@ function parseBestFromSrcset(srcset: string): string | null {
     const url = segs[0];
     const last = segs[segs.length - 1] || "";
     const m = last.match(/^(\d+)w$/);
-
     const w = m ? parseInt(m[1], 10) : -1;
     if (w > bestW) {
       bestW = w;
@@ -80,14 +94,10 @@ function parseBestFromSrcset(srcset: string): string | null {
 
 function looksLikePlaceholder(url: string) {
   const u = url.toLowerCase();
-
   if (u.startsWith("data:")) return true;
-
-  // common low-res/placeholder patterns (sanity/next/smooth-image variants)
   if (u.includes("w=16") || u.includes("w=24") || u.includes("w=32")) return true;
   if (u.includes("blur") || u.includes("lqip")) return true;
   if (u.includes("q=10") || u.includes("q=15")) return true;
-
   return false;
 }
 
@@ -97,15 +107,20 @@ function pickSourceUrl(sourceEl: HTMLElement, fallbackUrl: string) {
 
   if (!existing) return fallbackUrl;
 
-  const fromSrcset =
-    (existing.srcset && parseBestFromSrcset(existing.srcset)) || null;
-
+  const fromSrcset = existing.srcset ? parseBestFromSrcset(existing.srcset) : null;
   const candidate = fromSrcset || existing.currentSrc || existing.src || fallbackUrl;
 
   if (!candidate) return fallbackUrl;
   if (looksLikePlaceholder(candidate)) return fallbackUrl;
 
   return candidate;
+}
+
+function findHoverScale(sourceEl: HTMLElement) {
+  // Project block scales an inner wrapper; we read its current visual scale.
+  const scaleEl = sourceEl.querySelector<HTMLElement>("[data-hero-img-scale]");
+  if (!scaleEl) return 1;
+  return clamp(visualScale(scaleEl), 0.5, 2);
 }
 
 function ensureOverlayImage(sourceEl: HTMLElement, fallbackUrl: string) {
@@ -125,6 +140,13 @@ function ensureOverlayImage(sourceEl: HTMLElement, fallbackUrl: string) {
   img.decoding = "async";
   (img as any).fetchPriority = "high";
   img.loading = "eager";
+
+  // IMPORTANT: start overlay image at current hover scale (e.g. 1.1)
+  const hoverScale = findHoverScale(sourceEl);
+  if (Math.abs(hoverScale - 1) > 0.001) {
+    img.style.transform = `scale(${hoverScale})`;
+    (img as any).__startScale = hoverScale;
+  }
 
   return img;
 }
@@ -310,6 +332,21 @@ export function completeHeroTransition({
       },
       0
     );
+
+    // IMPORTANT: ease the hover scale back to 1 during the flight
+    if (overlayImg) {
+      const startScale = (overlayImg as any).__startScale as number | undefined;
+      if (typeof startScale === "number" && Math.abs(startScale - 1) > 0.001) {
+        tl.to(
+          overlayImg,
+          {
+            scale: 1,
+            ease: "power2.out",
+          },
+          0
+        );
+      }
+    }
 
     if (mode === "parkThenPage") {
       (window as any).__heroPending = { slug, overlay, targetEl: t, overlayImg };

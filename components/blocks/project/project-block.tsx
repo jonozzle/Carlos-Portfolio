@@ -88,6 +88,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 }: CellProps) {
     const tileRef = useRef<HTMLDivElement | null>(null);
     const imgScaleRef = useRef<HTMLDivElement | null>(null);
+    const navLockedRef = useRef(false);
 
     const slug = item?.slug ?? "";
     const href = slug ? `/projects/${slug}` : "#";
@@ -121,12 +122,14 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     }, []);
 
     const clearHover = useCallback(() => {
+        if (navLockedRef.current) return; // do not snap back on click
         if (hasTheme) clearPreview();
         setActiveIndex((prev) => (prev === index ? null : prev));
         animateScale(1);
     }, [hasTheme, clearPreview, setActiveIndex, index, animateScale]);
 
     const handleEnter = useCallback(() => {
+        if (navLockedRef.current) return;
         if (isScrollingRef.current) return;
         if (isHoverLocked()) return;
         if (hasTheme) previewTheme(theme);
@@ -135,21 +138,30 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     }, [hasTheme, previewTheme, theme, setActiveIndex, index, isScrollingRef, animateScale]);
 
     const handleLeave = useCallback(() => {
+        if (navLockedRef.current) return; // keep hover scale through transition start
         if (isScrollingRef.current) return;
         if (isHoverLocked()) return;
         clearHover();
     }, [clearHover, isScrollingRef]);
 
     /**
-     * CRITICAL: lock hovered theme BEFORE navigation begins.
-     * This stops the “return to default then change again” flash.
+     * Lock theme BEFORE navigation begins, and also freeze the hovered scale
+     * so the portal starts from the hovered (scaled) state.
      */
     const handleNavLockCapture = useCallback(() => {
         if (!slug) return;
-        if (!hasTheme) return;
 
-        // Make it effectively a no-op visually (already previewed), but now becomes "locked".
-        lockTheme(theme, { animate: false, force: true, durationMs: 0 });
+        navLockedRef.current = true;
+
+        if (hasTheme) {
+            lockTheme(theme, { animate: false, force: true, durationMs: 0 });
+        }
+
+        // ensure we don't get a late mouseleave -> reset before PageTransitionButton starts the overlay
+        const el = imgScaleRef.current;
+        if (el) {
+            gsap.killTweensOf(el); // freeze at current scale (whatever it is right now)
+        }
     }, [slug, hasTheme, lockTheme, theme]);
 
     // When hover unlocks after transition, if mouse is currently over this tile, apply hover smoothly.
@@ -311,14 +323,17 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             >
                 <PageTransitionButton {...buttonCommonProps} className="block w-full h-full cursor-pointer">
                     <div className="relative w-full h-full overflow-hidden">
-                        <div ref={imgScaleRef} className="relative w-full h-full will-change-transform transform-gpu">
+                        <div
+                            ref={imgScaleRef}
+                            data-hero-img-scale
+                            className="relative w-full h-full will-change-transform transform-gpu"
+                        >
                             {imgUrl ? (
                                 <SmoothImage
                                     src={imgUrl}
                                     alt={alt}
                                     fill
                                     sizes="(max-width: 768px) 100vw, 25vw"
-                                    // make the placeholder less ugly *and* make the real image arrive earlier
                                     lqipWidth={24}
                                     hiMaxWidth={1200}
                                     fetchPriority="high"
