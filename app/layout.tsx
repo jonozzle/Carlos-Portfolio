@@ -1,4 +1,5 @@
-//app/layout.tsx
+// RootLayout
+// app/layout.tsx
 import type { Metadata } from "next";
 import { Inter as FontSans } from "next/font/google";
 import { corporateAPro, fontVars } from "./fonts";
@@ -7,15 +8,15 @@ import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { ViewTransitions } from "next-view-transitions";
-
+import { LoaderProvider } from "@/components/loader/loader-context";
 
 const isProduction = process.env.NEXT_PUBLIC_SITE_ENV === "production";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL!),
   title: {
-    template: "%s | Schema UI Starter",
-    default: "Sanity Next.js Website | Schema UI Starter",
+    template: "%s | Carlos Castrosin",
+    default: "Carlos Castrosin | Photographer",
   },
   openGraph: {
     images: [
@@ -38,27 +39,26 @@ const fontSans = FontSans({
   variable: "--font-sans",
 });
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-
-      <html lang="en" suppressHydrationWarning>
-        <head />
-        <body
-          className={cn(
-            "min-h-screen bg-background font-sans antialiased overscroll-none",
-            fontSans.variable,
-            fontVars
-          )}
-        >
-
-          {children}
-
-        </body>
-      </html>
-
+    <html lang="en" suppressHydrationWarning>
+      <head />
+      <body
+        className={cn(
+          "min-h-screen bg-background font-sans antialiased overscroll-none",
+          fontSans.variable,
+          fontVars
+        )}
+      >
+        <ViewTransitions>
+          <LoaderProvider>
+            <ThemeProvider>
+              {children}
+              <Toaster />
+            </ThemeProvider>
+          </LoaderProvider>
+        </ViewTransitions>
+      </body>
+    </html>
   );
 }

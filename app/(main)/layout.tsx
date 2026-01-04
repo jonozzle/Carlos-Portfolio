@@ -4,9 +4,7 @@ import Header from "@/components/header";
 import { draftMode } from "next/headers";
 import SmoothScroller from "@/components/scroll/scroll-smoother";
 import Cursor from "@/components/cursor";
-import { ThemeProvider } from "@/components/theme-provider";
 import HomeLoader from "@/components/loader/home-loader-cc";
-import { LoaderProvider } from "@/components/loader/loader-context";
 import PageEnterShell from "@/components/page-enter-shell";
 import DomDebugger from "@/components/dom-debugger";
 import UiRevealCoordinator from "@/components/ui/ui-reveal-coordinator";
@@ -18,7 +16,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   void isDraft;
 
   return (
-    <LoaderProvider>
+    <>
       <Script
         id="js-class"
         strategy="beforeInteractive"
@@ -31,26 +29,24 @@ export default async function MainLayout({ children }: { children: React.ReactNo
         <HomeLoader enable={true} />
         <UiRevealCoordinator />
 
-        <ThemeProvider>
-          <DomDebugger />
-          <Header />
+        <DomDebugger />
+        <Header />
 
-          <div
-            id="transition-layer"
-            aria-hidden="true"
-            className="pointer-events-none fixed inset-0 z-[9999]"
-          />
+        <div
+          id="transition-layer"
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-[9999]"
+        />
 
-          <SmoothScroller>
-            <ScrollManager />
-            <PageEnterShell>
-              <main id="page-root">{children}</main>
-            </PageEnterShell>
-          </SmoothScroller>
-        </ThemeProvider>
+        <SmoothScroller>
+          <ScrollManager />
+          <PageEnterShell>
+            <main id="page-root">{children}</main>
+          </PageEnterShell>
+        </SmoothScroller>
 
         <Cursor size={10} />
       </div>
-    </LoaderProvider>
+    </>
   );
 }
