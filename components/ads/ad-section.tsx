@@ -23,6 +23,8 @@ export default function AdSection({
     horizontalAlign,
     verticalAlign,
 }: Props) {
+    void theme;
+
     const imgs: AdvertImage[] | null = useMemo(
         () =>
             images?.map((i) => ({
@@ -33,7 +35,7 @@ export default function AdSection({
                 },
                 alt: i.alt ?? null,
             })) ?? null,
-        [images],
+        [images]
     );
 
     const isVertical = orientation === "vertical";
@@ -50,6 +52,18 @@ export default function AdSection({
                 return "w-screen";
             default:
                 return "w-[50vw]";
+        }
+    }, [sectionWidth]);
+
+    const sliderSize = useMemo(() => {
+        // feeds hiMaxWidth presets in the slider components
+        switch (sectionWidth) {
+            case "full":
+                return "full" as const;
+            case "narrow":
+                return "half" as const;
+            default:
+                return "auto" as const;
         }
     }, [sectionWidth]);
 
@@ -77,13 +91,10 @@ export default function AdSection({
         }
     }, [verticalAlign]);
 
-    const paddingStyle = padded
-        ? { padding: typeof padding === "number" ? padding : 24 }
-        : undefined;
+    const paddingStyle = padded ? { padding: typeof padding === "number" ? padding : 24 } : undefined;
 
     const sectionStyle: React.CSSProperties = {
         ...(paddingStyle ?? {}),
-        //contain: "layout paint style",
         containIntrinsicSize: "100vh 50vw",
     };
 
@@ -92,22 +103,22 @@ export default function AdSection({
     return (
         <section
             className={clsx(
-                "h-screen flex flex-none relative overflow-hidden  will-change-transform transform-gpu",
+                "h-screen flex flex-none relative overflow-hidden will-change-transform transform-gpu",
                 sectionWidthClass,
                 hAlignClass,
-                vAlignClass,
+                vAlignClass
             )}
             style={sectionStyle}
             aria-label={sliderLabel}
             data-cursor-blend="normal"
         >
-            {isVertical ? (
-                <div
-                />
-            ) : (
-                <div
-                />
-            )}
+            <div className="relative h-full w-full">
+                {isVertical ? (
+                    <VerticalImageSlider images={imgs ?? []} size={sliderSize} label={sliderLabel} className="h-full w-full" />
+                ) : (
+                    <HorizontalImageSlider images={imgs ?? []} size={sliderSize} label={sliderLabel} className="h-full w-full" />
+                )}
+            </div>
         </section>
     );
 }

@@ -1,19 +1,10 @@
 // components/blocks/page-link-section.tsx
 "use client";
 
-import React, {
-  useCallback,
-  useMemo,
-  useRef,
-  useEffect,
-  useState,
-  CSSProperties,
-} from "react";
+import React, { useCallback, useMemo, useRef, useState, CSSProperties } from "react";
 import SmoothImage from "@/components/ui/smooth-image";
 import { useTheme } from "@/components/theme-provider";
 import PageTransitionButton from "@/components/page-transition-button";
-
-const SCROLL_IDLE_DELAY = 140;
 
 type Theme = { bg?: string | null; text?: string | null } | null;
 
@@ -54,27 +45,22 @@ type Props = {
 
 type ThemeContext = ReturnType<typeof useTheme>;
 
-type TileProps = {
-  item: PageLinkItem;
-  index: number;
-  isHalf: boolean;
-  themeCtx: ThemeContext;
-  activeIndex: number | null;
-  setActiveIndex: React.Dispatch<React.SetStateAction<number | null>>;
-  isScrollingRef: React.MutableRefObject<boolean>;
-};
+function isAppScrolling() {
+  if (typeof window === "undefined") return false;
+  return !!(window as any).__appScrolling;
+}
 
+/* -------------------------------------------------------
+   Local stylized label (no ScrollTrigger here)
+------------------------------------------------------- */
 function StylizedLabel({ text }: { text: string }) {
   return (
     <span>
       {text.split(" ").map((word, i) => {
         if (!word.length) return null;
-
         return (
           <span key={i} className="mr-1 inline-block">
-            <span className="text-[1.4em] leading-none inline-block">
-              {word[0]}
-            </span>
+            <span className="text-[1.4em] leading-none inline-block">{word[0]}</span>
             <span>{word.slice(1)}</span>
           </span>
         );
@@ -83,6 +69,15 @@ function StylizedLabel({ text }: { text: string }) {
   );
 }
 
+type TileProps = {
+  item: PageLinkItem;
+  index: number;
+  isHalf: boolean;
+  themeCtx: ThemeContext;
+  activeIndex: number | null;
+  setActiveIndex: React.Dispatch<React.SetStateAction<number | null>>;
+};
+
 const PageLinkTile = React.memo(function PageLinkTile({
   item,
   isHalf,
@@ -90,7 +85,6 @@ const PageLinkTile = React.memo(function PageLinkTile({
   themeCtx,
   activeIndex,
   setActiveIndex,
-  isScrollingRef,
 }: TileProps) {
   const imgTileRef = useRef<HTMLDivElement | null>(null);
   const { previewTheme, clearPreview, lockTheme } = themeCtx;
@@ -112,7 +106,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
   const labelText = item.label ?? item.page?.title ?? "Untitled";
   const sizes = isHalf ? "50vw" : "33vw";
 
-  const isActive = activeIndex === index && !isScrollingRef.current;
+  const isActive = activeIndex === index;
   const dimState: "active" | "inactive" = isActive ? "active" : "inactive";
 
   const clearHover = useCallback(() => {
@@ -121,16 +115,17 @@ const PageLinkTile = React.memo(function PageLinkTile({
   }, [hasTheme, clearPreview, setActiveIndex, index]);
 
   const handleEnter = useCallback(() => {
-    if (isScrollingRef.current) return;
+    if (isAppScrolling()) return;
     if (hasTheme) previewTheme(theme);
     setActiveIndex(index);
-  }, [hasTheme, previewTheme, theme, setActiveIndex, index, isScrollingRef]);
+  }, [hasTheme, previewTheme, theme, setActiveIndex, index]);
 
   const handleLeave = useCallback(() => {
-    if (isScrollingRef.current) return;
+    if (isAppScrolling()) return;
     clearHover();
-  }, [clearHover, isScrollingRef]);
+  }, [clearHover]);
 
+  // Lock theme just before internal navigation kicks in.
   const handleInternalClickCapture = useCallback(() => {
     if (isInternal && hasTheme) lockTheme(theme);
   }, [isInternal, hasTheme, lockTheme, theme]);
@@ -141,9 +136,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
         <StylizedLabel text={labelText} />
       </div>
       {item.subline ? (
-        <div className="text-[11px] md:text-xs opacity-80 mt-1">
-          {item.subline}
-        </div>
+        <div className="text-[11px] md:text-xs opacity-80 mt-1">{item.subline}</div>
       ) : null}
     </div>
   );
@@ -183,43 +176,39 @@ const PageLinkTile = React.memo(function PageLinkTile({
   const renderContent = () => {
     if (!href) {
       return (
-        <div className="flex flex-col h-full min-h-0 will-change-transform transform-gpu">
-          <div className="relative w-full flex-1 min-h-0 overflow-hidden">
-            {renderImage()}
-          </div>
+        <div className="flex flex-col h-full min-h-0">
+          <div className="relative w-full flex-1 min-h-0 overflow-hidden">{renderImage()}</div>
           <div className="mt-3 shrink-0">{textBlock}</div>
         </div>
       );
     }
 
-    const ImageWrapper: React.ComponentType<{ children: React.ReactNode }> =
-      isInternal
-        ? ({ children }) => (
-          <PageTransitionButton
-            {...(heroProps as any)}
-            className="relative block w-full h-full overflow-hidden"
-          >
-            {children}
-          </PageTransitionButton>
-        )
-        : ({ children }) => (
-          <a href={href} className="relative block w-full h-full overflow-hidden">
-            {children}
-          </a>
-        );
+    const ImageWrapper: React.ComponentType<{ children: React.ReactNode }> = isInternal
+      ? ({ children }) => (
+        <PageTransitionButton
+          {...(heroProps as any)}
+          className="relative block w-full h-full overflow-hidden"
+        >
+          {children}
+        </PageTransitionButton>
+      )
+      : ({ children }) => (
+        <a href={href} className="relative block w-full h-full overflow-hidden">
+          {children}
+        </a>
+      );
 
-    const TextWrapper: React.ComponentType<{ children: React.ReactNode }> =
-      isInternal
-        ? ({ children }) => (
-          <PageTransitionButton {...(heroProps as any)} className="inline-flex flex-col text-left">
-            {children}
-          </PageTransitionButton>
-        )
-        : ({ children }) => (
-          <a href={href} className="inline-flex flex-col text-left">
-            {children}
-          </a>
-        );
+    const TextWrapper: React.ComponentType<{ children: React.ReactNode }> = isInternal
+      ? ({ children }) => (
+        <PageTransitionButton {...(heroProps as any)} className="inline-flex flex-col text-left">
+          {children}
+        </PageTransitionButton>
+      )
+      : ({ children }) => (
+        <a href={href} className="inline-flex flex-col text-left">
+          {children}
+        </a>
+      );
 
     switch (textPosition) {
       case "top-right":
@@ -229,11 +218,12 @@ const PageLinkTile = React.memo(function PageLinkTile({
               ref={imgTileRef}
               data-hero-slug={isInternal ? slug : undefined}
               className="relative w-full h-full min-h-0 overflow-hidden"
+              data-dim-item={dimState}
             >
               <ImageWrapper>{renderImage()}</ImageWrapper>
             </div>
 
-            <div className="self-start">
+            <div className="self-start" data-dim-item={dimState}>
               <TextWrapper>{textBlock}</TextWrapper>
             </div>
           </div>
@@ -245,18 +235,17 @@ const PageLinkTile = React.memo(function PageLinkTile({
             ref={imgTileRef}
             data-hero-slug={isInternal ? slug : undefined}
             className="relative w-full h-full min-h-0 overflow-hidden"
+            data-dim-item={dimState}
           >
             <ImageWrapper>{renderImage()}</ImageWrapper>
 
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
-              <div className="inline-flex flex-col items-center text-center">
+              <div className="inline-flex flex-col items-center text-center" data-dim-item={dimState}>
                 <span className="text-lg md:text-8xl font-serif font-semibold tracking-tighter">
                   <StylizedLabel text={labelText} />
                 </span>
                 {item.subline ? (
-                  <span className="text-[11px] md:text-xs opacity-80 mt-1">
-                    {item.subline}
-                  </span>
+                  <span className="text-[11px] md:text-xs opacity-80 mt-1">{item.subline}</span>
                 ) : null}
               </div>
             </div>
@@ -266,7 +255,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
       case "below-left":
       default:
         return (
-          <div className="flex flex-col h-full min-h-0">
+          <div className="flex flex-col h-full min-h-0" data-dim-item={dimState}>
             <div
               ref={imgTileRef}
               data-hero-slug={isInternal ? slug : undefined}
@@ -286,30 +275,29 @@ const PageLinkTile = React.memo(function PageLinkTile({
   return (
     <div
       className="flex flex-col text-left cursor-pointer h-full min-h-0"
-      data-dim-item={dimState}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onFocus={handleEnter}
       onBlur={handleLeave}
       onClickCapture={handleInternalClickCapture}
+      data-dim-item={dimState}
     >
       {renderContent()}
     </div>
   );
 });
 
+/* -------------------------------------------------------
+   Section wrapper (scoped dimming; NO scroll listeners)
+------------------------------------------------------- */
 export default function PageLinkSection(props: Props) {
   const themeCtx = useTheme();
-  const { clearPreview } = themeCtx;
-
   const items = useMemo(() => props.items ?? [], [props.items]);
 
   const isHalf = props.width === "half";
   const widthClass = isHalf ? "w-[50vw]" : "w-screen";
   const paddingMode = props.paddingMode ?? "default";
 
-  const sectionRef = useRef<HTMLElement | null>(null);
-  const isScrollingRef = useRef(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   let paddingClass = "";
@@ -326,62 +314,26 @@ export default function PageLinkSection(props: Props) {
     sectionStyle.padding = `${v}px`;
   }
 
-  const tileColumns = isHalf
-    ? "repeat(1, minmax(0, 1fr))"
-    : "repeat(3, minmax(0, 1fr))";
+  const tileColumns = isHalf ? "repeat(1, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))";
 
-  /**
-   * CRITICAL: no DOM writes or state/theme work at scroll end.
-   * - On scroll START: clear preview + active index
-   * - On scroll END: only flip the ref back to false
-   */
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    let timeoutId: number | null = null;
-
-    const onScroll = () => {
-      if (!isScrollingRef.current) {
-        isScrollingRef.current = true;
-
-        // Do any work at scroll START (not end)
-        setActiveIndex(null);
-        clearPreview();
-      }
-
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
-
-      timeoutId = window.setTimeout(() => {
-        // End: only ref flip. No DOM writes, no setState, no theme work.
-        isScrollingRef.current = false;
-      }, SCROLL_IDLE_DELAY);
-    };
-
-    window.addEventListener("scroll", onScroll, { passive: true });
-
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
-    };
-  }, [clearPreview]);
-
-  // Keep your existing global dim mechanism (NOT tied to scroll end anymore)
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const root = document.documentElement;
-
-    if (activeIndex !== null && !isScrollingRef.current) {
-      (root as any).dataset.dimItems = "true";
-    } else {
-      delete (root as any).dataset.dimItems;
-    }
-  }, [activeIndex]);
+  const dimScopeOn = activeIndex !== null;
 
   return (
     <section
-      ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
       className={`${widthClass} h-screen ${paddingClass} gap-2 md:gap-3 grid grid-cols-12 grid-rows-12 relative overflow-hidden will-change-transform`}
       style={sectionStyle}
+      data-dim-scope={dimScopeOn ? "on" : undefined}
+      onMouseLeave={() => {
+        // leaving the whole section should clear preview + dim
+        if (isAppScrolling()) return;
+        setActiveIndex(null);
+        themeCtx.clearPreview();
+      }}
+      onBlurCapture={() => {
+        if (isAppScrolling()) return;
+        setActiveIndex(null);
+        themeCtx.clearPreview();
+      }}
     >
       <div
         className="col-span-12 row-span-12 grid h-full min-h-0 items-stretch"
@@ -394,9 +346,7 @@ export default function PageLinkSection(props: Props) {
       >
         {items.length ? (
           items.map((item, index) => {
-            const key =
-              item._key || item.page?.slug || item.externalUrl || `pl-${index}`;
-
+            const key = item._key || item.page?.slug || item.externalUrl || `pl-${index}`;
             return (
               <PageLinkTile
                 key={key}
@@ -406,14 +356,11 @@ export default function PageLinkSection(props: Props) {
                 themeCtx={themeCtx}
                 activeIndex={activeIndex}
                 setActiveIndex={setActiveIndex}
-                isScrollingRef={isScrollingRef}
               />
             );
           })
         ) : (
-          <div className="col-span-1 grid place-items-center text-xs opacity-60">
-            No links
-          </div>
+          <div className="col-span-1 grid place-items-center text-xs opacity-60">No links</div>
         )}
       </div>
     </section>

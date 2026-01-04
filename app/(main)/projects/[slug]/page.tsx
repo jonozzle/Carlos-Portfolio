@@ -1,12 +1,11 @@
-// app/(main)/projects/[slug]/page.tsx  (for reference)
-
+// app/(main)/projects/[slug]/page.tsx
 import { notFound } from "next/navigation";
 
 import Blocks from "@/components/blocks";
-import HScrollerWrapper from "@/components/hscroller-wrapper";
+import HScrollerWrapper from "@/components/scroll/hscroller-wrapper";
 import ProjectDetails from "@/components/project/project-details";
 import HeroImage from "@/components/project/hero-image";
-import ProjectThemeSetter from "@/components/project-theme-setter";
+import ThemeSetter from "@/components/theme/theme-setter";
 import { StylizedLabel } from "@/components/ui/stylised-label";
 import BackToHomeButton from "@/components/project/back-to-home";
 import {
@@ -47,7 +46,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
     return (
         <HScrollerWrapper>
-            <ProjectThemeSetter theme={project.theme ?? null} />
+            <ThemeSetter theme={project.theme ?? null} />
 
             <section className="h-panel w-screen relative">
                 <div className="grid grid-cols-1 md:grid-cols-2 h-full">
@@ -55,9 +54,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                         <div className="h-full flex flex-col">
                             <div className="pt-6 md:pt-10 text-center">
                                 <div className="text-sm md:text-base font-serif leading-tight tracking-tighter flex flex-col items-center">
-                                    {project.year && (
-                                        <span className="mb-0 md:text-xl">{project.year}</span>
-                                    )}
+                                    {project.year && <span className="mb-0 md:text-xl">{project.year}</span>}
                                     {project.client && <span className="italic">{project.client}</span>}
 
                                     <BackToHomeButton slug={slug} heroImgUrl={heroSrc} />
@@ -82,9 +79,9 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                 </div>
             </section>
 
-            <div data-hero-page-animate>
-                <Blocks blocks={project.blocks ?? []} />
-            </div>
+
+            <Blocks blocks={project.blocks ?? []} />
+
         </HScrollerWrapper>
     );
 }

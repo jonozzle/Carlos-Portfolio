@@ -7,10 +7,11 @@ import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { SplitText } from "gsap/SplitText";
 import ScrollSmoother from "gsap/ScrollSmoother";
-import { useLoader } from "@/components/loader-context";
+import { useLoader } from "@/components/loader/loader-context";
 import { preloadAndDecodeImages } from "@/lib/preload-images";
 import { setCurrentScrollY } from "@/lib/scroll-state";
-import { peekNavIntent } from "@/lib/nav-intent";
+import { consumeNavIntent } from "@/lib/nav-intent";
+import { scheduleScrollTriggerRefresh } from "@/lib/refresh-manager";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(SplitText);
@@ -25,19 +26,29 @@ const GLOBAL_PLAYED_FLAG = "__homeLoaderPlayedThisTab";
 const GLOBAL_INITIAL_PATH = "__initialPathAtLoad";
 
 function openFoucGateNow() {
-  if (typeof window === "undefined") return;
+  if (typeof document === "undefined") return;
   document.documentElement.classList.add("fouc-ready");
 }
 
 function closeFoucGateNow() {
-  if (typeof window === "undefined") return;
+  if (typeof document === "undefined") return;
   document.documentElement.classList.remove("fouc-ready");
 }
 
-function getNavigationType(): "navigate" | "reload" | "back_forward" | "prerender" | "unknown" {
+function getNavigationType():
+  | "navigate"
+  | "reload"
+  | "back_forward"
+  | "prerender"
+  | "unknown" {
   if (typeof window === "undefined") return "unknown";
-  const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+
+  const nav = performance.getEntriesByType("navigation")[0] as
+    | PerformanceNavigationTiming
+    | undefined;
+
   if (nav?.type) return nav.type;
+
   // legacy fallback
   // @ts-ignore
   const legacyType = performance.navigation?.type;
@@ -63,7 +74,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // record the path the tab actually loaded on (so project reload → home doesn’t trigger loader)
+    // Record the first path the TAB loaded on.
     if (!(window as any)[GLOBAL_INITIAL_PATH]) {
       (window as any)[GLOBAL_INITIAL_PATH] = window.location.pathname;
     }
@@ -85,9 +96,8 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       return;
     }
 
-    // Never run loader when returning from project (intent set).
-    // (This also covers “nav.type stays reload for the entire tab”.)
-    const intent = peekNavIntent();
+    // Never run loader when returning from project (intent set on click).
+    const intent = consumeNavIntent();
     if (intent.kind === "project-to-home") {
       setAllowed(false);
       setDone(true);
@@ -96,7 +106,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       return;
     }
 
-    // Only run on a TRUE reload of the tab AND only if the tab loaded on "/"
+    // Only run on a TRUE reload AND only if the tab originally loaded on "/"
     const navType = getNavigationType();
     const initialPath = (window as any)[GLOBAL_INITIAL_PATH] as string | undefined;
     const alreadyPlayed = !!(window as any)[GLOBAL_PLAYED_FLAG];
@@ -111,7 +121,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       return;
     }
 
-    // mark immediately so SPA navigations back to "/" don’t re-trigger
+    // Mark immediately so SPA navigations back to "/" don’t re-trigger.
     (window as any)[GLOBAL_PLAYED_FLAG] = true;
 
     closeFoucGateNow();
@@ -122,6 +132,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
 
   useGSAP(
     () => {
+      if (typeof window === "undefined") return;
       if (!allowed || !enable || positionOnly) return;
 
       const root = rootRef.current;
@@ -140,17 +151,16 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         setDone(true);
         setAllowed(false);
         setLoaderDone(true);
+
+        // CRITICAL: once loader finishes and page is in its final position,
+        // force a scheduled refresh so all ScrollTriggers measure correctly.
+        scheduleScrollTriggerRefresh();
       };
 
-      // Loader owns initial entry visuals; stop PageEnterShell fade
+      // Loader owns initial entry visuals; stop PageEnterShell fade.
       (window as any).__pageEnterSkipInitial = true;
-      try {
-        window.dispatchEvent(new Event("page-enter-skip-initial"));
-      } catch {
-        // ignore
-      }
 
-      // Force home to top on cold reload
+      // Force home to top on cold reload.
       try {
         ScrollSmoother.get()?.scrollTo(0, false);
       } catch {
@@ -169,19 +179,22 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
 
       gsap.set(root, { autoAlpha: 1, xPercent: 0 });
 
+      // Put page off-canvas, then loader will slide it in.
       if (pageRoot) {
-        gsap.set(pageRoot, { xPercent: 100, opacity: 1 });
+        gsap.set(pageRoot, { xPercent: 100, opacity: 1, willChange: "transform" });
       }
 
+      // Allow the app to paint once we’ve established initial states.
       openFoucGateNow();
 
       if (reduced) {
-        if (pageRoot) gsap.set(pageRoot, { xPercent: 0, opacity: 1, clearProps: "transform" });
+        if (pageRoot) gsap.set(pageRoot, { xPercent: 0, clearProps: "transform,willChange" });
         gsap.set(root, { autoAlpha: 0 });
         markDone();
         return;
       }
 
+      // Split for opacity-stagger reveal only.
       const splitFirst = new SplitText(restFirst, { type: "chars" });
       const splitSecond = new SplitText(restSecond, { type: "chars" });
 
@@ -189,7 +202,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       const secondChars = splitSecond.chars;
 
       gsap.set([restFirst, restSecond], { opacity: 1 });
-      gsap.set([...firstChars, ...secondChars], { opacity: 0, x: 10 });
+      gsap.set([...firstChars, ...secondChars], { opacity: 0, willChange: "opacity" });
 
       const collectPreloadUrls = () => {
         const scope = pageRoot ?? document;
@@ -200,8 +213,10 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       };
 
       const runPreloadGate = async () => {
+        // let layout settle
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
+
         const urls = collectPreloadUrls();
         await preloadAndDecodeImages(urls, { concurrency: 6, timeoutMs: 8000 });
 
@@ -213,6 +228,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         }
       };
 
+      // Compute the “C” move-to-center offsets.
       const screenW = window.innerWidth;
       const screenH = window.innerHeight;
 
@@ -234,24 +250,20 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
 
       gsap.set(bigC, { x: bigDx, y: bigDy, rotation: 0 });
       gsap.set(smallC, { x: smallDx - 6, y: smallDy + 6, rotation: -185 });
-      gsap.set([bigC, smallC], { opacity: 0, scale: 0 });
+      gsap.set([bigC, smallC], { opacity: 0, scale: 0, willChange: "transform" });
+
+      const REVEAL_DUR = 1.0;
+      const TRANSITION_DUR = 1.35;
+      const AFTER_REVEAL_DELAY = 0.25;
 
       const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
 
+      // Bring C’s in and settle to their natural positions.
       tl.to(bigC, { opacity: 1, duration: 0.5, scale: 1, ease: "power2.inOut" }, 0);
       tl.to(smallC, { opacity: 1, duration: 0.5, scale: 1, ease: "power2.inOut" }, "+=0.2");
-
       tl.to([bigC, smallC], { x: 0, y: 0, rotation: 0, duration: 1.4, ease: "power2.inOut" }, "-=0.5");
 
-      tl.to(firstChars, { opacity: 1, x: 0, duration: 0.8, stagger: 0.04, ease: "power2.inOut" }, "-=0.4");
-      tl.to(firstChars, { x: (i) => 4 * i, duration: 3, ease: "power1.inOut" }, "<");
-
-      tl.to(secondChars, { opacity: 1, x: 0, duration: 0.8, stagger: 0.04, ease: "power2.inOut" }, "<+0.1");
-      tl.to(secondChars, { x: (i) => 4 * i, duration: 3, ease: "power1.inOut" }, "<");
-
-      tl.to(bigC, { x: -12, duration: 3, ease: "power1.inOut" }, "<");
-      tl.to(smallC, { x: 12, duration: 3, ease: "power1.inOut" }, "<");
-
+      // Preload BEFORE text reveal + page transition.
       tl.add(() => {
         tl.pause();
         runPreloadGate()
@@ -259,26 +271,44 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
           .finally(() => tl.resume());
       });
 
-      tl.to(root, { xPercent: -100, duration: 1.5, ease: "power3.inOut" });
+      tl.addLabel("reveal");
+
+      // Stagger opacity ON (left-to-right by DOM order).
+      tl.to(
+        firstChars,
+        { opacity: 1, duration: REVEAL_DUR, stagger: 0.055, ease: "power2.inOut" },
+        "reveal"
+      );
+
+      tl.to(
+        secondChars,
+        { opacity: 1, duration: REVEAL_DUR, stagger: 0.055, ease: "power2.inOut" },
+        "reveal+=0.18"
+      );
+
+      tl.addLabel("transition", `reveal+=${REVEAL_DUR + AFTER_REVEAL_DELAY}`);
+
+      // Swipe loader out as the page swipes in.
+      tl.to(root, { xPercent: -100, duration: TRANSITION_DUR, ease: "power3.inOut" }, "transition");
 
       if (pageRoot) {
         tl.to(
           pageRoot,
           {
             xPercent: 0,
-            duration: 1.5,
+            duration: TRANSITION_DUR,
             ease: "power3.inOut",
-            clearProps: "transform",
+            clearProps: "transform,willChange",
             onComplete: () => {
               gsap.set(root, { autoAlpha: 0 });
               markDone();
             },
           },
-          "<"
+          "transition"
         );
       } else {
-        tl.set(root, { autoAlpha: 0 });
-        markDone();
+        tl.set(root, { autoAlpha: 0 }, `transition+=${TRANSITION_DUR}`);
+        tl.add(markDone, `transition+=${TRANSITION_DUR}`);
       }
 
       return () => {

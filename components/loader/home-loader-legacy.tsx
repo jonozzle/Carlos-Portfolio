@@ -4,7 +4,7 @@
 import { useRef, useState, useEffect } from "react";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
-import { useLoader } from "@/components/loader-context";
+import { useLoader } from "@/components/loader/loader-context";
 
 const IMAGE_CORNERS = ["0% 0%", "100% 0%", "0% 100%"];
 

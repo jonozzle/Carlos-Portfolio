@@ -62,7 +62,7 @@ export default function BioBlock({
 
       // CLOSED small-c manual offsets
       const SMALL_C_OFFSET_X = -3; // tweak as needed
-      const SMALL_C_OFFSET_Y = 4;  // tweak as needed
+      const SMALL_C_OFFSET_Y = 4; // tweak as needed
 
       // Hide while we set up to avoid flashes
       gsap.set(box, { autoAlpha: 0 });
@@ -217,41 +217,26 @@ export default function BioBlock({
     <button
       ref={rootRef}
       type="button"
-      className="inline-block cursor-pointer will-change-transform transform-gpu"
+      className="inline-block cursor-pointer transform-gpu"
       data-cursor="link"
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
     >
       <div
         ref={boxRef}
-        className="
-          relative
-          bg-red-500
-          text-white
-          overflow-hidden
-          inline-block
-          will-change-transform transform-gpu
-        "
+        className="relative bg-red-500 text-white overflow-hidden inline-block transform-gpu"
+        style={{ contain: "layout paint" }}
       >
         {/* Inner is always "expanded"; outer clips it when closed */}
         <div ref={innerRef} className="relative w-full h-full">
           {/* Name row – fixed vertical band at the top */}
           <div
             ref={nameRowRef}
-            className="
-              absolute left-0 right-0 top-0
-              h-[64px]
-              flex items-center
-              px-3
-              pointer-events-nonewill-change-transform transform-gpu
-            "
+            className="absolute left-0 right-0 top-0 h-[64px] flex items-center px-3 pointer-events-none transform-gpu"
           >
             <div className="flex flex-wrap items-baseline gap-x-1 relative">
               {/* C of Carlos */}
-              <span
-                ref={bigCRef}
-                className="font-serif text-4xl leading-none inline-block"
-              >
+              <span ref={bigCRef} className="font-serif text-4xl leading-none inline-block">
                 {firstC}
               </span>
 

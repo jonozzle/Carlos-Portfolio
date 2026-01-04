@@ -11,6 +11,13 @@ import { PROJECT_QUERYResult } from "@/sanity.types";
 type Block = NonNullable<NonNullable<PROJECT_QUERYResult>["blocks"]>[number];
 type Props = Extract<Block, { _type: "single-image" }>;
 
+function getSafeRatio(w: number | null, h: number | null) {
+  if (!w || !h) return null;
+  const r = w / h;
+  if (!Number.isFinite(r) || r <= 0) return null;
+  return Number(r.toFixed(6));
+}
+
 export default function SingleImage(props: Props) {
   const { image, title, paddingMode, customPadding, widthMode } = props;
 
@@ -19,9 +26,7 @@ export default function SingleImage(props: Props) {
   const imgUrl = image?.asset?.url ?? "";
   const alt =
     image?.alt ??
-    (typeof title === "string" && title.length > 0
-      ? title
-      : "Project image");
+    (typeof title === "string" && title.length > 0 ? title : "Project image");
 
   const imgWidth = image?.asset?.width ?? null;
   const imgHeight = image?.asset?.height ?? null;
@@ -40,19 +45,18 @@ export default function SingleImage(props: Props) {
   }, [paddingMode, customPadding]);
 
   // WIDTH: auto | small | medium | large
-  // For small/medium/large: width-driven (vw).
-  // For auto: height-driven (vh) – we compute width from aspect ratio.
   const boxClass = useMemo(() => {
     switch (widthMode) {
       case "small":
-        return "w-[35vw] max-w-full";
+        return "w-[35vw] max-w-[100vw]";
       case "medium":
-        return "w-[50vw] max-w-full";
+        return "w-[50vw] max-w-[100vw]";
       case "large":
-        return "w-[65vw] max-w-full";
+        return "w-[65vw] max-w-[100vw]";
       case "auto":
       default:
-        return "max-w-full"; // width comes from inline style
+        // auto is driven by inline sizing; keep it shrinkable in flex/layout
+        return "w-auto max-w-[100vw]";
     }
   }, [widthMode]);
 
@@ -66,34 +70,27 @@ export default function SingleImage(props: Props) {
         return "(max-width: 768px) 100vw, 65vw";
       case "auto":
       default:
-        // height-driven, but we still hint roughly one viewport height
-        return "(max-width: 768px) 100vw, 100vh";
+        return "(max-width: 768px) 100vw, 100vw";
     }
   }, [widthMode]);
 
   const boxStyle = useMemo<React.CSSProperties>(() => {
     const style: React.CSSProperties = {};
-
     const paddingPx = resolvedPadding ?? 0;
+    const pad2 = paddingPx * 2;
+    const ratio = getSafeRatio(imgWidth, imgHeight);
 
     if (widthMode === "auto") {
-      // full-screen block minus vertical padding
-      const heightExpr = `calc(100vh - ${paddingPx * 2}px)`;
-      style.height = heightExpr;
-      style.maxHeight = heightExpr;
-
-      if (imgWidth && imgHeight) {
-        const ratio = imgWidth / imgHeight;
-        // width = height * (w/h)
-        style.width = `calc(${heightExpr} * ${ratio})`;
+      // Fit within the viewport *minus padding*, then let the SECTION shrink-wrap this box.
+      if (ratio) {
+        style.width = `min(calc(100vw - ${pad2}px), calc((100vh - ${pad2}px) * ${ratio}))`;
+        style.height = `min(calc(100vh - ${pad2}px), calc((100vw - ${pad2}px) / ${ratio}))`;
+        style.aspectRatio = `${imgWidth} / ${imgHeight}`;
       } else {
-        // no dimensions: just shrink-to-fit
-        style.width = "auto";
+        style.width = `calc(100vw - ${pad2}px)`;
+        style.height = `calc(100vh - ${pad2}px)`;
       }
-
-      style.maxWidth = "100vw";
     } else {
-      // non-auto modes can benefit from aspect-ratio but don't require it
       if (imgWidth && imgHeight) {
         style.aspectRatio = `${imgWidth} / ${imgHeight}`;
       }
@@ -102,40 +99,39 @@ export default function SingleImage(props: Props) {
     return style;
   }, [imgWidth, imgHeight, widthMode, resolvedPadding]);
 
-  const objectFit: "cover" | "contain" =
-    widthMode === "auto" ? "contain" : "cover";
+  const objectFit: "cover" | "contain" = widthMode === "auto" ? "contain" : "cover";
 
-  // Pre-decode image as section approaches viewport
+  // Pre-decode image as section approaches viewport (horizontal-safe rootMargin)
   useEffect(() => {
-    if (typeof window === "undefined" || !sectionRef.current) return;
+    if (typeof window === "undefined" || !sectionRef.current || !imgUrl) return;
 
     const sectionEl = sectionRef.current;
 
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry.isIntersecting || entry.intersectionRatio > 0) {
+        if (entry?.isIntersecting || (entry?.intersectionRatio ?? 0) > 0) {
           predecodeNextImages(sectionEl, 1);
           observer.disconnect();
         }
       },
       {
         root: null,
-        rootMargin: "50% 0px",
-        threshold: 0,
+        rootMargin: "0px 50% 0px 50%",
+        threshold: 0.01,
       }
     );
 
     observer.observe(sectionEl);
 
     return () => observer.disconnect();
-  }, []);
+  }, [imgUrl]);
 
+  // Key change: no `w-screen`. With `flex-none` + content sized children, the panel collapses
+  // to the image box width (plus padding).
   const sectionStyle: React.CSSProperties = {
     padding: resolvedPadding,
-    contentVisibility: "auto",
-    contain: "layout paint style",
-    containIntrinsicSize: "100vh 50vw",
+    contain: "layout paint",
   };
 
   const label = title ?? "Project image";
@@ -143,17 +139,13 @@ export default function SingleImage(props: Props) {
   return (
     <section
       ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
-      // fill screen height
-      className="h-screen w-screen flex flex-none justify-center items-center relative overflow-hidden will-change-transform"
+      className="h-screen flex flex-none items-center justify-center relative overflow-hidden will-change-transform"
       style={sectionStyle}
       aria-label={label}
       data-cursor-blend="normal"
     >
-      <figure className="relative w-full flex flex-col items-center">
-        <div
-          className={clsx("relative overflow-hidden", boxClass)}
-          style={boxStyle}
-        >
+      <figure className="relative inline-flex flex-col items-center max-w-[100vw]">
+        <div className={clsx("relative overflow-hidden", boxClass)} style={boxStyle}>
           {imgUrl ? (
             <SmoothImage
               src={imgUrl}
@@ -171,7 +163,7 @@ export default function SingleImage(props: Props) {
         </div>
 
         {title ? (
-          <figcaption className="mt-2 text-xs md:text-sm tracking-tight font-serif opacity-70 text-center">
+          <figcaption className="mt-2 w-full max-w-full px-1 text-xs md:text-sm tracking-tight font-serif opacity-70 text-center break-words">
             {title}
           </figcaption>
         ) : null}

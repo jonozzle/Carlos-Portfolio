@@ -105,7 +105,7 @@ export default function PageEnterShell({ children }: Props) {
       if (direction === "up") {
         // HOME → PROJECT: wait for hero to finish, then bring in content
         gsap.set(animateEls, {
-          y: 40,
+          y: 0,
           opacity: 0,
           willChange: "transform,opacity",
         });

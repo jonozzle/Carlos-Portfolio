@@ -1,13 +1,17 @@
 // components/footer/home-footer.tsx
 "use client";
 
-import { useRef, useMemo, useEffect } from "react";
+import { useMemo, useRef } from "react";
 import gsap from "gsap";
+import ScrollTrigger from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
 import { StylizedLabel } from "@/components/ui/stylised-label";
 import SmoothImage from "@/components/ui/smooth-image";
 import type { FooterData } from "@/sanity/lib/fetch";
-import { predecodeNextImages } from "@/lib/predecode";
+
+if (typeof window !== "undefined") {
+    gsap.registerPlugin(ScrollTrigger);
+}
 
 type FooterLink = NonNullable<FooterData["links"]>[number];
 type FooterImage = NonNullable<FooterData["images"]>[number];
@@ -17,9 +21,9 @@ type Props = {
 };
 
 export default function HomeFooter({ footer }: Props) {
-    const container = useRef<HTMLDivElement>(null);
-    const marqueeTrack = useRef<HTMLDivElement>(null);
-    const tweenRef = useRef<gsap.core.Tween | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const titleRef = useRef<HTMLHeadingElement>(null);
+    const marqueeTrackRef = useRef<HTMLDivElement>(null);
 
     const title = footer.title ?? "";
     const links = (footer.links ?? []) as FooterLink[];
@@ -28,53 +32,193 @@ export default function HomeFooter({ footer }: Props) {
 
     const hasImages = images.length > 0;
 
-    // Double the array for infinite loop
+    // Double the array for an infinite loop (track is exactly 200% of content height)
     const scrollingImages = useMemo(
         () => (hasImages ? [...images, ...images] : []),
-        [images, hasImages]
+        [hasImages, images]
     );
 
-    // 1. GSAP marquee tween (created once per data change, stays paused by default)
     useGSAP(
         () => {
-            if (!hasImages || !marqueeTrack.current) return;
+            if (typeof window === "undefined") return;
 
-            // Kill any existing tween before creating a new one
-            tweenRef.current?.kill();
+            const root = containerRef.current;
+            const titleEl = titleRef.current;
+            const track = marqueeTrackRef.current;
+            if (!root) return;
 
-            tweenRef.current = gsap.to(marqueeTrack.current, {
-                yPercent: -50,
-                ease: "none",
-                duration: 30,
-                repeat: -1,
-                force3D: true,
-                paused: true,
-            });
+            const prefersReduced =
+                window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+
+            let raf = 0;
+
+            let titleTween: gsap.core.Tween | null = null;
+            let marqueeTween: gsap.core.Tween | null = null;
+
+            let stTitle: ScrollTrigger | null = null;
+            let stMarquee: ScrollTrigger | null = null;
+
+            const killScrollBits = () => {
+                try {
+                    stTitle?.kill(true);
+                } catch {
+                    // ignore
+                }
+                try {
+                    stMarquee?.kill(true);
+                } catch {
+                    // ignore
+                }
+                stTitle = null;
+                stMarquee = null;
+
+                try {
+                    titleTween?.kill();
+                } catch {
+                    // ignore
+                }
+                titleTween = null;
+            };
+
+            const killMarqueeTween = () => {
+                try {
+                    marqueeTween?.kill();
+                } catch {
+                    // ignore
+                }
+                marqueeTween = null;
+            };
+
+            const getHsContainerAnimation = () => {
+                const hs = ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null;
+                return hs?.animation ?? null;
+            };
+
+            const expectsHs = () => !!root.closest(".hs-rail");
+
+            // Marquee tween (pure transform loop; no rerenders; paused until footer is in-view)
+            const ensureMarqueeTween = () => {
+                killMarqueeTween();
+
+                if (!hasImages || !track || prefersReduced) return;
+
+                gsap.set(track, { yPercent: 0, force3D: true });
+
+                marqueeTween = gsap.to(track, {
+                    yPercent: -50,
+                    ease: "none",
+                    duration: 30,
+                    repeat: -1,
+                    paused: true,
+                    force3D: true,
+                    autoRound: false,
+                });
+            };
+
+            const buildTriggers = () => {
+                killScrollBits();
+
+                const containerAnimation = getHsContainerAnimation();
+
+                // If we’re inside the HS rail, do not create “normal” vertical triggers.
+                // Wait until HS is ready so the title + marquee can go on/off correctly.
+                if (expectsHs() && !containerAnimation) return;
+
+                // Base trigger settings (HS-aware when available)
+                const base: ScrollTrigger.Vars = containerAnimation
+                    ? {
+                        trigger: root,
+                        start: "left 80%",
+                        end: "right 20%",
+                        containerAnimation,
+                        invalidateOnRefresh: false,
+                    }
+                    : {
+                        trigger: root,
+                        start: "top 80%",
+                        end: "bottom 20%",
+                        invalidateOnRefresh: false,
+                    };
+
+                // Title on/off (enter + leave in both directions)
+                if (titleEl) {
+                    if (prefersReduced) {
+                        gsap.set(titleEl, { clearProps: "opacity,transform" });
+                    } else {
+                        gsap.set(titleEl, { opacity: 0, y: 18, force3D: true });
+
+                        titleTween = gsap.to(titleEl, {
+                            opacity: 1,
+                            y: 0,
+                            duration: 0.8,
+                            ease: "power2.out",
+                            paused: true,
+                            force3D: true,
+                            autoRound: false,
+                        });
+
+                        stTitle = ScrollTrigger.create({
+                            ...base,
+                            onEnter: () => titleTween?.play(),
+                            onLeave: () => titleTween?.reverse(),
+                            onEnterBack: () => titleTween?.play(),
+                            onLeaveBack: () => titleTween?.reverse(),
+                        });
+                    }
+                }
+
+                // Marquee play/pause only while footer is in view (no extra refreshes)
+                if (marqueeTween) {
+                    stMarquee = ScrollTrigger.create({
+                        ...base,
+                        onEnter: () => marqueeTween?.play(),
+                        onEnterBack: () => marqueeTween?.play(),
+                        onLeave: () => marqueeTween?.pause(),
+                        onLeaveBack: () => marqueeTween?.pause(),
+                    });
+                }
+            };
+
+            const scheduleBuild = () => {
+                if (raf) cancelAnimationFrame(raf);
+                raf = requestAnimationFrame(buildTriggers);
+            };
+
+            ensureMarqueeTween();
+            scheduleBuild();
+
+            // HS lifecycle: rebuild triggers when the horizontal scroller announces readiness/rebuilds.
+            window.addEventListener("hs-ready", scheduleBuild);
+            window.addEventListener("hs-rebuilt", scheduleBuild);
 
             return () => {
-                tweenRef.current?.kill();
-                tweenRef.current = null;
+                window.removeEventListener("hs-ready", scheduleBuild);
+                window.removeEventListener("hs-rebuilt", scheduleBuild);
+
+                if (raf) cancelAnimationFrame(raf);
+                killScrollBits();
+                killMarqueeTween();
             };
         },
-        { scope: container, dependencies: [hasImages] }
+        { scope: containerRef, dependencies: [hasImages, images.length, title] }
     );
-
-
 
     return (
         <section
-            ref={container}
+            ref={containerRef}
             className="w-[100vw] h-screen flex-shrink-0 grid grid-cols-12 gap-2 overflow-hidden"
-            style={{
-                contain: "layout paint style",
-            }}
+            style={{ contain: "layout paint style" }}
         >
             {/* LEFT SIDE */}
             <div className="col-span-12 md:col-span-6 h-full flex px-4 py-6 md:px-8 md:py-10">
                 <div className="flex flex-col items-start justify-center gap-6 w-full">
                     {title ? (
-                        <h2 className="text-3xl md:text-5xl font-serif tracking-tight leading-none">
-                            <StylizedLabel text={title} animateOnScroll />
+                        <h2
+                            ref={titleRef}
+                            className="text-3xl md:text-5xl font-serif tracking-tight leading-none will-change-transform"
+                        >
+                            {/* Keep StylizedLabel purely presentational; scroll on/off handled here */}
+                            <StylizedLabel text={title} />
                         </h2>
                     ) : null}
 
@@ -106,8 +250,9 @@ export default function HomeFooter({ footer }: Props) {
                 {hasImages ? (
                     <div className="relative h-full w-full overflow-hidden">
                         <div
-                            ref={marqueeTrack}
-                            className="flex flex-col w-full will-change-transform transform-gpu "
+                            ref={marqueeTrackRef}
+                            className="flex flex-col w-full will-change-transform transform-gpu [transform:translate3d(0,0,0)]"
+                            aria-hidden="true"
                         >
                             {scrollingImages.map((img, i) => {
                                 if (!img?.url) return null;
@@ -119,10 +264,9 @@ export default function HomeFooter({ footer }: Props) {
                                             <SmoothImage
                                                 src={img.url}
                                                 alt={img.alt ?? ""}
-                                                hiMaxWidth={900} // smaller file
+                                                hiMaxWidth={900}
                                                 sizes="(max-width: 768px) 100vw, 50vw"
                                                 objectFit="cover"
-                                                // These pass through to NextImage
                                                 quality={80}
                                                 priority={isFirst}
                                                 loading={isFirst ? "eager" : "lazy"}

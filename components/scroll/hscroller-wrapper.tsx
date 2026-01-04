@@ -2,7 +2,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import HorizontalScroller from "@/components/horizontal-scroller";
+import HorizontalScroller from "@/components/scroll/horizontal-scroller";
 
 export default function HScrollerWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

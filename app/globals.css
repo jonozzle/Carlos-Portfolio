@@ -106,19 +106,26 @@ body {
 :root {
   --bg-color: #ffffff;
   --text-color: #000000;
+  --theme-dur: 0ms;
 }
 
 html,
 body {
   background-color: var(--bg-color);
   color: var(--text-color);
+  transition: background-color var(--theme-dur) ease, color var(--theme-dur) ease;
 }
 
-/* globals.css */
-html[data-theme-anim="true"],
-html[data-theme-anim="true"] body {
-  transition: background-color 260ms ease, color 260ms ease;
+/* Scoped dimming (only affects the section that opts in) */
+[data-dim-scope="on"] [data-dim-item="inactive"] {
+  opacity: 0.25;
 }
+
+[data-dim-scope="on"] [data-dim-item="active"],
+[data-dim-scope="on"] [data-dim-item="active"] * {
+  opacity: 1 !important;
+}
+
 
 /* default: no transition during scroll/compositing */
 :root,
@@ -135,31 +142,32 @@ body {
 /* globals.css */
 @media (pointer: fine) {
 
-  /* Only hide OS cursor inside .has-custom-cursor scope */
-  .has-custom-cursor {
+  /* Only hide OS cursor when custom cursor is ACTIVE */
+  .has-custom-cursor.custom-cursor-active {
     cursor: none;
   }
 
-  .has-custom-cursor a,
-  .has-custom-cursor button,
-  .has-custom-cursor [role="button"],
-  .has-custom-cursor label,
-  .has-custom-cursor summary,
-  .has-custom-cursor .cursor-pointer,
-  .has-custom-cursor [data-cursor] {
+  .has-custom-cursor.custom-cursor-active a,
+  .has-custom-cursor.custom-cursor-active button,
+  .has-custom-cursor.custom-cursor-active [role="button"],
+  .has-custom-cursor.custom-cursor-active label,
+  .has-custom-cursor.custom-cursor-active summary,
+  .has-custom-cursor.custom-cursor-active .cursor-pointer,
+  .has-custom-cursor.custom-cursor-active [data-cursor] {
     cursor: none !important;
   }
 
-  /* Keep I-beam where you type */
-  .has-custom-cursor input[type="text"],
-  .has-custom-cursor input[type="search"],
-  .has-custom-cursor input[type="email"],
-  .has-custom-cursor input[type="password"],
-  .has-custom-cursor textarea,
-  .has-custom-cursor [contenteditable="true"] {
+  /* Keep I-beam where you type (even while custom cursor is active) */
+  .has-custom-cursor.custom-cursor-active input[type="text"],
+  .has-custom-cursor.custom-cursor-active input[type="search"],
+  .has-custom-cursor.custom-cursor-active input[type="email"],
+  .has-custom-cursor.custom-cursor-active input[type="password"],
+  .has-custom-cursor.custom-cursor-active textarea,
+  .has-custom-cursor.custom-cursor-active [contenteditable="true"] {
     cursor: text !important;
   }
 }
+
 
 /* ============================= */
 /* Global item-level dimming     */

@@ -1,7 +1,7 @@
 // components/ads/horizontal-image-slider.tsx
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useEffect } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import clsx from "clsx";
@@ -19,6 +19,18 @@ type Props = {
     direction?: "horizontal" | "vertical";
 };
 
+function clamp(n: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, n));
+}
+
+// Ensure the scaled content always covers the container while panning +/- pan.
+// Required scale ~= 1 + (2*pan)/viewport. Add a tiny overscan to avoid subpixel gaps.
+function coverScale(viewportPx: number, panPx: number) {
+    const v = Math.max(1, viewportPx);
+    const required = 1 + (2 * panPx) / v;
+    return clamp(required + 0.02, 1.02, 1.6);
+}
+
 export default function HorizontalImageSlider({
     images = [],
     className,
@@ -28,6 +40,10 @@ export default function HorizontalImageSlider({
 }: Props) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const trackRef = useRef<HTMLDivElement | null>(null);
+    const singlePanRef = useRef<HTMLDivElement | null>(null);
+
+    // stable per-instance id to avoid ScrollTrigger id collisions
+    const stIdRef = useRef(`ad-hs-${Math.random().toString(36).slice(2)}`);
 
     const prepared = useMemo(
         () =>
@@ -41,15 +57,16 @@ export default function HorizontalImageSlider({
     );
 
     const len = prepared.length;
+    const isSingle = len === 1;
+    const hasClones = direction !== "vertical" && len > 1;
 
-    // For horizontal, extend with clones so we can "loop" at both ends.
+    // For horizontal, extend with clones so we can show prev/next peeks at extremes.
     const renderImages = useMemo(() => {
-        if (direction === "vertical") return prepared;
-        if (prepared.length <= 1) return prepared;
+        if (!hasClones) return prepared;
         const first = prepared[0];
         const last = prepared[prepared.length - 1];
         return [last, ...prepared, first];
-    }, [prepared, direction]);
+    }, [prepared, hasClones]);
 
     const renderLen = renderImages.length;
 
@@ -69,15 +86,10 @@ export default function HorizontalImageSlider({
                     observer.disconnect();
                 }
             },
-            {
-                root: null,
-                rootMargin: "50% 0px",
-                threshold: 0,
-            }
+            { root: null, rootMargin: "50% 0px", threshold: 0 }
         );
 
         observer.observe(rootEl);
-
         return () => observer.disconnect();
     }, [len]);
 
@@ -97,71 +109,112 @@ export default function HorizontalImageSlider({
             let tween: gsap.core.Tween | null = null;
             let ready = false;
 
+            const getContainerAnimation = () => {
+                const parentST = ScrollTrigger.getById("hs-horizontal") as any;
+                return parentST?.animation;
+            };
+
+            const buildFollowerFromRail = (
+                progressCb: (p: number) => void,
+                triggerEl: HTMLElement
+            ) => {
+                const containerAnimation = getContainerAnimation();
+
+                if (containerAnimation) {
+                    return ScrollTrigger.create({
+                        id: `${stIdRef.current}-rail`,
+                        trigger: triggerEl,
+                        containerAnimation,
+                        start: "left right",
+                        end: "right left",
+                        onUpdate: (self) => progressCb(self.progress),
+                        invalidateOnRefresh: true,
+                    });
+                }
+
+                return ScrollTrigger.create({
+                    id: `${stIdRef.current}-fallback`,
+                    trigger: container,
+                    scroller,
+                    start: "top bottom",
+                    end: "bottom top",
+                    scrub: 0.8,
+                    onUpdate: (self) => progressCb(self.progress),
+                    invalidateOnRefresh: true,
+                });
+            };
+
             const buildHorizontal = () => {
                 follower?.kill();
                 follower = null;
                 tween?.kill();
                 tween = null;
 
-                // Measure widths and set up a pixel-based tween so we can do a 20% peek
-                const viewportWidth = container.clientWidth;
-                const totalWidth = track.scrollWidth;
+                const viewportW = container.clientWidth;
+                if (!viewportW) return;
 
-                if (!viewportWidth || !totalWidth) return;
+                // SINGLE IMAGE: internal pan (no gaps — scale is derived from pan)
+                if (isSingle) {
+                    const target = singlePanRef.current;
+                    if (!target) return;
 
-                const peek = viewportWidth * 0.2; // 20% of viewport
+                    const pan = clamp(viewportW * 0.08, 16, 140);
+                    const scale = coverScale(viewportW, pan);
 
-                const startX = -peek; // start with 20% of the previous image visible on the left
-                const endX = -(totalWidth - viewportWidth) + peek; // finish with 20% of the next image visible on the right
+                    gsap.set(target, {
+                        x: 0,
+                        y: 0,
+                        scale,
+                        transformOrigin: "center",
+                        willChange: "transform",
+                        force3D: true,
+                    });
+
+                    tween = gsap.fromTo(
+                        target,
+                        { x: -pan },
+                        { x: pan, ease: "none", paused: true }
+                    );
+
+                    const panel = container.closest("section") as HTMLElement | null;
+                    const triggerEl = panel ?? container;
+
+                    follower = buildFollowerFromRail((p) => {
+                        if (!ready || !tween) return;
+                        tween.progress(p);
+                    }, triggerEl);
+
+                    return;
+                }
+
+                // MULTI IMAGE: track scroll with a peek at both ends
+                const totalW = track.scrollWidth;
+                if (!totalW) return;
+
+                const frameW = totalW / Math.max(1, renderLen);
+                const peek = clamp(frameW * 0.2, 18, frameW * 0.35);
+
+                const startX = hasClones
+                    ? -(frameW - peek) // start on first REAL frame with left peek of the prev (clone)
+                    : -peek;
+
+                const endX = hasClones
+                    ? -(frameW * len + peek) // end on last REAL frame with right peek of the next (clone)
+                    : -(totalW - viewportW) + peek;
 
                 tween = gsap.fromTo(
                     track,
-                    {
-                        x: startX,
-                        willChange: "transform",
-                        force3D: true,
-                    },
-                    {
-                        x: endX,
-                        ease: "none",
-                        paused: true,
-                    }
+                    { x: startX, willChange: "transform", force3D: true },
+                    { x: endX, ease: "none", paused: true }
                 );
 
                 const panel = container.closest("section") as HTMLElement | null;
-                const rail = panel?.closest(".hs-rail") as HTMLElement | null;
-                const parentST = ScrollTrigger.getById("hs-horizontal") as any;
-                const containerAnimation = parentST?.animation;
+                const triggerEl = panel ?? container;
 
-                if (panel && rail && containerAnimation) {
-                    // Synced to global horizontal rail
-                    follower = ScrollTrigger.create({
-                        id: `hs-horizontal-${panel.dataset?.key ?? ""}`,
-                        trigger: panel,
-                        containerAnimation,
-                        start: "left right", // start as soon as it enters
-                        end: "right left", // finish when it fully leaves
-                        onUpdate: (self) => {
-                            if (!ready || !tween) return;
-                            tween.progress(self.progress);
-                        },
-                        invalidateOnRefresh: true,
-                    });
-                } else {
-                    // Fallback: vertical scroll driving horizontal tween
-                    follower = ScrollTrigger.create({
-                        trigger: container,
-                        scroller,
-                        start: "top bottom", // immediately on entering viewport
-                        end: "bottom top", // until it leaves
-                        scrub: 0.8,
-                        onUpdate: (self) => {
-                            if (!ready || !tween) return;
-                            tween.progress(self.progress);
-                        },
-                        invalidateOnRefresh: true,
-                    });
-                }
+                follower = buildFollowerFromRail((p) => {
+                    if (!ready || !tween) return;
+                    tween.progress(p);
+                }, triggerEl);
             };
 
             const buildVertical = () => {
@@ -169,6 +222,48 @@ export default function HorizontalImageSlider({
                 follower = null;
                 tween?.kill();
                 tween = null;
+
+                const viewportH = container.clientHeight;
+                if (!viewportH) return;
+
+                if (isSingle) {
+                    const target = singlePanRef.current;
+                    if (!target) return;
+
+                    const pan = clamp(viewportH * 0.08, 16, 140);
+                    const scale = coverScale(viewportH, pan);
+
+                    gsap.set(target, {
+                        x: 0,
+                        y: 0,
+                        scale,
+                        transformOrigin: "center",
+                        willChange: "transform",
+                        force3D: true,
+                    });
+
+                    tween = gsap.fromTo(
+                        target,
+                        { y: -pan },
+                        { y: pan, ease: "none", paused: true }
+                    );
+
+                    follower = ScrollTrigger.create({
+                        id: `${stIdRef.current}-v-fallback`,
+                        trigger: container,
+                        scroller,
+                        start: "top bottom",
+                        end: "bottom top",
+                        scrub: 0.8,
+                        onUpdate: (self) => {
+                            if (!ready || !tween) return;
+                            tween.progress(self.progress);
+                        },
+                        invalidateOnRefresh: true,
+                    });
+
+                    return;
+                }
 
                 const distance = -100 * (len - 1);
 
@@ -185,6 +280,7 @@ export default function HorizontalImageSlider({
                 });
 
                 follower = ScrollTrigger.create({
+                    id: `${stIdRef.current}-v`,
                     trigger: container,
                     scroller,
                     start: "top bottom",
@@ -205,14 +301,10 @@ export default function HorizontalImageSlider({
 
             buildAll();
 
-            // Gate junk initial updates
             requestAnimationFrame(() => {
                 ready = true;
-                if (follower && tween) {
-                    tween.progress(follower.progress);
-                } else if (tween) {
-                    tween.progress(0);
-                }
+                if (follower && tween) tween.progress(follower.progress);
+                else if (tween) tween.progress(0);
             });
 
             const onRefreshInit = () => {
@@ -234,7 +326,7 @@ export default function HorizontalImageSlider({
         }, container);
 
         return () => ctx.revert();
-    }, [len, direction, renderLen]);
+    }, [len, direction, renderLen, hasClones, isSingle]);
 
     if (len === 0) {
         return (
@@ -249,51 +341,48 @@ export default function HorizontalImageSlider({
         );
     }
 
-    const sizesAttr =
-        size === "half" ? "50vw" : size === "full" ? "100vw" : "100vw";
+    const sizesAttr = size === "half" ? "50vw" : size === "full" ? "100vw" : "100vw";
 
     const roleDesc =
-        len > 0
-            ? `${label}. ${len} frames. Scrolling reveals more frames.`
-            : `${label}. No media.`;
+        len > 0 ? `${label}. ${len} frames. Scrolling reveals more frames.` : `${label}. No media.`;
 
     return (
         <div
             ref={containerRef}
-            className={clsx(
-                "relative w-full h-full overflow-hidden  will-change-transform",
-                className
-            )}
-            style={{
-                //contain: "layout paint style",
-                containIntrinsicSize: "100vh 100vw",
-            }}
+            className={clsx("relative w-full h-full overflow-hidden will-change-transform", className)}
+            style={{ containIntrinsicSize: "100vh 100vw" }}
             aria-label={roleDesc}
         >
             <div
                 ref={trackRef}
-                className={clsx(
-                    "h-full w-full",
-                    direction === "vertical" ? "flex flex-col" : "flex"
-                )}
+                className={clsx("h-full w-full", direction === "vertical" ? "flex flex-col" : "flex")}
             >
-                {renderImages.map((img, i) => (
-                    <div
-                        key={`${img.src}-${i}`}
-                        className="relative h-full w-full flex-none"
-                        style={{ contain: "paint" }}
-                    >
-                        <SmoothImage
-                            src={img.src}
-                            alt={img.alt}
-                            fill
-                            sizes={sizesAttr}
-                            hiMaxWidth={size === "full" ? 2000 : 1400}
-                            lqipWidth={24}
-                            loading="lazy"
-                        />
-                    </div>
-                ))}
+                {renderImages.map((img, i) => {
+                    const isOnly = isSingle && i === 0;
+
+                    return (
+                        <div
+                            key={`${img.src}-${i}`}
+                            className="relative h-full w-full flex-none overflow-hidden"
+                            style={{ contain: "paint" }}
+                        >
+                            <div
+                                ref={isOnly ? singlePanRef : undefined}
+                                className="relative h-full w-full will-change-transform"
+                            >
+                                <SmoothImage
+                                    src={img.src}
+                                    alt={img.alt}
+                                    fill
+                                    sizes={sizesAttr}
+                                    hiMaxWidth={size === "full" ? 2000 : 1400}
+                                    lqipWidth={24}
+                                    loading="lazy"
+                                />
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

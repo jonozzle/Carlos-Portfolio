@@ -8,7 +8,7 @@ import BioBlock from "@/components/blocks/hero/bio-block";
 import { PAGE_QUERYResult } from "@/sanity.types";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
-import { useLoader } from "@/components/loader-context";
+import { useLoader } from "@/components/loader/loader-context";
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
 type Props = Extract<Block, { _type: "hero-contents" }>;

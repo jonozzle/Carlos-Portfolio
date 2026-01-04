@@ -1,6 +1,6 @@
 // sanity/schemas/objects/hero-contents.ts
 import { defineType, defineField } from "sanity";
-import { LayoutTemplate, Image as ImageIcon } from "lucide-react";
+import { LayoutTemplate, Image as ImageIcon, Link as LinkIcon } from "lucide-react";
 
 export default defineType({
   name: "hero-contents",
@@ -12,6 +12,24 @@ export default defineType({
       name: "title",
       type: "string",
       description: "Optional heading",
+    }),
+
+    defineField({
+      name: "featuredLabel",
+      title: "Featured label",
+      type: "string",
+      description:
+        "Label shown before the featured project link (e.g. 'Latest Project'). If empty, the whole featured row is hidden.",
+    }),
+
+    defineField({
+      name: "featuredProject",
+      title: "Featured project",
+      type: "reference",
+      to: [{ type: "project" }],
+      icon: LinkIcon,
+      description:
+        "Optional single project shown in the header. If unset, the component can fall back to the first hero item.",
     }),
 
     defineField({
@@ -40,8 +58,39 @@ export default defineType({
     }),
 
     defineField({
+      name: "showBottomDivider",
+      title: "Show bottom divider line",
+      type: "boolean",
+      initialValue: true,
+      description: "Toggles the horizontal divider above the bottom actions/copyright.",
+    }),
+
+    defineField({
+      name: "bottomLayout",
+      title: "Bottom layout",
+      type: "string",
+      initialValue: "justified",
+      options: {
+        list: [
+          { title: "Justified (links left, copyright right)", value: "justified" },
+          { title: "Center (links centered, copyright below)", value: "center" },
+        ],
+        layout: "radio",
+      },
+      description: "Controls layout of the footer actions/copyright area.",
+    }),
+
+    defineField({
+      name: "showScrollHint",
+      title: "Show scroll hint",
+      type: "boolean",
+      initialValue: false,
+      description: "Shows a subtle right-edge scroll indicator (animated line extension).",
+    }),
+
+    defineField({
       name: "items",
-      title: "Featured Projects",
+      title: "Hero Projects",
       type: "array",
       of: [
         defineField({
@@ -65,64 +114,39 @@ export default defineType({
               description: "Optional. Falls back to project.featuredImage.",
             }),
             defineField({
-              name: "overlayImage",
-              title: "Overlay Image",
-              type: "image",
-              options: { hotspot: true },
-              icon: ImageIcon,
-              description:
-                "Optional transparent PNG layered on top of the text in the Feature Left layout.",
-            }),
-            defineField({
               name: "layout",
               title: "Layout / Animation",
               type: "string",
               options: {
                 list: [
-                  {
-                    title: "Feature Left (corner clip)",
-                    value: "feature-left",
-                  },
-                  {
-                    title: "Feature Right (reversed clip)",
-                    value: "feature-right",
-                  },
-                  {
-                    title: "Center Overlay (fade / scale)",
-                    value: "center-overlay",
-                  },
+                  { title: "Feature Left (corner clip)", value: "feature-left" },
+                  { title: "Feature Right (reversed clip)", value: "feature-right" },
+                  { title: "Center Overlay (fade / scale)", value: "center-overlay" },
                 ],
                 layout: "radio",
               },
               initialValue: "feature-left",
-              description:
-                "Controls both layout and in/out animation for this project when active.",
+              description: "Controls layout/animation for this project when active.",
             }),
             defineField({
               name: "x",
               title: "X position (%)",
               type: "number",
               validation: (r) => r.min(0).max(100),
-              description:
-                "0–100. Horizontal position of the link (used only in Custom placement).",
+              description: "0–100. Used only in Custom placement.",
             }),
             defineField({
               name: "y",
               title: "Y position (%)",
               type: "number",
               validation: (r) => r.min(0).max(100),
-              description:
-                "0–100. Vertical position of the link (used only in Custom placement).",
+              description: "0–100. Used only in Custom placement.",
             }),
           ],
           preview: {
             select: { title: "project.title", media: "image" },
             prepare({ title, media }) {
-              return {
-                title: title || "Untitled",
-                media,
-                subtitle: "Hero item",
-              };
+              return { title: title || "Untitled", media, subtitle: "Hero item" };
             },
           },
         }),
@@ -131,11 +155,11 @@ export default defineType({
     }),
   ],
   preview: {
-    select: { title: "title" },
-    prepare({ title }) {
+    select: { title: "title", featuredLabel: "featuredLabel" },
+    prepare({ title, featuredLabel }) {
       return {
         title: "Hero Contents",
-        subtitle: title || "Selected projects",
+        subtitle: featuredLabel ? `Featured: ${featuredLabel}` : title || "Selected projects",
       };
     },
   },

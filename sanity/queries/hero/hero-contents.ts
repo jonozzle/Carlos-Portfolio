@@ -7,8 +7,23 @@ export const heroContentsQuery = groq`
     _type,
     _key,
     title,
+
     "showNumbers": coalesce(showNumbers, false),
     "linksLayout": coalesce(linksLayout, "custom"),
+
+    "showBottomDivider": coalesce(showBottomDivider, true),
+    "bottomLayout": coalesce(bottomLayout, "justified"),
+    "showScrollHint": coalesce(showScrollHint, false),
+
+    "featuredLabel": coalesce(featuredLabel, ""),
+    "featuredProject": select(
+      defined(featuredProject) => featuredProject->{
+        "title": coalesce(title, "Untitled"),
+        "slug": slug.current
+      },
+      null
+    ),
+
     "items": items[]{
       "title": coalesce(project->title, "Untitled"),
       "slug": project->slug.current,
@@ -21,13 +36,6 @@ export const heroContentsQuery = groq`
         defined(project->featuredImage) => {
           "asset": {"url": project->featuredImage.asset->url},
           "alt": project->featuredImage.alt
-        },
-        null
-      ),
-      "overlayImage": select(
-        defined(overlayImage) => {
-          "asset": {"url": overlayImage.asset->url},
-          "alt": overlayImage.alt
         },
         null
       ),

@@ -11,17 +11,18 @@ gsap.registerPlugin(ScrollTrigger);
 
 type StylizedLabelProps = {
   text: string;
-  animateOnMount?: boolean;
-  animateOnScroll?: boolean;
+  animateOnMount?: boolean; // loader one-shot
+  animateOnScroll?: boolean; // scroll-triggered
 };
 
-function requestIdle(fn: () => void, timeout = 350) {
-  // @ts-ignore
-  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
-    // @ts-ignore
-    return window.requestIdleCallback(fn, { timeout });
+function getHsContainerAnimation(): gsap.core.Animation | null {
+  try {
+    const parentST = ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null;
+    const anim = (parentST as any)?.animation as gsap.core.Animation | undefined;
+    return anim ?? null;
+  } catch {
+    return null;
   }
-  return window.setTimeout(fn, 0);
 }
 
 export function StylizedLabel({
@@ -42,9 +43,10 @@ export function StylizedLabel({
       const letters = container.querySelectorAll<HTMLElement>("[data-letter]");
       if (!letters.length) return;
 
-      // MODE 1: animate once on mount (no ScrollTrigger)
+      // MODE 1: one-shot mount animation (loader)
       if (animateOnMount && !animateOnScroll) {
         const tl = gsap.timeline();
+
         gsap.set(letters, { clearProps: "transform,opacity" });
 
         tl.fromTo(
@@ -56,6 +58,7 @@ export function StylizedLabel({
             duration: 0.8,
             ease: "power3.out",
             stagger: 0.03,
+            clearProps: "transform,opacity",
           }
         );
 
@@ -65,89 +68,97 @@ export function StylizedLabel({
       if (!animateOnScroll) return;
 
       const panel = container.closest("section") as HTMLElement | null;
-      const rail = panel?.closest(".hs-rail") as HTMLElement | null;
+      const rail = container.closest(".hs-rail") as HTMLElement | null;
+      const isInsideRail = !!rail;
 
-      const timeline = gsap.timeline({ paused: true });
+      const tl = gsap.timeline({ paused: true });
 
-      timeline.from(letters, {
-        y: 80,
-        opacity: 0,
+      // Set initial state explicitly (avoid immediateRender surprises)
+      gsap.set(letters, { y: 80, opacity: 0, willChange: "transform,opacity" });
+
+      tl.to(letters, {
+        y: 0,
+        opacity: 1,
         duration: 0.6,
         ease: "circ.out",
         stagger: 0.02,
-        immediateRender: true,
+        clearProps: "willChange",
       });
 
       let st: ScrollTrigger | null = null;
 
-      const setupAnimation = () => {
-        const parentST = ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null;
-        const containerAnimation = (parentST as any)?.animation;
+      const makeTrigger = (containerAnimation: gsap.core.Animation | null) => {
+        st?.kill();
+        st = null;
 
         const callbacks = {
-          onEnter: () => timeline.play(0),
-          onLeave: () => timeline.reverse(),
-          onEnterBack: () => timeline.play(),
-          onLeaveBack: () => timeline.reverse(0),
+          onEnter: () => tl.play(0),
+          onLeave: () => tl.reverse(),
+          onEnterBack: () => tl.play(),
+          onLeaveBack: () => tl.reverse(0),
         };
 
-        st?.kill();
+        // If we're inside the HS rail, we REQUIRE containerAnimation.
+        if (isInsideRail) {
+          if (!containerAnimation) return false;
 
-        if (panel && rail && containerAnimation) {
           st = ScrollTrigger.create({
-            trigger: panel,
+            trigger: panel ?? container,
             containerAnimation,
             start: "left 80%",
             end: "right 20%",
             ...callbacks,
           });
-        } else {
-          st = ScrollTrigger.create({
-            trigger: panel ?? container,
-            start: "top 80%",
-            end: "bottom 20%",
-            ...callbacks,
-          });
+
+          return true;
         }
 
-        // IMPORTANT: do NOT call ScrollTrigger.refresh(true) here.
-        // Queue refresh so it never happens at scroll settle.
-        scheduleScrollTriggerRefresh();
+        // Normal vertical page
+        st = ScrollTrigger.create({
+          trigger: panel ?? container,
+          start: "top 80%",
+          end: "bottom 20%",
+          ...callbacks,
+        });
+
+        return true;
       };
 
-      const shouldWaitForHs = !!(rail && !ScrollTrigger.getById("hs-horizontal"));
+      const ensure = () => {
+        const containerAnimation = getHsContainerAnimation();
+        const ok = makeTrigger(containerAnimation);
 
-      if (shouldWaitForHs) {
-        // Prefer event; fallback to idle (no timers hitting scroll end)
-        const onReady = () => setupAnimation();
+        if (ok) {
+          // Never refresh synchronously here. Queue it.
+          scheduleScrollTriggerRefresh();
+        }
+
+        return ok;
+      };
+
+      // If in rail and hs-horizontal isn't ready yet, wait for hs-ready (no fallback trigger).
+      if (isInsideRail && !getHsContainerAnimation()) {
+        const onReady = () => {
+          ensure();
+        };
         window.addEventListener("hs-ready", onReady, { once: true });
-
-        const idleId = requestIdle(() => {
-          // if HS never arrives, still set up a normal trigger
-          setupAnimation();
-        });
 
         return () => {
           window.removeEventListener("hs-ready", onReady as any);
-          // @ts-ignore
-          if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idleId);
-          else clearTimeout(idleId);
           st?.kill();
-          timeline.kill();
+          tl.kill();
         };
       }
 
-      setupAnimation();
+      // Otherwise create immediately
+      ensure();
 
       return () => {
         st?.kill();
-        timeline.kill();
+        tl.kill();
       };
     },
-    {
-      scope: containerRef,
-      dependencies: [animateOnMount, animateOnScroll, text],
-    }
+    { scope: containerRef, dependencies: [animateOnMount, animateOnScroll, text] }
   );
 
   const words = text.trim().split(/\s+/);
@@ -156,11 +167,11 @@ export function StylizedLabel({
     <span ref={containerRef} aria-label={text}>
       {words.map((word, wordIndex) => {
         if (!word.length) return null;
-        const letters = Array.from(word);
+        const chars = Array.from(word);
 
         return (
           <span key={wordIndex} className="inline-block mr-2 align-baseline">
-            {letters.map((char, charIndex) => {
+            {chars.map((char, charIndex) => {
               const isFirstLetter = charIndex === 0;
 
               return (
