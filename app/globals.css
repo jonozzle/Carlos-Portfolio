@@ -127,12 +127,6 @@ body {
 }
 
 
-/* default: no transition during scroll/compositing */
-:root,
-html,
-body {
-  transition: none;
-}
 
 
 .contain-paint {

@@ -1,6 +1,7 @@
+// nav-intent
 // lib/nav-intent.ts
 export type NavIntent =
-  | { kind: "project-to-home"; restoreY: number }
+  | { kind: "project-to-home"; homeSectionId: string | null }
   | { kind: "none" };
 
 const KEY = "__navIntent";

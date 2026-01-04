@@ -1,12 +1,14 @@
+// PageTransitionButton
 // components/page-transition-button.tsx
 "use client";
 
 import React, { useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { startHeroTransition } from "@/lib/hero-transition";
-import type { PageDirection } from "@/lib/transitions/state";
-import { saveScrollForPath, getCurrentScrollY } from "@/lib/scroll-state";
-import { saveHsProgressNow } from "@/lib/hs-scroll";
+import type { PageDirection, PageTransitionKind } from "@/lib/transitions/state";
+import { saveScrollForPath } from "@/lib/scroll-state";
+import { getActiveHomeSection, saveActiveHomeSectionNow } from "@/lib/home-section";
+import { lockAppScroll } from "@/lib/scroll-lock";
 
 type Props = React.PropsWithChildren<{
   href: string;
@@ -33,15 +35,20 @@ export default function PageTransitionButton({
   const router = useRouter();
   const pathname = usePathname();
 
-  const onNavigate = useCallback(() => {
-    (window as any).__pageTransitionPending = {
-      direction,
-      fromPath: pathname,
-      scrollTop: getCurrentScrollY(),
-    };
+  const onNavigate = useCallback(
+    (kind: PageTransitionKind, homeSectionId?: string | null, homeSectionType?: string | null) => {
+      (window as any).__pageTransitionPending = {
+        direction,
+        fromPath: pathname,
+        kind,
+        homeSectionId: homeSectionId ?? null,
+        homeSectionType: homeSectionType ?? null,
+      };
 
-    router.push(href);
-  }, [direction, href, pathname, router]);
+      router.push(href);
+    },
+    [direction, href, pathname, router]
+  );
 
   const onClick = useCallback(
     (e: React.MouseEvent) => {
@@ -51,30 +58,40 @@ export default function PageTransitionButton({
 
       e.preventDefault();
 
-      // Save current route scroll immediately
-      saveScrollForPath(pathname);
+      // Always lock scroll for any nav event
+      lockAppScroll();
 
-      // If leaving HOME, save horizontal progress (this is the real "where I was")
-      if (pathname === "/") {
-        saveHsProgressNow();
-      }
+      // Save “where we are” (HOME = section-id, others = scrollY)
+      const activeHome = pathname === "/" ? getActiveHomeSection() : null;
+      if (pathname === "/") saveActiveHomeSectionNow();
+      else saveScrollForPath(pathname);
 
       const slug = heroSlug?.trim();
       const sourceEl = heroSourceRef?.current ?? null;
 
+      // Decide transition kind
+      let kind: PageTransitionKind = "simple";
+
+      const isProjectRoute = href.startsWith("/projects/");
       if (slug && sourceEl && heroImgUrl) {
+        kind = "hero";
         startHeroTransition({
           slug,
           sourceEl,
           imgUrl: heroImgUrl,
-          onNavigate,
+          onNavigate: () => onNavigate(kind, activeHome?.id ?? null, activeHome?.type ?? null),
         });
         return;
       }
 
-      onNavigate();
+      // HOME hero-contents => project: no flying hero, just fade hero on project page
+      if (pathname === "/" && isProjectRoute && activeHome?.type === "hero-contents") {
+        kind = "fadeHero";
+      }
+
+      onNavigate(kind, activeHome?.id ?? null, activeHome?.type ?? null);
     },
-    [disabled, heroImgUrl, heroSlug, heroSourceRef, onNavigate, pathname]
+    [disabled, heroImgUrl, heroSlug, heroSourceRef, href, onNavigate, pathname]
   );
 
   return (

@@ -11,6 +11,10 @@ export const APP_EVENTS = {
   SCROLL_START: "app-scroll-start",
   SCROLL_END: "app-scroll-end",
 
+  // hard scroll lock during transitions
+  APP_SCROLL_LOCK: "app-scroll-lock",
+  APP_SCROLL_UNLOCK: "app-scroll-unlock",
+
   // UI reveal / FOUC gating helpers
   UI_CURSOR_SHOW: "ui-cursor-show",
   UI_CURSOR_HIDE: "ui-cursor-hide",

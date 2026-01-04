@@ -49,6 +49,7 @@ import pageLinkSection from "./schemas/blocks/page-link-section";
 import footer from "./schemas/blocks/footer";
 import singleImage from "./schemas/blocks/single-image";
 import projectBlock from "./schemas/blocks/project/project-block";
+import spacer from "./schemas/blocks/spacer";
 
 export const schema: { types: SchemaTypeDefinition[] } = {
   types: [
@@ -101,5 +102,6 @@ export const schema: { types: SchemaTypeDefinition[] } = {
     pageLinkSection,
     singleImage,
     projectBlock,
+    spacer,
   ],
 };

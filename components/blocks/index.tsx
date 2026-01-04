@@ -1,4 +1,6 @@
-//components/blocks/index.tsx
+// Blocks
+// components/blocks/index.tsx
+import React from "react";
 import { PAGE_QUERYResult } from "@/sanity.types";
 import Hero1 from "@/components/blocks/hero/hero-1";
 import Hero2 from "@/components/blocks/hero/hero-2";
@@ -20,13 +22,13 @@ import AdSection from "@/components/ads/ad-section";
 import PageLinkSection from "./page-link-section";
 import SingleImage from "./single-image";
 import ProjectBlock from "./project/project-block";
+import Spacer from "./spacer";
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
 
 const componentMap: {
   [K in Block["_type"]]: React.ComponentType<Extract<Block, { _type: K }>>;
 } = {
-
   "hero-1": Hero1,
   "hero-2": Hero2,
   "hero-contents": HeroContents,
@@ -47,14 +49,14 @@ const componentMap: {
   "page-link-section": PageLinkSection,
   "single-image": SingleImage,
   "project-block": ProjectBlock,
-
+  spacer: Spacer,
 };
 
-// components/blocks/index.tsx
+// Blocks
 export default function Blocks({ blocks }: { blocks: Block[] }) {
   return (
     <>
-      {blocks?.map((block) => {
+      {blocks?.map((block, i) => {
         const Component = componentMap[block._type as keyof typeof componentMap];
         if (!Component) {
           console.warn(`No component implemented for block type: ${block._type}`);
@@ -64,8 +66,10 @@ export default function Blocks({ blocks }: { blocks: Block[] }) {
         return (
           <div
             key={block._key}
-            className="flex-none  h-[100vh] will-change-transform transform-gpu"
-
+            className="flex-none h-[100vh] will-change-transform transform-gpu"
+            data-section-id={block._key}
+            data-section-type={block._type}
+            data-section-index={i}
           >
             <Component {...(block as any)} />
           </div>
@@ -74,4 +78,3 @@ export default function Blocks({ blocks }: { blocks: Block[] }) {
     </>
   );
 }
-

@@ -1,3 +1,4 @@
+// HorizontalScroller
 // components/scroll/horizontal-scroller.tsx
 "use client";
 
@@ -11,6 +12,16 @@ if (typeof window !== "undefined") {
 }
 
 type Props = { children: React.ReactNode; className?: string };
+
+type HomeActiveSection = {
+  id: string;
+  type: string;
+  index: number;
+};
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
 
 export default function HorizontalScroller({ children, className = "" }: Props) {
   const containerRef = useRef<HTMLElement | null>(null);
@@ -34,12 +45,59 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
 
     let readyOnce = false;
 
+    let lastActiveId: string | null = null;
+
     const dispatch = (name: "hs-ready" | "hs-rebuilt") => {
       try {
         window.dispatchEvent(new Event(name));
       } catch {
         // ignore
       }
+    };
+
+    const publishActive = (next: HomeActiveSection) => {
+      if (lastActiveId === next.id) return;
+      lastActiveId = next.id;
+
+      try {
+        (window as any).__homeActiveSection = next;
+      } catch {
+        // ignore
+      }
+
+      try {
+        window.dispatchEvent(new CustomEvent("home-active-section-change", { detail: next }));
+      } catch {
+        // ignore
+      }
+    };
+
+    const computeActive = (self: ScrollTrigger, amountToScroll: number) => {
+      const panels = Array.from(track.querySelectorAll<HTMLElement>("[data-section-id]"));
+      if (!panels.length) return;
+
+      const vw = window.innerWidth || 1;
+      const x = self.progress * amountToScroll;
+      const centerX = x + vw / 2;
+
+      let bestIdx = 0;
+      let bestDist = Number.POSITIVE_INFINITY;
+
+      for (let i = 0; i < panels.length; i++) {
+        const p = panels[i];
+        const cx = p.offsetLeft + p.offsetWidth / 2;
+        const d = Math.abs(cx - centerX);
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+
+      const el = panels[bestIdx];
+      const id = el.getAttribute("data-section-id") || "";
+      const type = el.getAttribute("data-section-type") || "";
+
+      if (id) publishActive({ id, type, index: bestIdx });
     };
 
     const killInstance = () => {
@@ -81,6 +139,14 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
       if (!Number.isFinite(amountToScroll) || amountToScroll <= 0) {
         spacer.style.height = "0px";
         gsap.set(track, { x: 0 });
+
+        // still publish an “active section” (first panel)
+        const first = track.querySelector<HTMLElement>("[data-section-id]");
+        if (first) {
+          const id = first.getAttribute("data-section-id") || "";
+          const type = first.getAttribute("data-section-type") || "";
+          if (id) publishActive({ id, type, index: 0 });
+        }
 
         if (!readyOnce) {
           readyOnce = true;
@@ -132,15 +198,17 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
           anticipatePin: 0,
           invalidateOnRefresh: false,
           animation: tl,
+          onUpdate: (self) => computeActive(self, amountToScroll),
         });
       }, container);
 
-      // Make the containerAnimation immediately readable (ads, project progress lines, etc.)
       try {
         ScrollTrigger.update();
       } catch {
         // ignore
       }
+
+      if (st) computeActive(st, amountToScroll);
 
       if (!readyOnce) {
         readyOnce = true;
@@ -155,12 +223,10 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
       raf = requestAnimationFrame(build);
     };
 
-    // Initial build after layout settles
     raf = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(build);
     });
 
-    // Rebuild when the rail width changes (image decode, font swap, etc.) — avoids global refresh hitches
     ro = new ResizeObserver(() => scheduleBuild());
     ro.observe(track);
 

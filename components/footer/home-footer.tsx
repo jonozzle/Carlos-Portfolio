@@ -251,7 +251,7 @@ export default function HomeFooter({ footer }: Props) {
                     <div className="relative h-full w-full overflow-hidden">
                         <div
                             ref={marqueeTrackRef}
-                            className="flex flex-col w-full will-change-transform transform-gpu [transform:translate3d(0,0,0)]"
+                            className="flex flex-col w-full will-change-transform transform-gpu"
                             aria-hidden="true"
                         >
                             {scrollingImages.map((img, i) => {

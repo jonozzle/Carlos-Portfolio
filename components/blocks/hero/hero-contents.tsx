@@ -144,6 +144,14 @@ function InlineArrow() {
 export default function HeroContents(props: Props & { onIndexAction?: RuntimeIndexAction }) {
   const { loaderDone } = useLoader();
 
+  // If this component mounted while the loader was still running, skip the
+  // right-column "entrance" tween for this mount (loader already handled reveal).
+  const loaderWasActiveOnMountRef = useRef<boolean>(!loaderDone);
+  useEffect(() => {
+    // Make it sticky: if we ever observe "not done", treat this mount as loader-controlled.
+    if (!loaderDone) loaderWasActiveOnMountRef.current = true;
+  }, [loaderDone]);
+
   // Robust skip signal: default read + event update (prevents race with loader)
   const [skipInitialEntrance, setSkipInitialEntrance] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -162,7 +170,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     return () => window.removeEventListener("page-enter-skip-initial", onSkip);
   }, []);
 
-  const shouldRunEntrance = loaderDone && !skipInitialEntrance;
+  // Only run our entrance if:
+  // - loader is done
+  // - no explicit skip
+  // - AND the loader did NOT control the initial reveal for this mount
+  const shouldRunEntrance =
+    loaderDone && !skipInitialEntrance && !loaderWasActiveOnMountRef.current;
 
   const showNumbers = !!(props as any)?.showNumbers;
 
@@ -513,6 +526,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       gsap.set(left, { autoAlpha: 1 });
       gsap.set(nextLayer, { autoAlpha: 0, clipPath: CLIP_HIDDEN_TOP });
 
+      // If loader handled reveal (or we must skip), ensure the right is just "there".
       if (!shouldRunEntrance || prefersReduced) {
         gsap.set(right, { autoAlpha: 1, y: 0, clearProps: "willChange" });
         return;

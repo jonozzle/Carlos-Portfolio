@@ -1,10 +1,25 @@
+// PageLinkSection
 // components/blocks/page-link-section.tsx
 "use client";
 
-import React, { useCallback, useMemo, useRef, useState, CSSProperties } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+} from "react";
+import { gsap } from "gsap";
 import SmoothImage from "@/components/ui/smooth-image";
-import { useTheme } from "@/components/theme-provider";
+import { useThemeActions } from "@/components/theme-provider";
 import PageTransitionButton from "@/components/page-transition-button";
+import { APP_EVENTS } from "@/lib/app-events";
+import {
+  HOVER_EVENTS,
+  getLastMouse,
+  hasRecentPointerMove,
+  isHoverLocked,
+} from "@/lib/hover-lock";
 
 type Theme = { bg?: string | null; text?: string | null } | null;
 
@@ -43,8 +58,6 @@ type Props = {
   customPadding?: number | null;
 };
 
-type ThemeContext = ReturnType<typeof useTheme>;
-
 function isAppScrolling() {
   if (typeof window === "undefined") return false;
   return !!(window as any).__appScrolling;
@@ -69,25 +82,37 @@ function StylizedLabel({ text }: { text: string }) {
   );
 }
 
+type TileHandle = {
+  dimEls: Array<HTMLElement | null>;
+  hitEl: HTMLElement | null;
+  setHover: (on: boolean, immediate?: boolean) => void;
+};
+
 type TileProps = {
   item: PageLinkItem;
   index: number;
   isHalf: boolean;
-  themeCtx: ThemeContext;
-  activeIndex: number | null;
-  setActiveIndex: React.Dispatch<React.SetStateAction<number | null>>;
+  register: (index: number, handle: TileHandle) => void;
+  unregister: (index: number) => void;
+  activate: (index: number, theme: Theme) => void;
+  activateFromUnlock: (index: number, theme: Theme) => void;
+  deactivate: (index: number) => void;
 };
 
 const PageLinkTile = React.memo(function PageLinkTile({
   item,
-  isHalf,
   index,
-  themeCtx,
-  activeIndex,
-  setActiveIndex,
+  isHalf,
+  register,
+  unregister,
+  activate,
+  activateFromUnlock,
+  deactivate,
 }: TileProps) {
+  const hitRef = useRef<HTMLDivElement | null>(null);
   const imgTileRef = useRef<HTMLDivElement | null>(null);
-  const { previewTheme, clearPreview, lockTheme } = themeCtx;
+  const textRef = useRef<HTMLDivElement | null>(null);
+  const imgScaleRef = useRef<HTMLDivElement | null>(null);
 
   const slug = item.page?.slug ?? "";
   const isExternal = !!item.externalUrl;
@@ -106,40 +131,83 @@ const PageLinkTile = React.memo(function PageLinkTile({
   const labelText = item.label ?? item.page?.title ?? "Untitled";
   const sizes = isHalf ? "50vw" : "33vw";
 
-  const isActive = activeIndex === index;
-  const dimState: "active" | "inactive" = isActive ? "active" : "inactive";
+  const setHover = useCallback((on: boolean, immediate?: boolean) => {
+    const el = imgScaleRef.current;
+    if (!el) return;
 
-  const clearHover = useCallback(() => {
-    if (hasTheme) clearPreview();
-    setActiveIndex((prev) => (prev === index ? null : prev));
-  }, [hasTheme, clearPreview, setActiveIndex, index]);
+    gsap.killTweensOf(el);
 
-  const handleEnter = useCallback(() => {
+    if (immediate) {
+      gsap.set(el, { scale: 1 });
+      return;
+    }
+
+    gsap.to(el, {
+      scale: on ? 1.1 : 1,
+      duration: 0.55,
+      ease: "power3.out",
+      overwrite: true,
+    });
+  }, []);
+
+  useEffect(() => {
+    register(index, {
+      dimEls: [imgTileRef.current, textRef.current],
+      hitEl: hitRef.current,
+      setHover,
+    });
+
+    return () => unregister(index);
+  }, [index, register, unregister, setHover]);
+
+  // When hover unlocks after transition, if mouse is currently over this tile, apply hover smoothly.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onUnlocked = () => {
+      const hit = hitRef.current;
+      if (!hit) return;
+
+      const pos = getLastMouse();
+      if (!pos) return;
+
+      const under = document.elementFromPoint(pos.x, pos.y);
+      if (under && hit.contains(under)) {
+        // baseline first, then activate (bypass idle gating)
+        setHover(false, true);
+        requestAnimationFrame(() => activateFromUnlock(index, theme));
+      }
+    };
+
+    window.addEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked);
+    return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
+  }, [activateFromUnlock, index, theme, setHover]);
+
+  const onMouseEnter = useCallback(() => {
     if (isAppScrolling()) return;
-    if (hasTheme) previewTheme(theme);
-    setActiveIndex(index);
-  }, [hasTheme, previewTheme, theme, setActiveIndex, index]);
+    if (isHoverLocked()) return;
+    if (!hasRecentPointerMove(180)) return;
 
-  const handleLeave = useCallback(() => {
+    activate(index, hasTheme ? theme : null);
+  }, [activate, index, hasTheme, theme]);
+
+  const onMouseLeave = useCallback(() => {
     if (isAppScrolling()) return;
-    clearHover();
-  }, [clearHover]);
+    if (isHoverLocked()) return;
+    deactivate(index);
+  }, [deactivate, index]);
 
-  // Lock theme just before internal navigation kicks in.
-  const handleInternalClickCapture = useCallback(() => {
-    if (isInternal && hasTheme) lockTheme(theme);
-  }, [isInternal, hasTheme, lockTheme, theme]);
+  const onFocus = useCallback(() => {
+    if (isAppScrolling()) return;
+    if (isHoverLocked()) return;
+    activate(index, hasTheme ? theme : null);
+  }, [activate, index, hasTheme, theme]);
 
-  const textBlock = (
-    <div className="flex flex-col items-start text-left">
-      <div className="text-xl md:text-4xl font-serif font-semibold leading-tight tracking-tighter">
-        <StylizedLabel text={labelText} />
-      </div>
-      {item.subline ? (
-        <div className="text-[11px] md:text-xs opacity-80 mt-1">{item.subline}</div>
-      ) : null}
-    </div>
-  );
+  const onBlur = useCallback(() => {
+    if (isAppScrolling()) return;
+    if (isHoverLocked()) return;
+    deactivate(index);
+  }, [deactivate, index]);
 
   const heroProps = isInternal
     ? {
@@ -153,37 +221,40 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
   const renderImage = () => {
     return (
-      <div className="relative w-full h-full">
-        {imgUrl ? (
-          <SmoothImage
-            src={imgUrl}
-            alt={alt}
-            fill
-            sizes={sizes}
-            lqipWidth={16}
-            objectFit="cover"
-            loading="lazy"
-          />
-        ) : (
-          <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
-            No image
-          </div>
-        )}
+      <div className="relative w-full h-full overflow-hidden">
+        <div ref={imgScaleRef} className="relative w-full h-full will-change-transform transform-gpu">
+          {imgUrl ? (
+            <SmoothImage
+              src={imgUrl}
+              alt={alt}
+              fill
+              sizes={sizes}
+              lqipWidth={16}
+              objectFit="cover"
+              loading="lazy"
+            />
+          ) : (
+            <div className="absolute inset-0 grid place-items-center text-xs opacity-60">No image</div>
+          )}
+        </div>
       </div>
     );
   };
 
-  const renderContent = () => {
-    if (!href) {
-      return (
-        <div className="flex flex-col h-full min-h-0">
-          <div className="relative w-full flex-1 min-h-0 overflow-hidden">{renderImage()}</div>
-          <div className="mt-3 shrink-0">{textBlock}</div>
-        </div>
-      );
-    }
+  const textBlock = (
+    <div className="flex flex-col items-start text-left">
+      <div className="text-xl md:text-4xl font-serif font-semibold leading-tight tracking-tighter">
+        <StylizedLabel text={labelText} />
+      </div>
+      {item.subline ? (
+        <div className="text-[11px] md:text-xs opacity-80 mt-1">{item.subline}</div>
+      ) : null}
+    </div>
+  );
 
-    const ImageWrapper: React.ComponentType<{ children: React.ReactNode }> = isInternal
+  const ImageWrapper: React.ComponentType<{ children: React.ReactNode }> = !href
+    ? ({ children }) => <>{children}</>
+    : isInternal
       ? ({ children }) => (
         <PageTransitionButton
           {...(heroProps as any)}
@@ -198,7 +269,9 @@ const PageLinkTile = React.memo(function PageLinkTile({
         </a>
       );
 
-    const TextWrapper: React.ComponentType<{ children: React.ReactNode }> = isInternal
+  const TextWrapper: React.ComponentType<{ children: React.ReactNode }> = !href
+    ? ({ children }) => <>{children}</>
+    : isInternal
       ? ({ children }) => (
         <PageTransitionButton {...(heroProps as any)} className="inline-flex flex-col text-left">
           {children}
@@ -210,129 +283,211 @@ const PageLinkTile = React.memo(function PageLinkTile({
         </a>
       );
 
-    switch (textPosition) {
-      case "top-right":
-        return (
-          <div className="grid grid-cols-[3fr,2fr] gap-2 md:gap-3 h-full min-h-0 items-stretch">
-            <div
-              ref={imgTileRef}
-              data-hero-slug={isInternal ? slug : undefined}
-              className="relative w-full h-full min-h-0 overflow-hidden"
-              data-dim-item={dimState}
-            >
-              <ImageWrapper>{renderImage()}</ImageWrapper>
-            </div>
+  const content =
+    textPosition === "top-right" ? (
+      <div className="grid grid-cols-[3fr,2fr] gap-2 md:gap-3 h-full min-h-0 items-stretch">
+        <div
+          ref={imgTileRef}
+          data-hero-slug={isInternal ? slug : undefined}
+          className="relative w-full h-full min-h-0 overflow-hidden"
+        >
+          <ImageWrapper>{renderImage()}</ImageWrapper>
+        </div>
 
-            <div className="self-start" data-dim-item={dimState}>
-              <TextWrapper>{textBlock}</TextWrapper>
-            </div>
+        <div ref={textRef} className="self-start">
+          <TextWrapper>{textBlock}</TextWrapper>
+        </div>
+      </div>
+    ) : textPosition === "center-over" ? (
+      <div
+        ref={imgTileRef}
+        data-hero-slug={isInternal ? slug : undefined}
+        className="relative w-full h-full min-h-0 overflow-hidden"
+      >
+        <ImageWrapper>{renderImage()}</ImageWrapper>
+
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
+          <div className="inline-flex flex-col items-center text-center">
+            <span className="text-lg md:text-8xl font-serif font-semibold tracking-tighter">
+              <StylizedLabel text={labelText} />
+            </span>
+            {item.subline ? (
+              <span className="text-[11px] md:text-xs opacity-80 mt-1">{item.subline}</span>
+            ) : null}
           </div>
-        );
+        </div>
+      </div>
+    ) : (
+      <div className="flex flex-col h-full min-h-0">
+        <div
+          ref={imgTileRef}
+          data-hero-slug={isInternal ? slug : undefined}
+          className="relative w-full flex-1 min-h-0 overflow-hidden"
+        >
+          <ImageWrapper>{renderImage()}</ImageWrapper>
+        </div>
 
-      case "center-over":
-        return (
-          <div
-            ref={imgTileRef}
-            data-hero-slug={isInternal ? slug : undefined}
-            className="relative w-full h-full min-h-0 overflow-hidden"
-            data-dim-item={dimState}
-          >
-            <ImageWrapper>{renderImage()}</ImageWrapper>
-
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
-              <div className="inline-flex flex-col items-center text-center" data-dim-item={dimState}>
-                <span className="text-lg md:text-8xl font-serif font-semibold tracking-tighter">
-                  <StylizedLabel text={labelText} />
-                </span>
-                {item.subline ? (
-                  <span className="text-[11px] md:text-xs opacity-80 mt-1">{item.subline}</span>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        );
-
-      case "below-left":
-      default:
-        return (
-          <div className="flex flex-col h-full min-h-0" data-dim-item={dimState}>
-            <div
-              ref={imgTileRef}
-              data-hero-slug={isInternal ? slug : undefined}
-              className="relative w-full flex-1 min-h-0 overflow-hidden"
-            >
-              <ImageWrapper>{renderImage()}</ImageWrapper>
-            </div>
-
-            <div className="mt-3 shrink-0">
-              <TextWrapper>{textBlock}</TextWrapper>
-            </div>
-          </div>
-        );
-    }
-  };
+        <div ref={textRef} className="mt-3 shrink-0">
+          <TextWrapper>{textBlock}</TextWrapper>
+        </div>
+      </div>
+    );
 
   return (
     <div
+      ref={hitRef}
       className="flex flex-col text-left cursor-pointer h-full min-h-0"
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
-      onFocus={handleEnter}
-      onBlur={handleLeave}
-      onClickCapture={handleInternalClickCapture}
-      data-dim-item={dimState}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onFocus={onFocus}
+      onBlur={onBlur}
     >
-      {renderContent()}
+      {content}
     </div>
   );
 });
 
-/* -------------------------------------------------------
-   Section wrapper (scoped dimming; NO scroll listeners)
-------------------------------------------------------- */
 export default function PageLinkSection(props: Props) {
-  const themeCtx = useTheme();
+  const theme = useThemeActions();
   const items = useMemo(() => props.items ?? [], [props.items]);
 
   const isHalf = props.width === "half";
   const widthClass = isHalf ? "w-[50vw]" : "w-screen";
   const paddingMode = props.paddingMode ?? "default";
 
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const activeRef = useRef<number | null>(null);
+  const handlesRef = useRef(new Map<number, TileHandle>());
+
+  const register = useCallback((index: number, handle: TileHandle) => {
+    handlesRef.current.set(index, handle);
+  }, []);
+
+  const unregister = useCallback((index: number) => {
+    handlesRef.current.delete(index);
+  }, []);
+
+  const setDim = useCallback((activeIndex: number | null) => {
+    activeRef.current = activeIndex;
+
+    for (const [i, h] of handlesRef.current.entries()) {
+      for (const el of h.dimEls) {
+        if (!el) continue;
+        if (activeIndex == null) {
+          el.removeAttribute("data-dim-item");
+        } else {
+          el.setAttribute("data-dim-item", i === activeIndex ? "active" : "inactive");
+        }
+      }
+    }
+
+    try {
+      const root = document.documentElement as any;
+      if (activeIndex == null) delete root.dataset.dimItems;
+      else root.dataset.dimItems = "true";
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const clearAll = useCallback(
+    (immediateScale = false) => {
+      const curr = activeRef.current;
+      setDim(null);
+      theme.clearPreview({ animate: true });
+
+      if (curr != null) {
+        const h = handlesRef.current.get(curr);
+        h?.setHover(false, immediateScale);
+      } else {
+        // ensure no tile is stuck scaled
+        for (const h of handlesRef.current.values()) h.setHover(false, immediateScale);
+      }
+    },
+    [setDim, theme]
+  );
+
+  const activate = useCallback(
+    (index: number, t: Theme) => {
+      const prev = activeRef.current;
+
+      if (prev != null && prev !== index) {
+        handlesRef.current.get(prev)?.setHover(false);
+      }
+
+      setDim(index);
+
+      if (t?.bg || t?.text) theme.previewTheme(t, { animate: true });
+      else theme.clearPreview({ animate: true });
+
+      handlesRef.current.get(index)?.setHover(true);
+    },
+    [setDim, theme]
+  );
+
+  const activateFromUnlock = useCallback(
+    (index: number, t: Theme) => {
+      // baseline first (avoids “jump” when the home becomes visible under the pointer)
+      handlesRef.current.get(index)?.setHover(false, true);
+
+      // bypass idle gating (this is explicitly after unlock)
+      const prev = activeRef.current;
+      if (prev != null && prev !== index) handlesRef.current.get(prev)?.setHover(false);
+
+      setDim(index);
+
+      if (t?.bg || t?.text) theme.previewTheme(t, { animate: true });
+      else theme.clearPreview({ animate: true });
+
+      handlesRef.current.get(index)?.setHover(true);
+    },
+    [setDim, theme]
+  );
+
+  const deactivate = useCallback(
+    (index: number) => {
+      if (activeRef.current !== index) return;
+      clearAll(false);
+    },
+    [clearAll]
+  );
+
+  // Clear on scroll start (prevents hover/theme churn while scrolling)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onScrollStart = () => clearAll(true);
+    window.addEventListener(APP_EVENTS.SCROLL_START, onScrollStart);
+
+    return () => window.removeEventListener(APP_EVENTS.SCROLL_START, onScrollStart as any);
+  }, [clearAll]);
 
   let paddingClass = "";
-  const sectionStyle: CSSProperties = {
-    containIntrinsicSize: "100vh 50vw",
-  };
+  const sectionStyle: CSSProperties = { containIntrinsicSize: "100vh 50vw" };
 
-  if (paddingMode === "default") {
-    paddingClass = "p-2 md:p-4";
-  } else if (paddingMode === "none") {
-    paddingClass = "p-0";
-  } else if (paddingMode === "custom") {
+  if (paddingMode === "default") paddingClass = "p-2 md:p-4";
+  else if (paddingMode === "none") paddingClass = "p-0";
+  else if (paddingMode === "custom") {
     const v = typeof props.customPadding === "number" ? props.customPadding : 0;
     sectionStyle.padding = `${v}px`;
   }
 
-  const tileColumns = isHalf ? "repeat(1, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))";
-
-  const dimScopeOn = activeIndex !== null;
+  const tileColumns = isHalf
+    ? "repeat(1, minmax(0, 1fr))"
+    : "repeat(3, minmax(0, 1fr))";
 
   return (
     <section
       className={`${widthClass} h-screen ${paddingClass} gap-2 md:gap-3 grid grid-cols-12 grid-rows-12 relative overflow-hidden will-change-transform`}
       style={sectionStyle}
-      data-dim-scope={dimScopeOn ? "on" : undefined}
       onMouseLeave={() => {
-        // leaving the whole section should clear preview + dim
         if (isAppScrolling()) return;
-        setActiveIndex(null);
-        themeCtx.clearPreview();
+        if (isHoverLocked()) return;
+        clearAll(false);
       }}
       onBlurCapture={() => {
         if (isAppScrolling()) return;
-        setActiveIndex(null);
-        themeCtx.clearPreview();
+        if (isHoverLocked()) return;
+        clearAll(false);
       }}
     >
       <div
@@ -353,9 +508,11 @@ export default function PageLinkSection(props: Props) {
                 item={item}
                 index={index}
                 isHalf={isHalf}
-                themeCtx={themeCtx}
-                activeIndex={activeIndex}
-                setActiveIndex={setActiveIndex}
+                register={register}
+                unregister={unregister}
+                activate={activate}
+                activateFromUnlock={activateFromUnlock}
+                deactivate={deactivate}
               />
             );
           })

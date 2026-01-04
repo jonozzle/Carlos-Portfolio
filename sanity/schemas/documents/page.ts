@@ -95,6 +95,7 @@ export default defineType({
         { type: "page-link-section" },
         { type: "single-image" },
         { type: "project-block" },
+        { type: "spacer" },
       ],
       options: {
         insertMenu: {

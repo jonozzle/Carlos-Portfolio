@@ -13,6 +13,7 @@ import { logoCloud1Query } from "./logo-cloud/logo-cloud-1";
 import { faqsQuery } from "./faqs";
 import { allPostsQuery } from "./all-posts";
 import { singleImageBlockQuery } from "./single-image";
+import { spacerBlockQuery } from "./spacer";
 
 export const PROJECT_QUERY = groq`
 *[_type == "project" && slug.current == $slug][0]{
@@ -48,6 +49,7 @@ export const PROJECT_QUERY = groq`
     ${faqsQuery},
     ${allPostsQuery},
     ${singleImageBlockQuery},
+    ${spacerBlockQuery},
   }
 }
 `;

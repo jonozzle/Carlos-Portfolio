@@ -1,4 +1,4 @@
-// components/scroll-smoother.tsx
+// components/scroll/scroll-smoother.tsx
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
@@ -50,7 +50,6 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
     // Initial refresh after layout settles
     requestAnimationFrame(() => requestAnimationFrame(refresh));
 
-    // These events can happen while the smoother is still settling — so schedule, don’t refresh directly.
     window.addEventListener("hero-transition-done", refresh);
     window.addEventListener("hero-page-hero-show", refresh);
     window.addEventListener("images-preloaded", refresh);
@@ -65,11 +64,7 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
 
   return (
     <div id="smooth-wrapper" ref={wrapperRef}>
-      <div
-        id="smooth-content"
-        ref={contentRef}
-        className="will-change-transform [transform:translate3d(0,0,0)]"
-      >
+      <div id="smooth-content" ref={contentRef} className="will-change-transform [transform:translate3d(0,0,0)]">
         {children}
       </div>
     </div>

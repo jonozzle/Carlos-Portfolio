@@ -1,30 +1,22 @@
+// ProjectBlock
 // components/project/project-block.tsx
 "use client";
 
-import React, {
-    useCallback,
-    useMemo,
-    useRef,
-    useState,
-    useEffect,
-    useLayoutEffect,
-} from "react";
+import React, { useCallback, useMemo, useRef, useState, useEffect, useLayoutEffect } from "react";
 import SmoothImage from "@/components/ui/smooth-image";
-import { useTheme } from "@/components/theme-provider";
+import { useTheme, type ThemeInput } from "@/components/theme-provider";
 import PageTransitionButton from "@/components/page-transition-button";
 import { completeHeroTransition } from "@/lib/hero-transition";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import { APP_EVENTS } from "@/lib/app-events";
+import { HOVER_EVENTS, isHoverLocked, getLastMouse } from "@/lib/hover-lock";
 
 if (typeof window !== "undefined") {
     gsap.registerPlugin(ScrollTrigger);
 }
 
-type Theme = {
-    bg?: any;
-    text?: any;
-} | null;
+type Theme = ThemeInput | null;
 
 type SingleGalleryItem = {
     slug?: string | null;
@@ -102,9 +94,9 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     const imgUrl = item?.image?.asset?.url || "";
     const alt = item?.image?.alt ?? item?.title ?? "Project image";
     const theme = item?.theme ?? null;
-    const hasTheme = !!(theme?.bg || theme?.text);
+    const hasTheme = !!(theme && ((theme as any).bg || (theme as any).text));
 
-    const { previewTheme, clearPreview } = themeCtx;
+    const { previewTheme, clearPreview, lockTheme } = themeCtx;
 
     const isActive = activeIndex === index && !isScrollingRef.current;
     const dimState: "active" | "inactive" = isActive ? "active" : "inactive";
@@ -121,6 +113,13 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         });
     }, []);
 
+    const hardResetScale = useCallback(() => {
+        const el = imgScaleRef.current;
+        if (!el) return;
+        gsap.killTweensOf(el);
+        gsap.set(el, { scale: 1 });
+    }, []);
+
     const clearHover = useCallback(() => {
         if (hasTheme) clearPreview();
         setActiveIndex((prev) => (prev === index ? null : prev));
@@ -129,6 +128,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 
     const handleEnter = useCallback(() => {
         if (isScrollingRef.current) return;
+        if (isHoverLocked()) return;
         if (hasTheme) previewTheme(theme);
         setActiveIndex(index);
         animateScale(1.1);
@@ -136,8 +136,43 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 
     const handleLeave = useCallback(() => {
         if (isScrollingRef.current) return;
+        if (isHoverLocked()) return;
         clearHover();
     }, [clearHover, isScrollingRef]);
+
+    /**
+     * CRITICAL: lock hovered theme BEFORE navigation begins.
+     * This stops the “return to default then change again” flash.
+     */
+    const handleNavLockCapture = useCallback(() => {
+        if (!slug) return;
+        if (!hasTheme) return;
+
+        // Make it effectively a no-op visually (already previewed), but now becomes "locked".
+        lockTheme(theme, { animate: false, force: true, durationMs: 0 });
+    }, [slug, hasTheme, lockTheme, theme]);
+
+    // When hover unlocks after transition, if mouse is currently over this tile, apply hover smoothly.
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const onUnlocked = () => {
+            const el = tileRef.current;
+            if (!el) return;
+
+            const pos = getLastMouse();
+            if (!pos) return;
+
+            const hit = document.elementFromPoint(pos.x, pos.y);
+            if (hit && el.contains(hit)) {
+                hardResetScale();
+                requestAnimationFrame(() => handleEnter());
+            }
+        };
+
+        window.addEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked);
+        return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
+    }, [handleEnter, hardResetScale]);
 
     // Project -> Home: overlay targets this tile
     useLayoutEffect(() => {
@@ -149,30 +184,92 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         const match = !!pending && pending.slug === slug;
         if (!match) return;
 
+        hardResetScale();
+
+        let raf = 0;
+        let frames = 0;
         let ran = false;
+
+        const isTargetInViewport = (el: HTMLElement) => {
+            const r = el.getBoundingClientRect();
+            if (
+                !Number.isFinite(r.left) ||
+                !Number.isFinite(r.top) ||
+                !Number.isFinite(r.width) ||
+                !Number.isFinite(r.height) ||
+                r.width <= 2 ||
+                r.height <= 2
+            ) {
+                return false;
+            }
+
+            const vw = window.innerWidth || 1;
+            const vh = window.innerHeight || 1;
+
+            const slackX = vw * 0.25;
+            const slackY = vh * 0.25;
+
+            return r.right > -slackX && r.left < vw + slackX && r.bottom > -slackY && r.top < vh + slackY;
+        };
 
         const run = () => {
             if (ran) return;
             ran = true;
-            if (!tileRef.current) return;
+
+            const el = tileRef.current;
+            if (!el) return;
 
             completeHeroTransition({
                 slug,
-                targetEl: tileRef.current,
+                targetEl: el,
                 mode: "parkThenPage",
             });
         };
 
-        const onHomeRestored = () => {
-            requestAnimationFrame(() => requestAnimationFrame(run));
+        const tick = () => {
+            frames += 1;
+
+            try {
+                ScrollTrigger.update();
+            } catch {
+                // ignore
+            }
+
+            const el = tileRef.current;
+            if (!el) return;
+
+            if (isTargetInViewport(el)) {
+                raf = requestAnimationFrame(() => requestAnimationFrame(run));
+                return;
+            }
+
+            if (frames < 240) {
+                raf = requestAnimationFrame(tick);
+                return;
+            }
+
+            raf = requestAnimationFrame(() => requestAnimationFrame(run));
         };
 
-        window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored, { once: true });
+        const start = () => {
+            raf = requestAnimationFrame(tick);
+        };
+
+        if ((window as any).__homeHsRestored) {
+            start();
+        } else {
+            const onHomeRestored = () => start();
+            window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored, { once: true });
+            return () => {
+                window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored as any);
+                if (raf) cancelAnimationFrame(raf);
+            };
+        }
 
         return () => {
-            window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored as any);
+            if (raf) cancelAnimationFrame(raf);
         };
-    }, [slug]);
+    }, [slug, hardResetScale]);
 
     useLayoutEffect(() => {
         const el = imgScaleRef.current;
@@ -200,6 +297,8 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             onMouseLeave={handleLeave}
             onFocusCapture={handleEnter}
             onBlurCapture={handleLeave}
+            onPointerDownCapture={handleNavLockCapture}
+            onClickCapture={handleNavLockCapture}
         >
             <div
                 ref={tileRef}
@@ -219,11 +318,12 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                                     alt={alt}
                                     fill
                                     sizes="(max-width: 768px) 100vw, 25vw"
-                                    lqipWidth={16}
-                                    hiMaxWidth={900}
+                                    // make the placeholder less ugly *and* make the real image arrive earlier
+                                    lqipWidth={24}
+                                    hiMaxWidth={1200}
                                     fetchPriority="high"
+                                    loading="eager"
                                     objectFit="cover"
-                                    loading="lazy"
                                 />
                             ) : (
                                 <div className="absolute inset-0 grid place-items-center text-xs opacity-60">No image</div>
@@ -271,7 +371,6 @@ export default function ProjectBlock(props: Props) {
         let timeoutId: number | null = null;
 
         const onScroll = () => {
-            // scroll START: do any state work here (not at end)
             if (!isScrollingRef.current) {
                 isScrollingRef.current = true;
                 clearPreview();
@@ -280,10 +379,9 @@ export default function ProjectBlock(props: Props) {
 
             if (timeoutId !== null) window.clearTimeout(timeoutId);
 
-            // scroll END: NO DOM writes, no state updates
             timeoutId = window.setTimeout(() => {
                 isScrollingRef.current = false;
-            }, 140);
+            }, 0);
         };
 
         window.addEventListener("scroll", onScroll, { passive: true });
@@ -293,7 +391,6 @@ export default function ProjectBlock(props: Props) {
             if (timeoutId !== null) window.clearTimeout(timeoutId);
         };
     }, [clearPreview]);
-
 
     useEffect(() => {
         if (typeof document === "undefined") return;
@@ -356,7 +453,7 @@ export default function ProjectBlock(props: Props) {
             },
         ];
 
-        const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+        const clampN = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
         return raw
             .slice(0, 4)
@@ -368,35 +465,35 @@ export default function ProjectBlock(props: Props) {
 
                 let imageRowStart =
                     typeof p.imageRowStart === "number" && p.imageRowStart > 0 ? p.imageRowStart : fallback.imageRowStart;
-                imageRowStart = clamp(imageRowStart, 1, 12);
+                imageRowStart = clampN(imageRowStart, 1, 12);
 
                 let imageRowEnd =
                     typeof p.imageRowEnd === "number" && p.imageRowEnd > imageRowStart ? p.imageRowEnd : fallback.imageRowEnd;
-                imageRowEnd = clamp(imageRowEnd, imageRowStart + 1, 13);
+                imageRowEnd = clampN(imageRowEnd, imageRowStart + 1, 13);
 
                 let imageColStart =
                     typeof p.imageColStart === "number" && p.imageColStart > 0 ? p.imageColStart : fallback.imageColStart;
-                imageColStart = clamp(imageColStart, 1, 12);
+                imageColStart = clampN(imageColStart, 1, 12);
 
                 let imageColEnd =
                     typeof p.imageColEnd === "number" && p.imageColEnd > imageColStart ? p.imageColEnd : fallback.imageColEnd;
-                imageColEnd = clamp(imageColEnd, imageColStart + 1, 13);
+                imageColEnd = clampN(imageColEnd, imageColStart + 1, 13);
 
                 let infoRowStart =
                     typeof p.infoRowStart === "number" && p.infoRowStart > 0 ? p.infoRowStart : fallback.infoRowStart;
-                infoRowStart = clamp(infoRowStart, 1, 12);
+                infoRowStart = clampN(infoRowStart, 1, 12);
 
                 let infoRowEnd =
                     typeof p.infoRowEnd === "number" && p.infoRowEnd > infoRowStart ? p.infoRowEnd : fallback.infoRowEnd;
-                infoRowEnd = clamp(infoRowEnd, infoRowStart + 1, 13);
+                infoRowEnd = clampN(infoRowEnd, infoRowStart + 1, 13);
 
                 let infoColStart =
                     typeof p.infoColStart === "number" && p.infoColStart > 0 ? p.infoColStart : fallback.infoColStart;
-                infoColStart = clamp(infoColStart, 1, 12);
+                infoColStart = clampN(infoColStart, 1, 12);
 
                 let infoColEnd =
                     typeof p.infoColEnd === "number" && p.infoColEnd > infoColStart ? p.infoColEnd : fallback.infoColEnd;
-                infoColEnd = clamp(infoColEnd, infoColStart + 1, 13);
+                infoColEnd = clampN(infoColEnd, infoColStart + 1, 13);
 
                 return {
                     project,
@@ -415,7 +512,6 @@ export default function ProjectBlock(props: Props) {
 
     const hasProjects = entries.length > 0;
 
-    // Progress line (unchanged behavior)
     useLayoutEffect(() => {
         if (typeof window === "undefined") return;
 

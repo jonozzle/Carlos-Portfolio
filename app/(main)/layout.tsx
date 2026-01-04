@@ -1,3 +1,4 @@
+// MainLayout
 // app/(main)/layout.tsx
 import Header from "@/components/header";
 import { draftMode } from "next/headers";
@@ -6,11 +7,10 @@ import Cursor from "@/components/cursor";
 import { ThemeProvider } from "@/components/theme-provider";
 import HomeLoader from "@/components/loader/home-loader-cc";
 import { LoaderProvider } from "@/components/loader/loader-context";
-import ScrollRestorer from "@/components/scroll/scroll-restorer";
 import PageEnterShell from "@/components/page-enter-shell";
 import DomDebugger from "@/components/dom-debugger";
-import ScrollCoordinator from "@/components/scroll/scroll-coordinator";
 import UiRevealCoordinator from "@/components/ui/ui-reveal-coordinator";
+import ScrollManager from "@/components/scroll/scroll-manager";
 import Script from "next/script";
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
@@ -42,8 +42,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
           />
 
           <SmoothScroller>
-            <ScrollCoordinator />
-            <ScrollRestorer />
+            <ScrollManager />
             <PageEnterShell>
               <main id="page-root">{children}</main>
             </PageEnterShell>

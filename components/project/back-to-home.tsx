@@ -1,40 +1,61 @@
+// BackToHomeButton
 // components/project/back-to-home.tsx
 "use client";
 
 import { useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { startHeroTransition, completeHeroTransition } from "@/lib/hero-transition";
-import { getScrollForPath, saveScrollForPath, getCurrentScrollY } from "@/lib/scroll-state";
+import { lockAppScroll } from "@/lib/scroll-lock";
+import { startHeroTransition } from "@/lib/hero-transition";
+import { getSavedHomeSection } from "@/lib/home-section";
 import { setNavIntent } from "@/lib/nav-intent";
+import { lockHover } from "@/lib/hover-lock";
 
 type Props = {
     slug: string;
     heroImgUrl: string;
+    className?: string;
 };
 
-export default function BackToHomeButton({ slug, heroImgUrl }: Props) {
+export default function BackToHomeButton({ slug, heroImgUrl, className }: Props) {
     const router = useRouter();
     const pathname = usePathname();
 
     const onClick = useCallback(
-        (e: React.MouseEvent<HTMLAnchorElement>) => {
+        (e: React.MouseEvent) => {
             e.preventDefault();
 
-            saveScrollForPath(pathname);
+            const saved = getSavedHomeSection();
+            const shouldHeroBack = saved?.type === "project-block" && !!saved?.id;
 
-            const homeY = getScrollForPath("/") ?? 0;
-            setNavIntent({ kind: "project-to-home", restoreY: homeY });
+            lockAppScroll();
+            lockHover(); // IMPORTANT: prevent hover-scale popping during restore
+
+            setNavIntent({
+                kind: "project-to-home",
+                homeSectionId: saved?.id ?? null,
+            });
 
             (window as any).__pageTransitionPending = {
                 direction: "down",
                 fromPath: pathname,
-                scrollTop: getCurrentScrollY(),
+                kind: shouldHeroBack ? "hero" : "simple",
+                homeSectionId: saved?.id ?? null,
+                homeSectionType: saved?.type ?? null,
             };
 
-            const sourceEl = document.querySelector<HTMLElement>(`[data-hero-slug="${slug}"]`);
+            const go = () => router.push("/");
+
+            if (!shouldHeroBack) {
+                go();
+                return;
+            }
+
+            const sourceEl = document.querySelector<HTMLElement>(
+                `[data-hero-target="project"][data-hero-slug="${CSS.escape(slug)}"]`
+            );
 
             if (!sourceEl || !heroImgUrl) {
-                router.push("/");
+                go();
                 return;
             }
 
@@ -42,33 +63,14 @@ export default function BackToHomeButton({ slug, heroImgUrl }: Props) {
                 slug,
                 sourceEl,
                 imgUrl: heroImgUrl,
-                onNavigate: () => {
-                    router.push("/");
-
-                    window.setTimeout(() => {
-                        const pending = (window as any).__heroPending as { slug?: string } | undefined;
-                        if (!pending || pending.slug !== slug) return;
-
-                        const homeTarget = document.querySelector<HTMLElement>(
-                            `[data-hero-slug="${slug}"][data-hero-target="home"]`
-                        );
-
-                        if (homeTarget) {
-                            completeHeroTransition({
-                                slug,
-                                targetEl: homeTarget,
-                                mode: "parkThenPage",
-                            });
-                        }
-                    }, 800);
-                },
+                onNavigate: go,
             });
         },
         [heroImgUrl, pathname, router, slug]
     );
 
     return (
-        <a href="/" onClick={onClick} className="mt-4 inline-flex items-center gap-2 underline underline-offset-4">
+        <a href="/" onClick={onClick} className={className}>
             Back
         </a>
     );

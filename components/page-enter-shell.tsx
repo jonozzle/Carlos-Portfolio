@@ -1,3 +1,4 @@
+// PageEnterShell
 // components/page-enter-shell.tsx
 "use client";
 
@@ -5,22 +6,21 @@ import type { ReactNode } from "react";
 import { useLayoutEffect } from "react";
 import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
-import type { PendingHero } from "@/lib/transitions/state";
+import type { PendingHero, PageTransitionPending } from "@/lib/transitions/state";
+import { unlockAppScroll } from "@/lib/scroll-lock";
+import { unlockHover } from "@/lib/hover-lock";
 
 function finalizeParkedHero() {
-  const current = (window as any).__heroPending as PendingHero | undefined;
+  const current = window.__heroPending as PendingHero | undefined;
   const slug = current?.slug;
+  const overlay = current?.overlay;
 
   if (slug) {
-    const targets = document.querySelectorAll<HTMLElement>(
-      `[data-hero-slug="${slug}"]`
-    );
-    targets.forEach((el) => gsap.set(el, { opacity: 1 }));
+    const targets = document.querySelectorAll<HTMLElement>(`[data-hero-slug="${slug}"]`);
+    targets.forEach((el) => gsap.set(el, { opacity: 1, clearProps: "visibility,pointerEvents" }));
 
     try {
-      window.dispatchEvent(
-        new CustomEvent("hero-page-hero-show", { detail: { slug } })
-      );
+      window.dispatchEvent(new CustomEvent("hero-page-hero-show", { detail: { slug } }));
     } catch {
       // ignore
     }
@@ -28,15 +28,22 @@ function finalizeParkedHero() {
 
   if (current?.targetEl) gsap.set(current.targetEl, { opacity: 1 });
 
-  if (current?.overlay) {
-    try {
-      current.overlay.remove();
-    } catch {
-      // ignore
-    }
+  window.__heroPending = undefined;
+
+  if (overlay) {
+    requestAnimationFrame(() => {
+      try {
+        overlay.remove();
+      } catch {
+        // ignore
+      }
+    });
   }
 
-  (window as any).__heroPending = undefined;
+  unlockAppScroll();
+
+  // IMPORTANT: allow hover *after* home is visible and scroll is unlocked.
+  requestAnimationFrame(() => unlockHover());
 }
 
 type Props = { children: ReactNode };
@@ -52,29 +59,22 @@ export default function PageEnterShell({ children }: Props) {
 
     gsap.set(pageRoot, { yPercent: 0 });
 
-    const pending = (window as any).__pageTransitionPending as
-      | { direction?: "up" | "down" }
-      | undefined;
+    const pending = window.__pageTransitionPending as PageTransitionPending | undefined;
+    window.__pageTransitionPending = undefined;
 
-    (window as any).__pageTransitionPending = undefined;
+    window.__pageTransitionLast = pending?.kind ?? "simple";
 
-    const heroPending = (window as any).__heroPending as PendingHero | undefined;
+    const heroPending = window.__heroPending as PendingHero | undefined;
 
-    const skipInitial = (window as any).__pageEnterSkipInitial;
-    (window as any).__pageEnterSkipInitial = undefined;
+    const skipInitial = window.__pageEnterSkipInitial;
+    window.__pageEnterSkipInitial = undefined;
 
-    // no pending: just fade in (unless loader handles it)
     if (!pending) {
       if (!skipInitial) {
         gsap.fromTo(
           pageRoot,
           { opacity: 0 },
-          {
-            opacity: 1,
-            duration: 0.45,
-            ease: "power2.out",
-            clearProps: "opacity",
-          }
+          { opacity: 1, duration: 0.45, ease: "power2.out", clearProps: "opacity" }
         );
       }
       return;
@@ -82,63 +82,99 @@ export default function PageEnterShell({ children }: Props) {
 
     const direction: "up" | "down" = pending.direction === "down" ? "down" : "up";
 
-    // if hero pending, coordinate content fade around it
     if (heroPending) {
-      const animateEls = gsap.utils.toArray<HTMLElement>(
-        "[data-hero-page-animate]"
-      );
+      const animateEls = gsap.utils.toArray<HTMLElement>("[data-hero-page-animate]");
+
+      const runFallbackUnlock = () => {
+        unlockAppScroll();
+        requestAnimationFrame(() => unlockHover());
+        gsap.set(pageRoot, { opacity: 1, clearProps: "opacity" });
+      };
+
+      const clearTimer = (id: number | null) => {
+        if (id) window.clearTimeout(id);
+      };
 
       if (!animateEls.length) {
-        gsap.fromTo(
-          pageRoot,
-          { opacity: 0 },
-          {
-            opacity: 1,
-            duration: 0.45,
-            ease: "power2.out",
-            clearProps: "opacity",
-          }
-        );
-        return;
+        const timer = window.setTimeout(runFallbackUnlock, 1800);
+
+        const done = () => {
+          clearTimer(timer);
+          gsap.fromTo(
+            pageRoot,
+            { opacity: 0 },
+            {
+              opacity: 1,
+              duration: 0.45,
+              ease: "power2.out",
+              clearProps: "opacity",
+              onComplete: () => {
+                unlockAppScroll();
+                requestAnimationFrame(() => unlockHover());
+              },
+            }
+          );
+        };
+
+        if (window.__heroDone) {
+          requestAnimationFrame(done);
+          return;
+        }
+
+        window.addEventListener("hero-transition-done", done, { once: true });
+        return () => {
+          window.removeEventListener("hero-transition-done", done as any);
+          clearTimer(timer);
+        };
       }
 
       if (direction === "up") {
-        // HOME → PROJECT: wait for hero to finish, then bring in content
-        gsap.set(animateEls, {
-          y: 0,
-          opacity: 0,
-          willChange: "transform,opacity",
-        });
+        gsap.set(animateEls, { y: 0, opacity: 0, willChange: "transform,opacity" });
 
-        const onHeroDone = () => {
+        const timer = window.setTimeout(runFallbackUnlock, 2200);
+
+        const done = () => {
+          clearTimer(timer);
           gsap.to(animateEls, {
             y: 0,
             opacity: 1,
             duration: 0.8,
             ease: "power3.out",
             clearProps: "transform,opacity,willChange",
+            onComplete: () => {
+              unlockAppScroll();
+              requestAnimationFrame(() => unlockHover());
+            },
           });
         };
 
-        window.addEventListener("hero-transition-done", onHeroDone, {
-          once: true,
-        });
+        if (window.__heroDone) {
+          requestAnimationFrame(done);
+          return;
+        }
 
-        return;
+        window.addEventListener("hero-transition-done", done, { once: true });
+        return () => {
+          window.removeEventListener("hero-transition-done", done as any);
+          clearTimer(timer);
+        };
       }
 
-      // PROJECT → HOME: keep home content hidden until overlay is parked
+      // direction === "down"
       gsap.set(animateEls, { opacity: 0 });
 
-      // also hide the hero tile target(s) until we finalize
       if (heroPending.slug) {
-        const heroTargets = document.querySelectorAll<HTMLElement>(
-          `[data-hero-slug="${heroPending.slug}"]`
-        );
+        const heroTargets = document.querySelectorAll<HTMLElement>(`[data-hero-slug="${heroPending.slug}"]`);
         heroTargets.forEach((el) => gsap.set(el, { opacity: 0 }));
       }
 
-      const onHeroDone = () => {
+      const timer = window.setTimeout(() => {
+        gsap.set(animateEls, { opacity: 1, clearProps: "opacity" });
+        finalizeParkedHero();
+      }, 2400);
+
+      const done = () => {
+        clearTimer(timer);
         gsap.to(animateEls, {
           opacity: 1,
           duration: 0.45,
@@ -148,14 +184,19 @@ export default function PageEnterShell({ children }: Props) {
         });
       };
 
-      window.addEventListener("hero-transition-done", onHeroDone, {
-        once: true,
-      });
+      if (window.__heroDone) {
+        requestAnimationFrame(done);
+        return;
+      }
 
-      return;
+      window.addEventListener("hero-transition-done", done, { once: true });
+      return () => {
+        window.removeEventListener("hero-transition-done", done as any);
+        clearTimer(timer);
+      };
     }
 
-    // non-hero entry
+    // simple / fadeHero
     gsap.fromTo(
       pageRoot,
       { opacity: 0 },
@@ -164,6 +205,10 @@ export default function PageEnterShell({ children }: Props) {
         duration: 0.35,
         ease: "power2.out",
         clearProps: "opacity",
+        onComplete: () => {
+          unlockAppScroll();
+          requestAnimationFrame(() => unlockHover());
+        },
       }
     );
   }, [pathname]);
