@@ -1,25 +1,69 @@
+// BookmarkLink
 // components/header/bookmark-link.tsx
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
-import Link from "next/link";
+import React, { useCallback, useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { cn } from "@/lib/utils";
 import { useLoader } from "@/components/loader/loader-context";
 import { APP_EVENTS } from "@/lib/app-events";
 
+import { usePathname, useRouter } from "next/navigation";
+import { lockAppScroll } from "@/lib/scroll-lock";
+import { startHeroTransition } from "@/lib/hero-transition";
+import { getSavedHomeSection } from "@/lib/home-section";
+import { setNavIntent } from "@/lib/nav-intent";
+import { lockHover } from "@/lib/hover-lock";
+
 type BookmarkLinkProps = {
   href?: string;
   side?: "left" | "right";
   className?: string;
+
+  /**
+   * Optional: if you *can* provide these, it will behave exactly like BackToHomeButton.
+   * If you don't provide them (common for header), the component will resolve them from the DOM.
+   */
+  slug?: string;
+  heroImgUrl?: string;
 };
+
+function extractBgUrl(bg: string | null | undefined) {
+  if (!bg || bg === "none") return null;
+  const m = bg.match(/url\((['"]?)(.*?)\1\)/i);
+  return m?.[2] ?? null;
+}
+
+function resolveHeroImgUrl(sourceEl: HTMLElement | null): string | null {
+  if (!sourceEl) return null;
+
+  const img = sourceEl.querySelector("img") as HTMLImageElement | null;
+  if (img) return img.currentSrc || img.src || null;
+
+  const bg = extractBgUrl(getComputedStyle(sourceEl).backgroundImage);
+  if (bg) return bg;
+
+  // last resort: try a child that might hold bg-image
+  const anyBg = sourceEl.querySelector<HTMLElement>("[style*='background-image']");
+  if (anyBg) {
+    const bg2 = extractBgUrl(getComputedStyle(anyBg).backgroundImage);
+    if (bg2) return bg2;
+  }
+
+  return null;
+}
 
 export default function BookmarkLink({
   href = "/",
   side = "left",
   className,
+  slug: slugProp,
+  heroImgUrl: heroImgUrlProp,
 }: BookmarkLinkProps) {
   const { loaderDone } = useLoader();
+  const router = useRouter();
+  const pathname = usePathname();
+
   const linkRef = useRef<HTMLAnchorElement | null>(null);
   const shownRef = useRef(false);
 
@@ -55,6 +99,72 @@ export default function BookmarkLink({
     });
   }, []);
 
+  // Click logic: SAME DECISION TREE as BackToHomeButton.
+  // The only difference: if slug/heroImgUrl aren't provided (header usage),
+  // we resolve them from the DOM so hero-back can still run.
+  const onClick = useCallback(
+    (e: React.MouseEvent<HTMLAnchorElement>) => {
+      e.preventDefault();
+
+      const saved = getSavedHomeSection();
+      const shouldHeroBack = saved?.type === "project-block" && !!saved?.id;
+
+      lockAppScroll();
+      lockHover(); // IMPORTANT: prevent hover-scale popping during restore
+
+      setNavIntent({
+        kind: "project-to-home",
+        homeSectionId: saved?.id ?? null,
+      });
+
+      (window as any).__pageTransitionPending = {
+        direction: "down",
+        fromPath: pathname,
+        kind: shouldHeroBack ? "hero" : "simple",
+        homeSectionId: saved?.id ?? null,
+        homeSectionType: saved?.type ?? null,
+      };
+
+      const go = () => router.push(href);
+
+      if (!shouldHeroBack) {
+        go();
+        return;
+      }
+
+      // Try to find the project hero source element (works for header usage).
+      const sourceEl =
+        (slugProp
+          ? document.querySelector<HTMLElement>(
+            `[data-hero-target="project"][data-hero-slug="${CSS.escape(slugProp)}"]`
+          )
+          : null) ??
+        document.querySelector<HTMLElement>(`[data-hero-target="project"][data-hero-slug]`) ??
+        document.querySelector<HTMLElement>(`[data-hero-target="project"]`);
+
+      const resolvedSlug =
+        slugProp ||
+        sourceEl?.getAttribute("data-hero-slug") ||
+        (sourceEl as any)?.dataset?.heroSlug ||
+        "";
+
+      const resolvedImgUrl = heroImgUrlProp || resolveHeroImgUrl(sourceEl);
+
+      if (!sourceEl || !resolvedSlug || !resolvedImgUrl) {
+        go();
+        return;
+      }
+
+      startHeroTransition({
+        slug: resolvedSlug,
+        sourceEl,
+        imgUrl: resolvedImgUrl,
+        onNavigate: go,
+      });
+    },
+    [heroImgUrlProp, href, pathname, router, slugProp]
+  );
+
   useEffect(() => {
     const el = linkRef.current;
     if (!el) return;
@@ -73,7 +183,6 @@ export default function BookmarkLink({
     window.addEventListener(APP_EVENTS.UI_BOOKMARK_SHOW, onShow);
     window.addEventListener(APP_EVENTS.UI_BOOKMARK_HIDE, onHide);
 
-    // Sync immediately to current loader state
     if (loaderDone) show();
     else hide();
 
@@ -83,7 +192,6 @@ export default function BookmarkLink({
     };
   }, [hide, show, loaderDone]);
 
-  // Hard sync to loader state (covers missed events)
   useEffect(() => {
     if (!linkRef.current) return;
     if (loaderDone) show();
@@ -91,16 +199,16 @@ export default function BookmarkLink({
   }, [loaderDone, show, hide]);
 
   return (
-    <Link
+    <a
       ref={linkRef}
       href={href}
-      aria-label="Home"
+      onClick={onClick}
+      aria-label="Back"
       className={cn(
         "group fixed top-0 z-50",
         side === "left" ? "left-6" : "right-6",
         "inline-flex items-start justify-center",
         "h-[92px] w-12",
-        // SSR/FOUC-safe defaults
         "opacity-0",
         className
       )}
@@ -127,6 +235,6 @@ export default function BookmarkLink({
           />
         </div>
       </div>
-    </Link>
+    </a>
   );
 }

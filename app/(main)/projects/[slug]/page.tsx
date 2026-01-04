@@ -57,7 +57,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                                     {project.year && <span className="mb-0 md:text-xl">{project.year}</span>}
                                     {project.client && <span className="italic">{project.client}</span>}
 
-                                    <BackToHomeButton slug={slug} heroImgUrl={heroSrc} />
+                                    {/*<BackToHomeButton slug={slug} heroImgUrl={heroSrc} /> */}
                                 </div>
                             </div>
 
