@@ -23,6 +23,7 @@ import PageLinkSection from "./page-link-section";
 import SingleImage from "./single-image";
 import ProjectBlock from "./project/project-block";
 import Spacer from "./spacer";
+import ImageTextGrid from "./grid/image-text-grid";
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
 
@@ -50,6 +51,7 @@ const componentMap: {
   "single-image": SingleImage,
   "project-block": ProjectBlock,
   spacer: Spacer,
+  "image-text-grid": ImageTextGrid,
 };
 
 // Blocks

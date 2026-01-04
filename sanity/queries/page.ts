@@ -22,6 +22,7 @@ import { pageLinkSectionQuery } from "./page-link-section";
 import { singleImageBlockQuery } from "./single-image";
 import { projectBlockQuery } from "./project/project-block";
 import { spacerBlockQuery } from "./spacer";
+import { imageTextGridQuery } from "./grid/image-text-grid";
 
 export const PAGE_QUERY = groq`
   *[_type == "page" && slug.current == $slug][0]{
@@ -57,6 +58,7 @@ export const PAGE_QUERY = groq`
       ${singleImageBlockQuery},
       ${projectBlockQuery},
       ${spacerBlockQuery},
+      ${imageTextGridQuery},
     },
 
     meta_title,

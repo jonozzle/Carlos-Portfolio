@@ -96,6 +96,7 @@ export default defineType({
         { type: "single-image" },
         { type: "project-block" },
         { type: "spacer" },
+        { type: "image-text-grid" },
       ],
       options: {
         insertMenu: {

@@ -214,7 +214,19 @@ html.fouc-ready [data-fouc] {
 /* ============================= */
 
 
+/* Selected-text highlight (Chrome/Safari/Edge) */
+::selection {
+  background: #fb2c36;
+  /* highlight background */
+  color: #ffffff;
+  /* highlight text color */
+}
 
+/* Selected-text highlight (Firefox) */
+::-moz-selection {
+  background: #fb2c36;
+  color: #ffffff;
+}
 
 
 @theme inline {
@@ -359,11 +371,7 @@ html.fouc-ready [data-fouc] {
     @apply border-border outline-ring/50;
   }
 
-  /* Let ThemeFader show through, but preserve text color */
-  body {
-    background: transparent;
-    @apply text-foreground;
-  }
+
 
   h1 {
     font-family: var(--font-serif);

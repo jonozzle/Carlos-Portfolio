@@ -93,7 +93,8 @@ export default defineType({
         { type: "faqs" },
         { type: "all-posts" },
         { type: "single-image" },
-        { type: "spacer" }
+        { type: "spacer" },
+        { type: "image-text-grid" },
       ],
     }),
   ],

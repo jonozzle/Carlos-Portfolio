@@ -57,8 +57,9 @@ export default function Cursor({
   const baseGrow = useMemo(() => clampScale(growScale, 1.8), [growScale]);
 
   const findScaleFromEvent = useCallback(
-    (e: PointerEvent) => {
-      const path = (e.composedPath?.() as EventTarget[]) || [];
+    (e: Event) => {
+      const pe = e as any;
+      const path = (pe.composedPath?.() as EventTarget[]) || [];
       for (const p of path) {
         if (!(p instanceof HTMLElement)) continue;
 
@@ -79,12 +80,28 @@ export default function Cursor({
     [baseGrow]
   );
 
-  const hide = useCallback(() => {
+  const hardResetToNative = useCallback((moveOffscreen: boolean) => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+
+    shownRef.current = false;
+    setRootActive(false);
+
+    gsap.killTweensOf(wrap);
+
+    gsap.set(wrap, {
+      autoAlpha: 0,
+      scale: 0.001,
+      x: moveOffscreen ? -9999 : lastPos.current.x,
+      y: moveOffscreen ? -9999 : lastPos.current.y,
+    });
+  }, []);
+
+  const hideSoft = useCallback(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
 
     if (!shownRef.current) {
-      // Still ensure OS cursor can show
       setRootActive(false);
       return;
     }
@@ -152,53 +169,53 @@ export default function Cursor({
     const canUseCustomNow = () => {
       if (!loaderDone) return false;
       if (document.visibilityState !== "visible") return false;
+      if (!document.hasFocus()) return false;
       if (!hasMovedRef.current) return false;
       if (staleRef.current) return false;
       return true;
     };
 
-    const deactivateToNative = () => {
-      // Don’t hide OS cursor unless we’re actively tracking.
-      setRootActive(false);
-      hide();
+    const deactivateToNativeHard = (moveOffscreen: boolean) => {
+      staleRef.current = true;
+      hardResetToNative(moveOffscreen);
     };
 
     const activateIfReady = () => {
       if (canUseCustomNow()) {
-        // Ensure we’re at last known pos (fresh) before showing
         gsap.set(wrap, { x: lastPos.current.x, y: lastPos.current.y });
         show();
       } else {
-        deactivateToNative();
+        deactivateToNativeHard(false);
       }
     };
 
-    const onMove = (e: PointerEvent) => {
-      // Only treat mouse as “custom cursor capable”
-      if (e.pointerType && e.pointerType !== "mouse") {
-        staleRef.current = true;
-        deactivateToNative();
+    const handleMove = (e: any) => {
+      const pt = (e?.pointerType as string | undefined) ?? "mouse";
+      if (pt && pt !== "mouse") {
+        deactivateToNativeHard(true);
         return;
       }
+
+      const x = e.clientX ?? 0;
+      const y = e.clientY ?? 0;
 
       hasMovedRef.current = true;
       staleRef.current = false;
 
-      lastPos.current = { x: e.clientX, y: e.clientY };
+      lastPos.current = { x, y };
 
-      // If we were hidden, snap immediately to avoid animating from offscreen
       if (!shownRef.current) {
-        gsap.set(wrap, { x: e.clientX, y: e.clientY });
+        gsap.set(wrap, { x, y });
       } else {
-        xTo(e.clientX);
-        yTo(e.clientY);
+        xTo(x);
+        yTo(y);
       }
 
-      // Show/hide depending on current app state
-      if (loaderDone && document.visibilityState === "visible") {
+      // Only hide OS cursor when we’re truly active and focused/visible
+      if (loaderDone && document.visibilityState === "visible" && document.hasFocus()) {
         show();
       } else {
-        deactivateToNative();
+        deactivateToNativeHard(false);
       }
 
       const s = findScaleFromEvent(e);
@@ -210,100 +227,97 @@ export default function Cursor({
       });
     };
 
-    const onPointerOver = (e: PointerEvent) => {
-      // Helps when entering document; pointerenter doesn’t bubble
-      if (e.pointerType && e.pointerType !== "mouse") return;
-      lastPos.current = { x: e.clientX, y: e.clientY };
+    const onPointerOver = (e: any) => {
+      const pt = (e?.pointerType as string | undefined) ?? "mouse";
+      if (pt && pt !== "mouse") return;
+      lastPos.current = { x: e.clientX ?? lastPos.current.x, y: e.clientY ?? lastPos.current.y };
     };
 
-    const onBlur = () => {
-      staleRef.current = true;
-      deactivateToNative();
-    };
-
-    const onFocus = () => {
-      // We still cannot know the real pointer position until a move happens,
-      // so we intentionally keep native cursor until the next pointermove.
-      staleRef.current = true;
-      deactivateToNative();
-    };
+    const onBlur = () => deactivateToNativeHard(true);
+    const onFocus = () => deactivateToNativeHard(true);
 
     const onVis = () => {
-      if (document.visibilityState !== "visible") {
-        staleRef.current = true;
-        deactivateToNative();
-        return;
-      }
-      // Becoming visible: keep native cursor until fresh move.
-      staleRef.current = true;
-      deactivateToNative();
+      // Any visibility flip: force native + require fresh move next
+      deactivateToNativeHard(true);
     };
 
-    const onShowEvent = () => {
-      // Same rule: don’t hide OS cursor unless we have fresh position
-      activateIfReady();
-    };
+    const onPageHide = () => deactivateToNativeHard(true);
+    const onPageShow = () => deactivateToNativeHard(true);
 
-    const onHideEvent = () => {
-      staleRef.current = true;
-      deactivateToNative();
-    };
+    const onShowEvent = () => activateIfReady();
+    const onHideEvent = () => deactivateToNativeHard(true);
 
-    window.addEventListener("pointermove", onMove, { passive: true });
-    // pointerover bubbles; pointerenter does not (unless capture)
-    document.addEventListener("pointerover", onPointerOver, { passive: true });
-    document.addEventListener(
-      "pointerenter",
-      onPointerOver as unknown as EventListener,
-      { passive: true, capture: true }
-    );
+    // CAPTURE listeners so stopPropagation() in the tree can’t block us.
+    document.addEventListener("pointermove", handleMove as EventListener, {
+      passive: true,
+      capture: true,
+    });
+    document.addEventListener("pointerrawupdate", handleMove as EventListener, {
+      passive: true,
+      capture: true,
+    });
+    document.addEventListener("mousemove", handleMove as EventListener, {
+      passive: true,
+      capture: true,
+    });
+
+    document.addEventListener("pointerover", onPointerOver as EventListener, {
+      passive: true,
+      capture: true,
+    });
+    document.addEventListener("pointerenter", onPointerOver as EventListener, {
+      passive: true,
+      capture: true,
+    });
 
     window.addEventListener("blur", onBlur);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVis);
 
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
+
     window.addEventListener(APP_EVENTS.UI_CURSOR_SHOW, onShowEvent);
     window.addEventListener(APP_EVENTS.UI_CURSOR_HIDE, onHideEvent);
 
-    // Initial state: native cursor until we get a fresh move.
-    staleRef.current = true;
-    deactivateToNative();
+    // Initial: force native until we get a fresh move
+    deactivateToNativeHard(true);
 
     return () => {
-      window.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerover", onPointerOver);
-      document.removeEventListener(
-        "pointerenter",
-        onPointerOver as unknown as EventListener,
-        true as unknown as AddEventListenerOptions
-      );
+      document.removeEventListener("pointermove", handleMove as EventListener, true);
+      document.removeEventListener("pointerrawupdate", handleMove as EventListener, true);
+      document.removeEventListener("mousemove", handleMove as EventListener, true);
+
+      document.removeEventListener("pointerover", onPointerOver as EventListener, true);
+      document.removeEventListener("pointerenter", onPointerOver as EventListener, true);
 
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVis);
+
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
 
       window.removeEventListener(APP_EVENTS.UI_CURSOR_SHOW, onShowEvent);
       window.removeEventListener(APP_EVENTS.UI_CURSOR_HIDE, onHideEvent);
 
       setRootActive(false);
     };
-  }, [findScaleFromEvent, hide, show, loaderDone]);
+  }, [findScaleFromEvent, hardResetToNative, hideSoft, show, loaderDone]);
 
   // Loader guard: if loader toggles, force native until next move
   useEffect(() => {
     if (!wrapRef.current) return;
     if (!loaderDone) {
       staleRef.current = true;
-      setRootActive(false);
-      hide();
+      hardResetToNative(true);
       return;
     }
     // When loader completes, still require a fresh move if we’re stale.
     if (staleRef.current) {
-      setRootActive(false);
-      hide();
+      hardResetToNative(true);
     }
-  }, [loaderDone, hide]);
+  }, [loaderDone, hardResetToNative]);
 
   return (
     <div
@@ -314,7 +328,7 @@ export default function Cursor({
         width: size,
         height: size,
         isolation: "isolate",
-        contain: "layout paint",
+        contain: "paint",
         backfaceVisibility: "hidden",
         willChange: "transform,opacity",
         opacity: 0,

@@ -2,8 +2,8 @@
 // components/theme/theme-setter.tsx
 "use client";
 
-import { useEffect } from "react";
-import { useThemeActions, type ThemeInput } from "@/components/theme-provider";
+import { useLayoutEffect } from "react";
+import { useThemeActions, type ThemeInput, type ThemeApplyOptions } from "@/components/theme-provider";
 
 type Props =
     | { reset: true; theme?: never }
@@ -12,17 +12,33 @@ type Props =
 export default function ThemeSetter(props: Props) {
     const { lockTheme, resetTheme } = useThemeActions();
 
-    useEffect(() => {
+    const isReset = "reset" in props && props.reset;
+    const theme = isReset ? null : (props.theme ?? null);
+
+    useLayoutEffect(() => {
         if (typeof window === "undefined") return;
+
+        // If this page sets theme during hydration, prevent ThemeProvider's boot effect
+        // from re-applying DEFAULT_THEME afterwards on hard reload.
+        (window as any).__themeBootstrapped = true;
+
+        // On the very first hydration of the session, do not animate the theme change.
+        // Subsequent SPA navigations should animate normally.
+        const firstHydration = !(window as any).__themeHydrated;
+        if (firstHydration) (window as any).__themeHydrated = true;
+
+        const baseOpts: ThemeApplyOptions = firstHydration
+            ? { animate: false, force: true }
+            : { animate: true };
 
         // If we’re navigating PROJECT -> HOME, delay the reset until the hero transition finishes.
         const deferHomeReset = !!(window as any).__deferHomeThemeReset;
 
-        if ("reset" in props && props.reset) {
+        if (isReset) {
             if (deferHomeReset) {
                 const run = () => {
                     (window as any).__deferHomeThemeReset = false;
-                    // Force animation even if __appScrolling is true during transition.
+                    // Always animate this reset (this is a navigation transition, not a cold load)
                     resetTheme({ animate: true, force: true });
                 };
 
@@ -38,12 +54,12 @@ export default function ThemeSetter(props: Props) {
                 };
             }
 
-            resetTheme({ animate: true });
+            resetTheme(baseOpts);
             return;
         }
 
-        lockTheme(props.theme ?? null, { animate: true });
-    }, [props, lockTheme, resetTheme]);
+        lockTheme(theme, baseOpts);
+    }, [isReset, theme, lockTheme, resetTheme]);
 
     return null;
 }

@@ -1,4 +1,3 @@
-// ProjectBlock
 // components/project/project-block.tsx
 "use client";
 
@@ -11,6 +10,7 @@ import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import { APP_EVENTS } from "@/lib/app-events";
 import { HOVER_EVENTS, isHoverLocked, getLastMouse } from "@/lib/hover-lock";
+import SectionScrollLine from "@/components/ui/section-scroll-line";
 
 if (typeof window !== "undefined") {
     gsap.registerPlugin(ScrollTrigger);
@@ -323,11 +323,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             >
                 <PageTransitionButton {...buttonCommonProps} className="block w-full h-full cursor-pointer">
                     <div className="relative w-full h-full overflow-hidden">
-                        <div
-                            ref={imgScaleRef}
-                            data-hero-img-scale
-                            className="relative w-full h-full will-change-transform transform-gpu"
-                        >
+                        <div ref={imgScaleRef} data-hero-img-scale className="relative w-full h-full will-change-transform transform-gpu">
                             {imgUrl ? (
                                 <SmoothImage
                                     src={imgUrl}
@@ -373,7 +369,6 @@ export default function ProjectBlock(props: Props) {
     const { clearPreview } = themeCtx;
 
     const sectionRef = useRef<HTMLElement | null>(null);
-    const progressRef = useRef<HTMLDivElement | null>(null);
 
     const isScrollingRef = useRef(false);
     const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -478,36 +473,28 @@ export default function ProjectBlock(props: Props) {
 
                 const fallback = defaults[index] ?? defaults[0];
 
-                let imageRowStart =
-                    typeof p.imageRowStart === "number" && p.imageRowStart > 0 ? p.imageRowStart : fallback.imageRowStart;
+                let imageRowStart = typeof p.imageRowStart === "number" && p.imageRowStart > 0 ? p.imageRowStart : fallback.imageRowStart;
                 imageRowStart = clampN(imageRowStart, 1, 12);
 
-                let imageRowEnd =
-                    typeof p.imageRowEnd === "number" && p.imageRowEnd > imageRowStart ? p.imageRowEnd : fallback.imageRowEnd;
+                let imageRowEnd = typeof p.imageRowEnd === "number" && p.imageRowEnd > imageRowStart ? p.imageRowEnd : fallback.imageRowEnd;
                 imageRowEnd = clampN(imageRowEnd, imageRowStart + 1, 13);
 
-                let imageColStart =
-                    typeof p.imageColStart === "number" && p.imageColStart > 0 ? p.imageColStart : fallback.imageColStart;
+                let imageColStart = typeof p.imageColStart === "number" && p.imageColStart > 0 ? p.imageColStart : fallback.imageColStart;
                 imageColStart = clampN(imageColStart, 1, 12);
 
-                let imageColEnd =
-                    typeof p.imageColEnd === "number" && p.imageColEnd > imageColStart ? p.imageColEnd : fallback.imageColEnd;
+                let imageColEnd = typeof p.imageColEnd === "number" && p.imageColEnd > imageColStart ? p.imageColEnd : fallback.imageColEnd;
                 imageColEnd = clampN(imageColEnd, imageColStart + 1, 13);
 
-                let infoRowStart =
-                    typeof p.infoRowStart === "number" && p.infoRowStart > 0 ? p.infoRowStart : fallback.infoRowStart;
+                let infoRowStart = typeof p.infoRowStart === "number" && p.infoRowStart > 0 ? p.infoRowStart : fallback.infoRowStart;
                 infoRowStart = clampN(infoRowStart, 1, 12);
 
-                let infoRowEnd =
-                    typeof p.infoRowEnd === "number" && p.infoRowEnd > infoRowStart ? p.infoRowEnd : fallback.infoRowEnd;
+                let infoRowEnd = typeof p.infoRowEnd === "number" && p.infoRowEnd > infoRowStart ? p.infoRowEnd : fallback.infoRowEnd;
                 infoRowEnd = clampN(infoRowEnd, infoRowStart + 1, 13);
 
-                let infoColStart =
-                    typeof p.infoColStart === "number" && p.infoColStart > 0 ? p.infoColStart : fallback.infoColStart;
+                let infoColStart = typeof p.infoColStart === "number" && p.infoColStart > 0 ? p.infoColStart : fallback.infoColStart;
                 infoColStart = clampN(infoColStart, 1, 12);
 
-                let infoColEnd =
-                    typeof p.infoColEnd === "number" && p.infoColEnd > infoColStart ? p.infoColEnd : fallback.infoColEnd;
+                let infoColEnd = typeof p.infoColEnd === "number" && p.infoColEnd > infoColStart ? p.infoColEnd : fallback.infoColEnd;
                 infoColEnd = clampN(infoColEnd, infoColStart + 1, 13);
 
                 return {
@@ -527,52 +514,6 @@ export default function ProjectBlock(props: Props) {
 
     const hasProjects = entries.length > 0;
 
-    useLayoutEffect(() => {
-        if (typeof window === "undefined") return;
-
-        const sectionEl = sectionRef.current;
-        const progressEl = progressRef.current;
-        if (!sectionEl || !progressEl) return;
-
-        gsap.set(progressEl, { scaleX: 0, transformOrigin: "left center" });
-
-        let st: ScrollTrigger | null = null;
-        let checkId: number | null = null;
-
-        const setup = () => {
-            const horizontalST = ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null;
-            const containerAnim = horizontalST?.animation as gsap.core.Animation | undefined;
-            if (!horizontalST || !containerAnim) return false;
-
-            st?.kill();
-            st = ScrollTrigger.create({
-                trigger: sectionEl,
-                containerAnimation: containerAnim,
-                start: "left 80%",
-                end: "right 20%",
-                scrub: true,
-                onUpdate: (self) => {
-                    gsap.set(progressEl, { scaleX: self.progress });
-                },
-            });
-
-            return true;
-        };
-
-        if (!setup()) {
-            const trySetup = () => {
-                if (setup()) return;
-                checkId = window.setTimeout(trySetup, 100);
-            };
-            checkId = window.setTimeout(trySetup, 100);
-        }
-
-        return () => {
-            st?.kill();
-            if (checkId !== null) window.clearTimeout(checkId);
-        };
-    }, []);
-
     return (
         <section
             ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
@@ -588,9 +529,7 @@ export default function ProjectBlock(props: Props) {
                         alignSelf: "center",
                     }}
                 >
-                    <h2 className="text-base md:text-xl italic tracking-tight will-change-transform transform-gpu">
-                        {props.title}
-                    </h2>
+                    <h2 className="text-base md:text-xl italic tracking-tight will-change-transform transform-gpu">{props.title}</h2>
                 </div>
             ) : null}
 
@@ -624,24 +563,12 @@ export default function ProjectBlock(props: Props) {
                     );
                 })
             ) : (
-                <div
-                    className="col-span-12 row-span-12 grid place-items-center text-xs opacity-60"
-                    style={{ gridColumn: "1 / span 12", gridRow: "1 / span 12" }}
-                >
+                <div className="col-span-12 row-span-12 grid place-items-center text-xs opacity-60" style={{ gridColumn: "1 / span 12", gridRow: "1 / span 12" }}>
                     No projects
                 </div>
             )}
 
-            <div className="pointer-events-none absolute left-0 right-0 bottom-10 px-2 md:px-4 will-change-transform transform-gpu">
-                <div className="relative h-px w-full">
-                    <div className="absolute inset-0 bg-current opacity-10" />
-                    <div
-                        ref={progressRef}
-                        className="absolute inset-0 bg-current origin-left will-change-transform transform-gpu"
-                        style={{ transform: "scaleX(0)" }}
-                    />
-                </div>
-            </div>
+            <SectionScrollLine triggerRef={sectionRef} enabled />
         </section>
     );
 }

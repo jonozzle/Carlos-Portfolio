@@ -7,6 +7,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -81,7 +82,6 @@ function applyThemeVars(theme: Theme, opts?: ThemeApplyOptions) {
   root.style.setProperty("--text", theme.text);
 
   // Safety: if anything bypasses vars, still correct
-  // (does not animate unless your CSS transition is enabled)
   try {
     root.style.backgroundColor = theme.bg;
     root.style.color = theme.text;
@@ -103,9 +103,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     lockedRef.current = theme;
   }, [theme]);
 
-  // Apply initial theme once
-  useEffect(() => {
-    applyThemeVars(lockedRef.current, { animate: false });
+  // Boot apply:
+  // On hard reload, a page-level ThemeSetter may apply the page theme during hydration.
+  // If so, do NOT overwrite it by re-applying DEFAULT_THEME here.
+  useLayoutEffect(() => {
+    if (typeof document === "undefined") return;
+
+    if (typeof window !== "undefined" && (window as any).__themeBootstrapped) {
+      return;
+    }
+
+    applyThemeVars(lockedRef.current, { animate: false, force: true });
   }, []);
 
   // Optional: during scroll, force theme duration to 0ms (no repaint-y animations)
