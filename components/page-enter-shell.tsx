@@ -9,6 +9,7 @@ import { gsap } from "gsap";
 import type { PendingHero, PageTransitionPending } from "@/lib/transitions/state";
 import { unlockAppScroll } from "@/lib/scroll-lock";
 import { unlockHover } from "@/lib/hover-lock";
+import { APP_EVENTS } from "@/lib/app-events";
 
 function finalizeParkedHero() {
   const current = window.__heroPending as PendingHero | undefined;
@@ -41,8 +42,6 @@ function finalizeParkedHero() {
   }
 
   unlockAppScroll();
-
-  // IMPORTANT: allow hover *after* home is visible and scroll is unlocked.
   requestAnimationFrame(() => unlockHover());
 }
 
@@ -82,6 +81,9 @@ export default function PageEnterShell({ children }: Props) {
 
     const direction: "up" | "down" = pending.direction === "down" ? "down" : "up";
 
+    // =========================
+    // HERO PENDING (unchanged)
+    // =========================
     if (heroPending) {
       const animateEls = gsap.utils.toArray<HTMLElement>("[data-hero-page-animate]");
 
@@ -116,7 +118,7 @@ export default function PageEnterShell({ children }: Props) {
           );
         };
 
-        if (window.__heroDone) {
+        if ((window as any).__heroDone) {
           requestAnimationFrame(done);
           return;
         }
@@ -148,7 +150,7 @@ export default function PageEnterShell({ children }: Props) {
           });
         };
 
-        if (window.__heroDone) {
+        if ((window as any).__heroDone) {
           requestAnimationFrame(done);
           return;
         }
@@ -164,7 +166,9 @@ export default function PageEnterShell({ children }: Props) {
       gsap.set(animateEls, { opacity: 0 });
 
       if (heroPending.slug) {
-        const heroTargets = document.querySelectorAll<HTMLElement>(`[data-hero-slug="${heroPending.slug}"]`);
+        const heroTargets = document.querySelectorAll<HTMLElement>(
+          `[data-hero-slug="${heroPending.slug}"]`
+        );
         heroTargets.forEach((el) => gsap.set(el, { opacity: 0 }));
       }
 
@@ -184,7 +188,7 @@ export default function PageEnterShell({ children }: Props) {
         });
       };
 
-      if (window.__heroDone) {
+      if ((window as any).__heroDone) {
         requestAnimationFrame(done);
         return;
       }
@@ -196,7 +200,61 @@ export default function PageEnterShell({ children }: Props) {
       };
     }
 
-    // simple / fadeHero
+    // =========================
+    // FADE BACK TO HOME: HOLD UNTIL HS RESTORE
+    // =========================
+    const isEnteringHome = pathname === "/";
+    const hasTargetSection = !!pending.homeSectionId;
+    const isFadeKind = pending.kind === "simple" || pending.kind === "fadeHero";
+
+    // Only hold when we expect ScrollManager to restore home position
+    // (prevents the “flash top then jump to section”)
+    const shouldHoldForHomeRestore = isEnteringHome && isFadeKind && hasTargetSection;
+
+    if (shouldHoldForHomeRestore) {
+      gsap.killTweensOf(pageRoot);
+      gsap.set(pageRoot, { opacity: 0 });
+
+      let doneRan = false;
+
+      const done = () => {
+        if (doneRan) return;
+        doneRan = true;
+
+        gsap.killTweensOf(pageRoot);
+        gsap.to(pageRoot, {
+          opacity: 1,
+          duration: 0.35,
+          ease: "power2.out",
+          clearProps: "opacity",
+          onComplete: () => {
+            unlockAppScroll();
+            requestAnimationFrame(() => unlockHover());
+          },
+        });
+      };
+
+      // If restore already happened, fade in next frame
+      if ((window as any).__homeHsRestored) {
+        requestAnimationFrame(done);
+        return;
+      }
+
+      // Otherwise wait for ScrollManager restore event
+      window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, done, { once: true });
+
+      // Safety fallback (don’t get stuck hidden)
+      const t = window.setTimeout(done, 1400);
+
+      return () => {
+        window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, done as any);
+        window.clearTimeout(t);
+      };
+    }
+
+    // =========================
+    // NORMAL SIMPLE / FADEHERO ENTRY
+    // =========================
     gsap.fromTo(
       pageRoot,
       { opacity: 0 },

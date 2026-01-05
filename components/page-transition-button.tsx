@@ -6,7 +6,7 @@ import React, { useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { startHeroTransition } from "@/lib/hero-transition";
 import type { PageDirection, PageTransitionKind } from "@/lib/transitions/state";
-import { getCurrentScrollY, saveScrollForPath } from "@/lib/scroll-state";
+import { saveScrollForPath } from "@/lib/scroll-state";
 import { getActiveHomeSection, getSavedHomeSection, saveActiveHomeSectionNow } from "@/lib/home-section";
 import { lockAppScroll } from "@/lib/scroll-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
@@ -25,12 +25,34 @@ type Props = React.PropsWithChildren<{
   disabled?: boolean;
 }>;
 
-const SCROLLED_THRESHOLD = 24;
+const TOP_THRESHOLD = 24;
+
+function getRawScrollY(): number {
+  if (typeof window === "undefined") return 0;
+  const y =
+    (typeof window.scrollY === "number" ? window.scrollY : 0) ||
+    (typeof document !== "undefined" && typeof document.documentElement?.scrollTop === "number"
+      ? document.documentElement.scrollTop
+      : 0) ||
+    0;
+
+  return Number.isFinite(y) ? Math.max(0, y) : 0;
+}
+
+function clearAnyHeroPending() {
+  if (typeof window === "undefined") return;
+  const p = (window as any).__heroPending as { overlay?: HTMLElement } | undefined;
+  try {
+    p?.overlay?.remove();
+  } catch {
+    // ignore
+  }
+  (window as any).__heroPending = undefined;
+}
 
 function getHeroSourceFromCurrentPage(): { slug: string; sourceEl: HTMLElement; imgUrl: string } | null {
   if (typeof document === "undefined") return null;
 
-  // Prefer top hero on project/page routes
   const sourceEl =
     document.querySelector<HTMLElement>(`[data-hero-target="project"][data-hero-slug]`) ||
     document.querySelector<HTMLElement>(`[data-hero-target="page"][data-hero-slug]`) ||
@@ -84,15 +106,17 @@ export default function PageTransitionButton({
 
       e.preventDefault();
 
-      // Always lock on any navigation
+      // CRITICAL: use RAW scroll (native) so ScrollSmoother lag can’t trick us into thinking we’re at top
+      const rawYBeforeLock = pathname !== "/" ? getRawScrollY() : 0;
+
       lockHover();
       lockAppScroll();
 
-      // Save where we are
       const activeHome = pathname === "/" ? getActiveHomeSection() : null;
       if (pathname === "/") saveActiveHomeSectionNow();
       else saveScrollForPath(pathname);
 
+      const isProjectRoute = href.startsWith("/projects/");
       const isGoingHome = href === "/" && pathname !== "/";
 
       // =========================
@@ -101,26 +125,20 @@ export default function PageTransitionButton({
       if (isGoingHome) {
         const saved = getSavedHomeSection();
 
-        // set intent so home restores section
         setNavIntent({ kind: "project-to-home", homeSectionId: saved?.id ?? null });
 
-        // Decide hero-back vs fade-back using your rules:
-        // - only hero-back if we ENTERED this page via hero
-        // - and we are still at (near) the top
-        // - and home target is a project-block section
         const enteredKind =
           ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
 
-        const yNow = getCurrentScrollY();
-        const atTop = typeof yNow === "number" ? yNow <= SCROLLED_THRESHOLD : true;
+        const atTop = rawYBeforeLock <= TOP_THRESHOLD;
 
-        const canHeroBack =
+        const shouldHeroBack =
           enteredKind === "hero" &&
           atTop &&
           saved?.type === "project-block" &&
           !!saved?.id;
 
-        if (canHeroBack) {
+        if (shouldHeroBack) {
           (window as any).__deferHomeThemeReset = true;
 
           const hero = getHeroSourceFromCurrentPage();
@@ -135,8 +153,9 @@ export default function PageTransitionButton({
           }
         }
 
-        // Fade back (no overlay)
+        // Fade back: ensure no stale hero overlay can complete on home tiles
         (window as any).__deferHomeThemeReset = false;
+        clearAnyHeroPending();
 
         await fadeOutPageRoot({ duration: 0.26 });
         onNavigate("simple", saved?.id ?? null, saved?.type ?? null);
@@ -146,10 +165,8 @@ export default function PageTransitionButton({
       // =========================
       // HOME -> OTHER (or other -> other)
       // =========================
-      const isProjectRoute = href.startsWith("/projects/");
       let kind: PageTransitionKind = "simple";
 
-      // If we have a hero flight source, do hero
       const slug = heroSlug?.trim();
       const sourceEl = heroSourceRef?.current ?? null;
 
@@ -164,7 +181,6 @@ export default function PageTransitionButton({
         return;
       }
 
-      // HOME hero-contents -> project: fadeHero
       if (pathname === "/" && isProjectRoute && activeHome?.type === "hero-contents") {
         kind = "fadeHero";
       }

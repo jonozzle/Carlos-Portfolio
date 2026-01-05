@@ -14,19 +14,25 @@ import { startHeroTransition } from "@/lib/hero-transition";
 import { getSavedHomeSection } from "@/lib/home-section";
 import { setNavIntent } from "@/lib/nav-intent";
 import { lockHover } from "@/lib/hover-lock";
+import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
+import type { PageTransitionKind } from "@/lib/transitions/state";
 
 type BookmarkLinkProps = {
   href?: string;
   side?: "left" | "right";
   className?: string;
-
-  /**
-   * Optional: if you *can* provide these, it will behave exactly like BackToHomeButton.
-   * If you don't provide them (common for header), the component will resolve them from the DOM.
-   */
   slug?: string;
   heroImgUrl?: string;
 };
+
+const TOP_THRESHOLD = 24;
+
+function setHomeHold(on: boolean) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (on) root.dataset.homeHold = "1";
+  else delete (root as any).dataset.homeHold;
+}
 
 function extractBgUrl(bg: string | null | undefined) {
   if (!bg || bg === "none") return null;
@@ -43,7 +49,6 @@ function resolveHeroImgUrl(sourceEl: HTMLElement | null): string | null {
   const bg = extractBgUrl(getComputedStyle(sourceEl).backgroundImage);
   if (bg) return bg;
 
-  // last resort: try a child that might hold bg-image
   const anyBg = sourceEl.querySelector<HTMLElement>("[style*='background-image']");
   if (anyBg) {
     const bg2 = extractBgUrl(getComputedStyle(anyBg).backgroundImage);
@@ -51,6 +56,30 @@ function resolveHeroImgUrl(sourceEl: HTMLElement | null): string | null {
   }
 
   return null;
+}
+
+function getRawScrollY(): number {
+  if (typeof window === "undefined") return 0;
+  const y =
+    (typeof window.scrollY === "number" ? window.scrollY : 0) ||
+    (typeof document !== "undefined" && typeof document.documentElement?.scrollTop === "number"
+      ? document.documentElement.scrollTop
+      : 0) ||
+    0;
+
+  return Number.isFinite(y) ? Math.max(0, y) : 0;
+}
+
+function clearAnyHeroPending() {
+  if (typeof window === "undefined") return;
+  const p = (window as any).__heroPending as { overlay?: HTMLElement } | undefined;
+  try {
+    p?.overlay?.remove();
+  } catch {
+    // ignore
+  }
+  (window as any).__heroPending = undefined;
+  (window as any).__heroDone = true;
 }
 
 export default function BookmarkLink({
@@ -74,13 +103,7 @@ export default function BookmarkLink({
 
     gsap.killTweensOf(el);
     gsap.set(el, { pointerEvents: "none" });
-    gsap.to(el, {
-      autoAlpha: 0,
-      y: -24,
-      duration: 0.2,
-      ease: "power2.in",
-      overwrite: "auto",
-    });
+    gsap.to(el, { autoAlpha: 0, y: -24, duration: 0.2, ease: "power2.in", overwrite: "auto" });
   }, []);
 
   const show = useCallback(() => {
@@ -90,49 +113,63 @@ export default function BookmarkLink({
 
     gsap.killTweensOf(el);
     gsap.set(el, { pointerEvents: "auto" });
-    gsap.to(el, {
-      autoAlpha: 1,
-      y: 0,
-      duration: 0.45,
-      ease: "power3.out",
-      overwrite: "auto",
-    });
+    gsap.to(el, { autoAlpha: 1, y: 0, duration: 0.45, ease: "power3.out", overwrite: "auto" });
   }, []);
 
-  // Click logic: SAME DECISION TREE as BackToHomeButton.
-  // The only difference: if slug/heroImgUrl aren't provided (header usage),
-  // we resolve them from the DOM so hero-back can still run.
   const onClick = useCallback(
-    (e: React.MouseEvent<HTMLAnchorElement>) => {
+    async (e: React.MouseEvent<HTMLAnchorElement>) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (e.button !== 0) return;
+
       e.preventDefault();
 
+      const rawY = getRawScrollY();
+      const atTop = rawY <= TOP_THRESHOLD;
+
       const saved = getSavedHomeSection();
-      const shouldHeroBack = saved?.type === "project-block" && !!saved?.id;
+      const enteredKind =
+        ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
+
+      const shouldHeroBack =
+        href === "/" &&
+        pathname !== "/" &&
+        enteredKind === "hero" &&
+        atTop &&
+        saved?.type === "project-block" &&
+        !!saved?.id;
 
       lockAppScroll();
-      lockHover(); // IMPORTANT: prevent hover-scale popping during restore
+      lockHover();
 
-      setNavIntent({
-        kind: "project-to-home",
-        homeSectionId: saved?.id ?? null,
-      });
+      setNavIntent({ kind: "project-to-home", homeSectionId: saved?.id ?? null });
 
-      (window as any).__pageTransitionPending = {
-        direction: "down",
-        fromPath: pathname,
-        kind: shouldHeroBack ? "hero" : "simple",
-        homeSectionId: saved?.id ?? null,
-        homeSectionType: saved?.type ?? null,
+      const pushHome = (kind: PageTransitionKind) => {
+        (window as any).__pageTransitionPending = {
+          direction: "down",
+          fromPath: pathname,
+          kind,
+          homeSectionId: saved?.id ?? null,
+          homeSectionType: saved?.type ?? null,
+        };
+        router.push(href);
       };
 
-      const go = () => router.push(href);
-
       if (!shouldHeroBack) {
-        go();
+        // KEY: hide home BEFORE navigation so first paint cannot flash the top
+        setHomeHold(true);
+
+        (window as any).__deferHomeThemeReset = false;
+        clearAnyHeroPending();
+
+        await fadeOutPageRoot({ duration: 0.26 });
+        pushHome("simple");
         return;
       }
 
-      // Try to find the project hero source element (works for header usage).
+      // Hero-back: overlay covers, so no home hold needed
+      setHomeHold(false);
+      (window as any).__deferHomeThemeReset = true;
+
       const sourceEl =
         (slugProp
           ? document.querySelector<HTMLElement>(
@@ -143,15 +180,18 @@ export default function BookmarkLink({
         document.querySelector<HTMLElement>(`[data-hero-target="project"]`);
 
       const resolvedSlug =
-        slugProp ||
-        sourceEl?.getAttribute("data-hero-slug") ||
-        (sourceEl as any)?.dataset?.heroSlug ||
-        "";
+        slugProp || sourceEl?.getAttribute("data-hero-slug") || (sourceEl as any)?.dataset?.heroSlug || "";
 
       const resolvedImgUrl = heroImgUrlProp || resolveHeroImgUrl(sourceEl);
 
       if (!sourceEl || !resolvedSlug || !resolvedImgUrl) {
-        go();
+        setHomeHold(true);
+
+        (window as any).__deferHomeThemeReset = false;
+        clearAnyHeroPending();
+
+        await fadeOutPageRoot({ duration: 0.26 });
+        pushHome("simple");
         return;
       }
 
@@ -159,7 +199,7 @@ export default function BookmarkLink({
         slug: resolvedSlug,
         sourceEl,
         imgUrl: resolvedImgUrl,
-        onNavigate: go,
+        onNavigate: () => pushHome("hero"),
       });
     },
     [heroImgUrlProp, href, pathname, router, slugProp]
@@ -169,13 +209,7 @@ export default function BookmarkLink({
     const el = linkRef.current;
     if (!el) return;
 
-    // FOUC-safe baseline (server + pre-hydration)
-    gsap.set(el, {
-      autoAlpha: 0,
-      y: -24,
-      pointerEvents: "none",
-      willChange: "transform,opacity",
-    });
+    gsap.set(el, { autoAlpha: 0, y: -24, pointerEvents: "none", willChange: "transform,opacity" });
 
     const onShow = () => show();
     const onHide = () => hide();
@@ -213,25 +247,12 @@ export default function BookmarkLink({
         className
       )}
     >
-      {/* Visual bookmark (does NOT move, only extends) */}
       <div className="relative flex h-full w-full items-start justify-center pointer-events-none">
         <div className="flex flex-col items-center">
-          {/* Top extension block: only this height animates */}
-          <span
-            className="
-              block w-4 bg-red-500
-              h-[24px]
-              transition-[height] duration-300 ease-out
-              group-hover:h-[50px]
-            "
-          />
-          {/* Main bookmark with inverted triangle cutout at bottom */}
+          <span className="block w-4 bg-red-500 h-[24px] transition-[height] duration-300 ease-out group-hover:h-[50px]" />
           <span
             aria-hidden
-            className="
-              block w-4 h-[40px] bg-red-500
-              [clip-path:polygon(0_0,100%_0,100%_100%,50%_72%,0_100%)]
-            "
+            className="block w-4 h-[40px] bg-red-500 [clip-path:polygon(0_0,100%_0,100%_100%,50%_72%,0_100%)]"
           />
         </div>
       </div>

@@ -5,18 +5,63 @@
 import { useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { lockAppScroll } from "@/lib/scroll-lock";
-import { startHeroTransition, clearHeroPendingHard } from "@/lib/hero-transition";
+import { startHeroTransition } from "@/lib/hero-transition";
 import { getSavedHomeSection } from "@/lib/home-section";
 import { setNavIntent } from "@/lib/nav-intent";
 import { lockHover } from "@/lib/hover-lock";
-import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 import type { PageTransitionKind } from "@/lib/transitions/state";
+import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 
 type Props = {
     slug: string;
     heroImgUrl: string;
     className?: string;
 };
+
+const TOP_THRESHOLD = 24;
+
+function getRawScrollY(): number {
+    if (typeof window === "undefined") return 0;
+    const y =
+        (typeof window.scrollY === "number" ? window.scrollY : 0) ||
+        (typeof document !== "undefined" && typeof document.documentElement?.scrollTop === "number"
+            ? document.documentElement.scrollTop
+            : 0) ||
+        0;
+
+    return Number.isFinite(y) ? Math.max(0, y) : 0;
+}
+
+function clearAnyHeroPending() {
+    if (typeof window === "undefined") return;
+    const p = (window as any).__heroPending as { overlay?: HTMLElement } | undefined;
+    try {
+        p?.overlay?.remove();
+    } catch {
+        // ignore
+    }
+    (window as any).__heroPending = undefined;
+}
+
+function getHeroSourceFromCurrentPage(): { slug: string; sourceEl: HTMLElement; imgUrl: string } | null {
+    if (typeof document === "undefined") return null;
+
+    const sourceEl =
+        document.querySelector<HTMLElement>(`[data-hero-target="project"][data-hero-slug]`) ||
+        document.querySelector<HTMLElement>(`[data-hero-target="page"][data-hero-slug]`) ||
+        document.querySelector<HTMLElement>(`[data-hero-slug]`);
+
+    if (!sourceEl) return null;
+
+    const slug = sourceEl.getAttribute("data-hero-slug") || "";
+    if (!slug) return null;
+
+    const img = sourceEl.querySelector("img") as HTMLImageElement | null;
+    const imgUrl = img?.currentSrc || img?.src || "";
+    if (!imgUrl) return null;
+
+    return { slug, sourceEl, imgUrl };
+}
 
 export default function BackToHomeButton({ slug, heroImgUrl, className }: Props) {
     const router = useRouter();
@@ -26,26 +71,26 @@ export default function BackToHomeButton({ slug, heroImgUrl, className }: Props)
         async (e: React.MouseEvent) => {
             e.preventDefault();
 
+            const rawYBeforeLock = getRawScrollY();
+            const atTop = rawYBeforeLock <= TOP_THRESHOLD;
+
             const saved = getSavedHomeSection();
+            const enteredKind =
+                ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
+
+            const shouldHeroBack =
+                enteredKind === "hero" &&
+                atTop &&
+                saved?.type === "project-block" &&
+                !!saved?.id;
+
+            lockAppScroll();
+            lockHover();
 
             setNavIntent({
                 kind: "project-to-home",
                 homeSectionId: saved?.id ?? null,
             });
-
-            lockAppScroll();
-            lockHover();
-
-            const enteredKind =
-                ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
-
-            const hasScrolled = !!(window as any).__routeHasScrolled;
-
-            const shouldHeroBack =
-                enteredKind === "hero" &&
-                !hasScrolled &&
-                saved?.type === "project-block" &&
-                !!saved?.id;
 
             (window as any).__pageTransitionPending = {
                 direction: "down",
@@ -58,27 +103,38 @@ export default function BackToHomeButton({ slug, heroImgUrl, className }: Props)
             const go = () => router.push("/");
 
             if (!shouldHeroBack) {
-                clearHeroPendingHard();
+                (window as any).__deferHomeThemeReset = false;
+                clearAnyHeroPending();
+
                 await fadeOutPageRoot({ duration: 0.26 });
                 go();
                 return;
             }
 
-            const sourceEl = document.querySelector<HTMLElement>(
-                `[data-hero-target="project"][data-hero-slug="${CSS.escape(slug)}"]`
-            );
+            (window as any).__deferHomeThemeReset = true;
 
-            if (!sourceEl || !heroImgUrl) {
-                clearHeroPendingHard();
+            const hero = getHeroSourceFromCurrentPage();
+            const sourceEl =
+                hero?.sourceEl ??
+                document.querySelector<HTMLElement>(
+                    `[data-hero-target="project"][data-hero-slug="${CSS.escape(slug)}"]`
+                );
+
+            const imgUrl = hero?.imgUrl || heroImgUrl;
+
+            if (!sourceEl || !imgUrl) {
+                (window as any).__deferHomeThemeReset = false;
+                clearAnyHeroPending();
+
                 await fadeOutPageRoot({ duration: 0.26 });
                 go();
                 return;
             }
 
             startHeroTransition({
-                slug,
+                slug: hero?.slug ?? slug,
                 sourceEl,
-                imgUrl: heroImgUrl,
+                imgUrl,
                 onNavigate: go,
             });
         },

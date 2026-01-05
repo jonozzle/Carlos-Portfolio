@@ -131,6 +131,14 @@ export default function ScrollManager() {
 
     const dispatchHomeRestored = () => {
       (window as any).__homeHsRestored = true;
+
+      // RELEASE the CSS hold now that the section is restored
+      try {
+        delete (document.documentElement as any).dataset.homeHold;
+      } catch {
+        // ignore
+      }
+
       try {
         window.dispatchEvent(new Event(APP_EVENTS.HOME_HS_RESTORED));
       } catch {
