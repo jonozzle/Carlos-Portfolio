@@ -15,6 +15,9 @@ export const APP_EVENTS = {
   APP_SCROLL_LOCK: "app-scroll-lock",
   APP_SCROLL_UNLOCK: "app-scroll-unlock",
 
+  NAV_START: "app-nav-start",
+  NAV_END: "app-nav-end",
+
   // UI reveal / FOUC gating helpers
   UI_CURSOR_SHOW: "ui-cursor-show",
   UI_CURSOR_HIDE: "ui-cursor-hide",

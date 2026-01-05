@@ -4,14 +4,10 @@
 
 import React, { useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { startHeroTransition, clearHeroPendingHard } from "@/lib/hero-transition";
+import { startHeroTransition } from "@/lib/hero-transition";
 import type { PageDirection, PageTransitionKind } from "@/lib/transitions/state";
-import { saveScrollForPath } from "@/lib/scroll-state";
-import {
-  getActiveHomeSection,
-  getSavedHomeSection,
-  saveActiveHomeSectionNow,
-} from "@/lib/home-section";
+import { getCurrentScrollY, saveScrollForPath } from "@/lib/scroll-state";
+import { getActiveHomeSection, getSavedHomeSection, saveActiveHomeSectionNow } from "@/lib/home-section";
 import { lockAppScroll } from "@/lib/scroll-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 import { setNavIntent } from "@/lib/nav-intent";
@@ -29,20 +25,17 @@ type Props = React.PropsWithChildren<{
   disabled?: boolean;
 }>;
 
-function getHeroSourceFromPage(): { slug: string; sourceEl: HTMLElement; imgUrl: string } | null {
+const SCROLLED_THRESHOLD = 24;
+
+function getHeroSourceFromCurrentPage(): { slug: string; sourceEl: HTMLElement; imgUrl: string } | null {
   if (typeof document === "undefined") return null;
 
-  const candidates = [
-    `[data-hero-target="project"][data-hero-slug]`,
-    `[data-hero-target="page"][data-hero-slug]`,
-    `[data-hero-slug]`,
-  ];
+  // Prefer top hero on project/page routes
+  const sourceEl =
+    document.querySelector<HTMLElement>(`[data-hero-target="project"][data-hero-slug]`) ||
+    document.querySelector<HTMLElement>(`[data-hero-target="page"][data-hero-slug]`) ||
+    document.querySelector<HTMLElement>(`[data-hero-slug]`);
 
-  let sourceEl: HTMLElement | null = null;
-  for (const sel of candidates) {
-    sourceEl = document.querySelector<HTMLElement>(sel);
-    if (sourceEl) break;
-  }
   if (!sourceEl) return null;
 
   const slug = sourceEl.getAttribute("data-hero-slug") || "";
@@ -91,33 +84,46 @@ export default function PageTransitionButton({
 
       e.preventDefault();
 
+      // Always lock on any navigation
+      lockHover();
       lockAppScroll();
 
+      // Save where we are
       const activeHome = pathname === "/" ? getActiveHomeSection() : null;
       if (pathname === "/") saveActiveHomeSectionNow();
       else saveScrollForPath(pathname);
 
-      const isProjectRoute = href.startsWith("/projects/");
       const isGoingHome = href === "/" && pathname !== "/";
 
+      // =========================
+      // NON-HOME -> HOME
+      // =========================
       if (isGoingHome) {
         const saved = getSavedHomeSection();
-        setNavIntent({ kind: "project-to-home", homeSectionId: saved?.id ?? null });
-        lockHover();
 
+        // set intent so home restores section
+        setNavIntent({ kind: "project-to-home", homeSectionId: saved?.id ?? null });
+
+        // Decide hero-back vs fade-back using your rules:
+        // - only hero-back if we ENTERED this page via hero
+        // - and we are still at (near) the top
+        // - and home target is a project-block section
         const enteredKind =
           ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
 
-        const hasScrolled = !!(window as any).__routeHasScrolled;
+        const yNow = getCurrentScrollY();
+        const atTop = typeof yNow === "number" ? yNow <= SCROLLED_THRESHOLD : true;
 
         const canHeroBack =
           enteredKind === "hero" &&
-          !hasScrolled &&
+          atTop &&
           saved?.type === "project-block" &&
           !!saved?.id;
 
         if (canHeroBack) {
-          const hero = getHeroSourceFromPage();
+          (window as any).__deferHomeThemeReset = true;
+
+          const hero = getHeroSourceFromCurrentPage();
           if (hero) {
             startHeroTransition({
               slug: hero.slug,
@@ -129,14 +135,21 @@ export default function PageTransitionButton({
           }
         }
 
-        clearHeroPendingHard();
+        // Fade back (no overlay)
+        (window as any).__deferHomeThemeReset = false;
+
         await fadeOutPageRoot({ duration: 0.26 });
         onNavigate("simple", saved?.id ?? null, saved?.type ?? null);
         return;
       }
 
+      // =========================
+      // HOME -> OTHER (or other -> other)
+      // =========================
+      const isProjectRoute = href.startsWith("/projects/");
       let kind: PageTransitionKind = "simple";
 
+      // If we have a hero flight source, do hero
       const slug = heroSlug?.trim();
       const sourceEl = heroSourceRef?.current ?? null;
 
@@ -151,11 +164,11 @@ export default function PageTransitionButton({
         return;
       }
 
+      // HOME hero-contents -> project: fadeHero
       if (pathname === "/" && isProjectRoute && activeHome?.type === "hero-contents") {
         kind = "fadeHero";
       }
 
-      clearHeroPendingHard();
       await fadeOutPageRoot({ duration: 0.26 });
       onNavigate(kind, activeHome?.id ?? null, activeHome?.type ?? null);
     },

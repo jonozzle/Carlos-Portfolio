@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { APP_EVENTS } from "@/lib/app-events";
+import { hasRecentPointerMove } from "@/lib/hover-lock";
 
 type ColorLike = { hex?: string | null };
 
@@ -59,6 +60,16 @@ function isAppScrolling(): boolean {
   return !!(window as any).__appScrolling;
 }
 
+function isHoverLocked(): boolean {
+  if (typeof window === "undefined") return false;
+  return !!(window as any).__hoverLocked;
+}
+
+function isScrollLocked(): boolean {
+  if (typeof window === "undefined") return false;
+  return (window as any).__appScrollLockCount > 0;
+}
+
 function applyThemeVars(theme: Theme, opts?: ThemeApplyOptions) {
   if (typeof document === "undefined") return;
 
@@ -72,16 +83,14 @@ function applyThemeVars(theme: Theme, opts?: ThemeApplyOptions) {
   const root = document.documentElement;
   const body = document.body;
 
-  // Drive the vars your globals.css actually uses
   root.style.setProperty("--bg-color", theme.bg);
   root.style.setProperty("--text-color", theme.text);
   root.style.setProperty("--theme-dur", dur);
 
-  // Back-compat (in case any component still uses these)
+  // Back-compat
   root.style.setProperty("--bg", theme.bg);
   root.style.setProperty("--text", theme.text);
 
-  // Safety: if anything bypasses vars, still correct
   try {
     root.style.backgroundColor = theme.bg;
     root.style.color = theme.text;
@@ -93,7 +102,6 @@ function applyThemeVars(theme: Theme, opts?: ThemeApplyOptions) {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  // Only changes on lock/reset (page enter), not on hover previews.
   const [theme, setTheme] = useState<Theme>(DEFAULT_THEME);
 
   const lockedRef = useRef<Theme>(DEFAULT_THEME);
@@ -104,8 +112,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   // Boot apply:
-  // On hard reload, a page-level ThemeSetter may apply the page theme during hydration.
-  // If so, do NOT overwrite it by re-applying DEFAULT_THEME here.
+  // If ThemeSetter already applied a theme on hydration, do not overwrite it here.
   useLayoutEffect(() => {
     if (typeof document === "undefined") return;
 
@@ -116,7 +123,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyThemeVars(lockedRef.current, { animate: false, force: true });
   }, []);
 
-  // Optional: during scroll, force theme duration to 0ms (no repaint-y animations)
+  // During scroll, freeze theme duration to avoid repaint-y animations
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -128,26 +135,30 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const unfreeze = () => {
-      // leave at 0ms; next theme apply will set correct duration
-    };
-
     window.addEventListener(APP_EVENTS.SCROLL_START, freeze);
-    window.addEventListener(APP_EVENTS.SCROLL_END, unfreeze);
-
     return () => {
       window.removeEventListener(APP_EVENTS.SCROLL_START, freeze as any);
-      window.removeEventListener(APP_EVENTS.SCROLL_END, unfreeze as any);
     };
   }, []);
 
   const previewTheme = useCallback((t: ThemeInput | null | undefined, opts?: ThemeApplyOptions) => {
+    // Prevent “flash” previews during transitions:
+    // - if hover is locked
+    // - if scroll is locked (we’re navigating)
+    // - if pointer hasn’t moved recently (content sliding under stationary cursor)
+    if (isHoverLocked()) return;
+    if (isScrollLocked()) return;
+    if (!hasRecentPointerMove()) return;
+
     const next = normalizeTheme(t ?? null, lockedRef.current);
     previewRef.current = next;
     applyThemeVars(next, opts);
   }, []);
 
   const clearPreview = useCallback((opts?: ThemeApplyOptions) => {
+    if (isHoverLocked()) return;
+    if (isScrollLocked()) return;
+
     previewRef.current = null;
     applyThemeVars(lockedRef.current, opts);
   }, []);
@@ -157,9 +168,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     previewRef.current = null;
     lockedRef.current = next;
 
-    // Rerender only on lock (route entry)
     setTheme(next);
-
     applyThemeVars(next, opts);
   }, []);
 
@@ -168,7 +177,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     lockedRef.current = DEFAULT_THEME;
 
     setTheme(DEFAULT_THEME);
-
     applyThemeVars(DEFAULT_THEME, opts);
   }, []);
 
@@ -191,9 +199,6 @@ export function useTheme() {
   return ctx;
 }
 
-/**
- * Actions-only hook to avoid rerenders in hover-heavy components.
- */
 export function useThemeActions() {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error("useThemeActions must be used within <ThemeProvider>");

@@ -27,9 +27,11 @@ export default function ThemeSetter(props: Props) {
         const firstHydration = !(window as any).__themeHydrated;
         if (firstHydration) (window as any).__themeHydrated = true;
 
+        const navForce = !!(window as any).__navInProgress;
+
         const baseOpts: ThemeApplyOptions = firstHydration
             ? { animate: false, force: true }
-            : { animate: true };
+            : { animate: true, force: navForce };
 
         // If we’re navigating PROJECT -> HOME, delay the reset until the hero transition finishes.
         const deferHomeReset = !!(window as any).__deferHomeThemeReset;

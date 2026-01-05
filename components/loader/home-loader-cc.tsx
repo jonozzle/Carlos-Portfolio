@@ -1,3 +1,4 @@
+// HomeLoaderCC
 // components/loader/home-loader-cc.tsx
 "use client";
 
@@ -24,6 +25,9 @@ type Props = {
 
 const GLOBAL_PLAYED_FLAG = "__homeLoaderPlayedThisTab";
 const GLOBAL_INITIAL_PATH = "__initialPathAtLoad";
+
+// matches lib/home-section.ts
+const HOME_SECTION_KEY = "home-section:v1";
 
 function openFoucGateNow() {
   if (typeof document === "undefined") return;
@@ -124,6 +128,16 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
     // Mark immediately so SPA navigations back to "/" don’t re-trigger.
     (window as any)[GLOBAL_PLAYED_FLAG] = true;
 
+    // IMPORTANT: if loader plays, home MUST start at top (ignore saved section)
+    (window as any).__forceHomeTopOnce = true;
+
+    // Optional: wipe saved home section to remove any later "snap back" attempts
+    try {
+      window.sessionStorage.removeItem(HOME_SECTION_KEY);
+    } catch {
+      // ignore
+    }
+
     closeFoucGateNow();
     setDone(false);
     setAllowed(true);
@@ -152,7 +166,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         setAllowed(false);
         setLoaderDone(true);
 
-        // CRITICAL: once loader finishes and page is in its final position,
+        // once loader finishes and page is in its final position,
         // force a scheduled refresh so all ScrollTriggers measure correctly.
         scheduleScrollTriggerRefresh();
       };
