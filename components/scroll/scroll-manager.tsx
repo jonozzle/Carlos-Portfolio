@@ -5,7 +5,11 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import ScrollTrigger from "gsap/ScrollTrigger";
-import { saveScrollForPath, setCurrentScrollY } from "@/lib/scroll-state";
+import {
+  saveScrollForPath,
+  setCurrentScrollY,
+  getCurrentScrollY,
+} from "@/lib/scroll-state";
 import {
   getSavedHomeSection,
   saveActiveHomeSectionNow,
@@ -51,12 +55,14 @@ export default function ScrollManager() {
     }
   }, []);
 
-  // 2) Lightweight global scrolling flag + events (replaces ScrollCoordinator)
+  // 2) Global scrolling flag + events + NON-HOME scroll marker
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     let t: number | null = null;
     let scrolling = false;
+
+    const SCROLLED_THRESHOLD = 24; // px; tune if needed
 
     const setScrolling = (v: boolean) => {
       (window as any).__appScrolling = v;
@@ -85,6 +91,18 @@ export default function ScrollManager() {
 
     const onScroll = () => {
       start();
+
+      // NEW: if user scrolls on any NON-HOME route, mark it once
+      try {
+        const path = window.location.pathname || "";
+        if (path && path !== "/") {
+          const y = getCurrentScrollY();
+          if (y > SCROLLED_THRESHOLD) (window as any).__routeHasScrolled = true;
+        }
+      } catch {
+        // ignore
+      }
+
       if (t) window.clearTimeout(t);
       t = window.setTimeout(end, 140);
     };
@@ -99,7 +117,7 @@ export default function ScrollManager() {
     };
   }, []);
 
-  // 3) Save previous route state (HOME saves section-id; others save scrollY)
+  // 3) Save previous route state + reset flags on route change
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -115,13 +133,12 @@ export default function ScrollManager() {
     if (pathname === "/") {
       (window as any).__homeHsRestored = false;
     }
+
+    // NEW: reset “scrolled” marker for the NEW route
+    (window as any).__routeHasScrolled = false;
   }, [pathname]);
 
-  /**
-   * 4A) Non-home pages ALWAYS start at top.
-   * This kills the “project remembers old scroll position” problem.
-   * LayoutEffect so it happens before paint / before hero target measuring.
-   */
+  // 4A) Non-home pages ALWAYS start at top (clean entry)
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     if (pathname === "/") return;
@@ -132,9 +149,7 @@ export default function ScrollManager() {
     );
   }, [pathname]);
 
-  /**
-   * 4B) Home restores by section-id (wait for HS if needed)
-   */
+  // 4B) Home restores by section-id (wait for HS if needed)
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (pathname !== "/") return;
@@ -152,14 +167,12 @@ export default function ScrollManager() {
       const intent = consumeNavIntent();
       const saved = getSavedHomeSection();
 
-      // prefer explicit intent when coming back from project (back button / header home link)
       const intentSectionId =
         intent.kind === "project-to-home" ? (intent.homeSectionId ?? null) : null;
 
       const targetSectionId = intentSectionId ?? saved?.id ?? null;
 
       const run = () => {
-        // if HS exists, restore by section-id; otherwise just go top.
         if (targetSectionId && hasHsTrigger()) {
           scrollHomeToSectionId(targetSectionId);
         } else {

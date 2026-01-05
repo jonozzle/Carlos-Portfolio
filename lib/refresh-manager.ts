@@ -1,3 +1,4 @@
+// refresh-manager
 // lib/refresh-manager.ts
 "use client";
 
@@ -12,6 +13,8 @@ let scrolling = false;
 let scrollTO: number | null = null;
 
 const doneCallbacks: Array<() => void> = [];
+
+let waitingForHero = false;
 
 function requestIdle(fn: () => void, timeout = 350) {
   // @ts-ignore
@@ -33,14 +36,12 @@ function cancelIdle(id: any) {
 }
 
 function isUserScrolling() {
-  // Prefer ScrollTrigger’s own signal if available
   try {
     // @ts-ignore
     if (typeof ScrollTrigger.isScrolling === "function") return !!ScrollTrigger.isScrolling();
   } catch {
     // ignore
   }
-  // Fallback: our cheap scroll listener flag (no DOM writes)
   return scrolling || !!(typeof window !== "undefined" && (window as any).__appScrolling);
 }
 
@@ -62,9 +63,6 @@ function installScrollObserverOnce() {
 
 /**
  * Use this instead of calling ScrollTrigger.refresh() directly.
- * - Coalesces multiple refresh requests
- * - Defers refresh until NOT scrolling (idle) if user is scrolling
- * - Lets callers attach a callback that runs AFTER refresh completes
  */
 export function scheduleScrollTriggerRefresh(onDone?: () => void) {
   if (typeof window === "undefined") return;
@@ -72,6 +70,23 @@ export function scheduleScrollTriggerRefresh(onDone?: () => void) {
   installScrollObserverOnce();
 
   if (typeof onDone === "function") doneCallbacks.push(onDone);
+
+  // If a hero overlay is currently tweening, DO NOT refresh (it can move the target mid-flight).
+  const heroPending = (window as any).__heroPending as { overlay?: HTMLDivElement } | undefined;
+  const overlay = heroPending?.overlay;
+  const heroTweening = !!overlay && overlay.dataset?.heroTweening === "1";
+
+  if (heroTweening) {
+    if (!waitingForHero) {
+      waitingForHero = true;
+      const once = () => {
+        waitingForHero = false;
+        scheduleScrollTriggerRefresh();
+      };
+      window.addEventListener("hero-transition-done", once, { once: true });
+    }
+    return;
+  }
 
   pending = true;
 
@@ -95,14 +110,12 @@ export function scheduleScrollTriggerRefresh(onDone?: () => void) {
     while (doneCallbacks.length) doneCallbacks.shift()?.();
   };
 
-  // If user is scrolling, wait for idle
   if (isUserScrolling()) {
     if (idleId) cancelIdle(idleId);
     idleId = requestIdle(run, 500);
     return;
   }
 
-  // Otherwise, next frame (coalesced)
   if (rafId) return;
   rafId = requestAnimationFrame(run);
 }

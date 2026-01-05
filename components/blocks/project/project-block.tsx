@@ -186,7 +186,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
     }, [handleEnter, hardResetScale]);
 
-    // Project -> Home: overlay targets this tile
+
     useLayoutEffect(() => {
         if (typeof window === "undefined") return;
         if (!slug) return;
@@ -202,18 +202,29 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         let frames = 0;
         let ran = false;
 
+        let lastRect: { left: number; top: number; width: number; height: number } | null = null;
+        let stableCount = 0;
+
+        const EPS = 0.75; // px
+        const STABLE_FRAMES = 4;
+        const MAX_FRAMES = 300;
+
+        const rectDelta = (
+            a: { left: number; top: number; width: number; height: number },
+            b: { left: number; top: number; width: number; height: number }
+        ) => Math.abs(a.left - b.left) + Math.abs(a.top - b.top) + Math.abs(a.width - b.width) + Math.abs(a.height - b.height);
+
+        const rectOk = (r: DOMRect) =>
+            Number.isFinite(r.left) &&
+            Number.isFinite(r.top) &&
+            Number.isFinite(r.width) &&
+            Number.isFinite(r.height) &&
+            r.width > 2 &&
+            r.height > 2;
+
         const isTargetInViewport = (el: HTMLElement) => {
             const r = el.getBoundingClientRect();
-            if (
-                !Number.isFinite(r.left) ||
-                !Number.isFinite(r.top) ||
-                !Number.isFinite(r.width) ||
-                !Number.isFinite(r.height) ||
-                r.width <= 2 ||
-                r.height <= 2
-            ) {
-                return false;
-            }
+            if (!rectOk(r)) return false;
 
             const vw = window.innerWidth || 1;
             const vh = window.innerHeight || 1;
@@ -250,12 +261,31 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             const el = tileRef.current;
             if (!el) return;
 
-            if (isTargetInViewport(el)) {
+            const r = el.getBoundingClientRect();
+            if (!rectOk(r)) {
+                if (frames < MAX_FRAMES) raf = requestAnimationFrame(tick);
+                else raf = requestAnimationFrame(() => requestAnimationFrame(run));
+                return;
+            }
+
+            const now = { left: r.left, top: r.top, width: r.width, height: r.height };
+
+            if (lastRect) {
+                const d = rectDelta(now, lastRect);
+                if (d < EPS) stableCount += 1;
+                else stableCount = 0;
+            }
+            lastRect = now;
+
+            const inView = isTargetInViewport(el);
+
+            // Key: only complete once rect is stable (prevents the first tile “valid early” bug)
+            if (inView && stableCount >= STABLE_FRAMES) {
                 raf = requestAnimationFrame(() => requestAnimationFrame(run));
                 return;
             }
 
-            if (frames < 240) {
+            if (frames < MAX_FRAMES) {
                 raf = requestAnimationFrame(tick);
                 return;
             }

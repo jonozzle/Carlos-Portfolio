@@ -5,12 +5,11 @@
 import { useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { lockAppScroll } from "@/lib/scroll-lock";
-import { startHeroTransition } from "@/lib/hero-transition";
+import { startHeroTransition, clearHeroPendingHard } from "@/lib/hero-transition";
 import { getSavedHomeSection } from "@/lib/home-section";
 import { setNavIntent } from "@/lib/nav-intent";
 import { lockHover } from "@/lib/hover-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
-import { getCurrentScrollY } from "@/lib/scroll-state";
 import type { PageTransitionKind } from "@/lib/transitions/state";
 
 type Props = {
@@ -29,7 +28,6 @@ export default function BackToHomeButton({ slug, heroImgUrl, className }: Props)
 
             const saved = getSavedHomeSection();
 
-            // Always restore HOME to the saved section (or 0)
             setNavIntent({
                 kind: "project-to-home",
                 homeSectionId: saved?.id ?? null,
@@ -41,11 +39,11 @@ export default function BackToHomeButton({ slug, heroImgUrl, className }: Props)
             const enteredKind =
                 ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
 
-            const atTop = (getCurrentScrollY() ?? 0) <= 6;
+            const hasScrolled = !!(window as any).__routeHasScrolled;
 
             const shouldHeroBack =
                 enteredKind === "hero" &&
-                atTop &&
+                !hasScrolled &&
                 saved?.type === "project-block" &&
                 !!saved?.id;
 
@@ -60,6 +58,7 @@ export default function BackToHomeButton({ slug, heroImgUrl, className }: Props)
             const go = () => router.push("/");
 
             if (!shouldHeroBack) {
+                clearHeroPendingHard();
                 await fadeOutPageRoot({ duration: 0.26 });
                 go();
                 return;
@@ -70,6 +69,7 @@ export default function BackToHomeButton({ slug, heroImgUrl, className }: Props)
             );
 
             if (!sourceEl || !heroImgUrl) {
+                clearHeroPendingHard();
                 await fadeOutPageRoot({ duration: 0.26 });
                 go();
                 return;

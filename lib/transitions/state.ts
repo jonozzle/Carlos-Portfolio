@@ -8,7 +8,6 @@ export type PageTransitionPending = {
     fromPath: string;
     kind: PageTransitionKind;
 
-    // HOME section snapshot (section-id based)
     homeSectionId?: string | null;
     homeSectionType?: string | null;
 };
@@ -17,10 +16,7 @@ export type PendingHero = {
     slug: string;
     overlay: HTMLDivElement;
 
-    // for "parkThenPage" mode
     targetEl?: HTMLElement | null;
-
-    // optional: preserves hover-scale and eases back to 1 during flight
     overlayImg?: HTMLImageElement | null;
 };
 
@@ -30,10 +26,11 @@ declare global {
         __pageTransitionLast?: PageTransitionKind;
         __heroPending?: PendingHero;
 
-        // used to skip entry fade when your loader handles it
         __pageEnterSkipInitial?: boolean;
 
-        // HOME restoration marker
         __homeHsRestored?: boolean;
+
+        // NEW: sticky “did the user scroll on this route?”
+        __routeHasScrolled?: boolean;
     }
 }

@@ -117,7 +117,6 @@ function pickSourceUrl(sourceEl: HTMLElement, fallbackUrl: string) {
 }
 
 function findHoverScale(sourceEl: HTMLElement) {
-  // Project block scales an inner wrapper; we read its current visual scale.
   const scaleEl = sourceEl.querySelector<HTMLElement>("[data-hero-img-scale]");
   if (!scaleEl) return 1;
   return clamp(visualScale(scaleEl), 0.5, 2);
@@ -136,12 +135,10 @@ function ensureOverlayImage(sourceEl: HTMLElement, fallbackUrl: string) {
   img.style.transformOrigin = "50% 50%";
   img.style.filter = "none";
 
-  // Encourage fast decode/fetch for the portal image
   img.decoding = "async";
   (img as any).fetchPriority = "high";
   img.loading = "eager";
 
-  // IMPORTANT: start overlay image at current hover scale (e.g. 1.1)
   const hoverScale = findHoverScale(sourceEl);
   if (Math.abs(hoverScale - 1) > 0.001) {
     img.style.transform = `scale(${hoverScale})`;
@@ -333,7 +330,6 @@ export function completeHeroTransition({
       0
     );
 
-    // IMPORTANT: ease the hover scale back to 1 during the flight
     if (overlayImg) {
       const startScale = (overlayImg as any).__startScale as number | undefined;
       if (typeof startScale === "number" && Math.abs(startScale - 1) > 0.001) {
@@ -378,4 +374,32 @@ export function completeHeroTransition({
   };
 
   requestAnimationFrame(attempt);
+}
+
+/**
+ * Hard-kill any existing hero overlay.
+ * Use this before any NON-hero navigation to prevent “fade + hero overlay mix”.
+ */
+export function clearHeroPendingHard() {
+  if (typeof window === "undefined") return;
+
+  const pending = (window as any).__heroPending as PendingHero | undefined;
+  if (!pending?.overlay) {
+    (window as any).__heroPending = undefined;
+    return;
+  }
+
+  try {
+    markOverlayTweening(pending.overlay, false);
+  } catch {
+    // ignore
+  }
+
+  try {
+    pending.overlay.remove();
+  } catch {
+    // ignore
+  }
+
+  (window as any).__heroPending = undefined;
 }
