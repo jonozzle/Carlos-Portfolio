@@ -2,11 +2,15 @@
 // components/scroll/scroll-manager.tsx
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import ScrollTrigger from "gsap/ScrollTrigger";
-import { saveScrollForPath, getScrollForPath, setCurrentScrollY } from "@/lib/scroll-state";
-import { getSavedHomeSection, saveActiveHomeSectionNow, scrollHomeToSectionId } from "@/lib/home-section";
+import { saveScrollForPath, setCurrentScrollY } from "@/lib/scroll-state";
+import {
+  getSavedHomeSection,
+  saveActiveHomeSectionNow,
+  scrollHomeToSectionId,
+} from "@/lib/home-section";
 import { consumeNavIntent } from "@/lib/nav-intent";
 import { scheduleScrollTriggerRefresh } from "@/lib/refresh-manager";
 import { APP_EVENTS } from "@/lib/app-events";
@@ -113,9 +117,27 @@ export default function ScrollManager() {
     }
   }, [pathname]);
 
-  // 4) Restore on entry
+  /**
+   * 4A) Non-home pages ALWAYS start at top.
+   * This kills the “project remembers old scroll position” problem.
+   * LayoutEffect so it happens before paint / before hero target measuring.
+   */
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    if (pathname === "/") return;
+
+    restoreWithFrames(
+      () => setCurrentScrollY(0),
+      () => scheduleScrollTriggerRefresh()
+    );
+  }, [pathname]);
+
+  /**
+   * 4B) Home restores by section-id (wait for HS if needed)
+   */
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (pathname !== "/") return;
 
     const dispatchHomeRestored = () => {
       (window as any).__homeHsRestored = true;
@@ -126,19 +148,11 @@ export default function ScrollManager() {
       }
     };
 
-    const restoreNonHome = () => {
-      const saved = getScrollForPath(pathname);
-      const target = typeof saved === "number" ? saved : 0;
-      restoreWithFrames(() => setCurrentScrollY(target), () => {
-        scheduleScrollTriggerRefresh();
-      });
-    };
-
     const restoreHome = () => {
       const intent = consumeNavIntent();
       const saved = getSavedHomeSection();
 
-      // prefer explicit intent when coming back from project (back button)
+      // prefer explicit intent when coming back from project (back button / header home link)
       const intentSectionId =
         intent.kind === "project-to-home" ? (intent.homeSectionId ?? null) : null;
 
@@ -158,23 +172,14 @@ export default function ScrollManager() {
       });
     };
 
-    // Non-home: restore immediately
-    if (pathname !== "/") {
-      restoreNonHome();
-      return;
-    }
-
-    // Home: wait until HS is ready (or run immediately if it already is)
-    const tryRun = () => restoreHome();
-
     if (hasHsTrigger()) {
-      tryRun();
+      restoreHome();
       return;
     }
 
-    window.addEventListener(APP_EVENTS.HS_READY, tryRun, { once: true });
+    window.addEventListener(APP_EVENTS.HS_READY, restoreHome, { once: true });
     return () => {
-      window.removeEventListener(APP_EVENTS.HS_READY, tryRun as any);
+      window.removeEventListener(APP_EVENTS.HS_READY, restoreHome as any);
     };
   }, [pathname]);
 
