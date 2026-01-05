@@ -106,13 +106,7 @@ export default function BookmarkLink({
 
     gsap.killTweensOf(el);
     gsap.set(el, { pointerEvents: "none" });
-    gsap.to(el, {
-      autoAlpha: 0,
-      y: -24,
-      duration: 0.2,
-      ease: "power2.in",
-      overwrite: "auto",
-    });
+    gsap.to(el, { autoAlpha: 0, y: -24, duration: 0.2, ease: "power2.in", overwrite: "auto" });
   }, []);
 
   const show = useCallback(() => {
@@ -122,17 +116,17 @@ export default function BookmarkLink({
 
     gsap.killTweensOf(el);
     gsap.set(el, { pointerEvents: "auto" });
-    gsap.to(el, {
-      autoAlpha: 1,
-      y: 0,
-      duration: 0.45,
-      ease: "power3.out",
-      overwrite: "auto",
-    });
+    gsap.to(el, { autoAlpha: 1, y: 0, duration: 0.45, ease: "power3.out", overwrite: "auto" });
   }, []);
 
   const onClick = useCallback(
     async (e: React.MouseEvent<HTMLAnchorElement>) => {
+      // Prevent *any* click action on home. No fade, no scroll lock, nothing.
+      if (pathname === "/") {
+        e.preventDefault();
+        return;
+      }
+
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       if (e.button !== 0) return;
 
@@ -156,10 +150,7 @@ export default function BookmarkLink({
       lockAppScroll();
       lockHover();
 
-      setNavIntent({
-        kind: "project-to-home",
-        homeSectionId: saved?.id ?? null,
-      });
+      setNavIntent({ kind: "project-to-home", homeSectionId: saved?.id ?? null });
 
       const pushHome = (kind: PageTransitionKind) => {
         (window as any).__pageTransitionPending = {
@@ -173,14 +164,12 @@ export default function BookmarkLink({
       };
 
       if (!shouldHeroBack) {
-        // IMPORTANT: do NOT set home-hold yet (it would kill outgoing fade via !important)
         (window as any).__deferHomeThemeReset = false;
         clearAnyHeroPending();
 
-        // slower fade-out (your fadeOut enforces a min anyway, but keep intent explicit)
         await fadeOutPageRoot({ duration: 0.8 });
 
-        // NOW set hold (page is already faded), so home can't flash at top
+        // Set hold AFTER fade so it can't kill fade-out, but still prevents home-top flash.
         setHomeHold(true);
 
         pushHome("simple");
@@ -201,10 +190,7 @@ export default function BookmarkLink({
         document.querySelector<HTMLElement>(`[data-hero-target="project"]`);
 
       const resolvedSlug =
-        slugProp ||
-        sourceEl?.getAttribute("data-hero-slug") ||
-        (sourceEl as any)?.dataset?.heroSlug ||
-        "";
+        slugProp || sourceEl?.getAttribute("data-hero-slug") || (sourceEl as any)?.dataset?.heroSlug || "";
 
       const resolvedImgUrl = heroImgUrlProp || resolveHeroImgUrl(sourceEl);
 
@@ -232,12 +218,7 @@ export default function BookmarkLink({
     const el = linkRef.current;
     if (!el) return;
 
-    gsap.set(el, {
-      autoAlpha: 0,
-      y: -24,
-      pointerEvents: "none",
-      willChange: "transform,opacity",
-    });
+    gsap.set(el, { autoAlpha: 0, y: -24, pointerEvents: "none", willChange: "transform,opacity" });
 
     const onShow = () => show();
     const onHide = () => hide();
@@ -277,20 +258,10 @@ export default function BookmarkLink({
     >
       <div className="relative flex h-full w-full items-start justify-center pointer-events-none">
         <div className="flex flex-col items-center">
-          <span
-            className="
-              block w-4 bg-red-500
-              h-[24px]
-              transition-[height] duration-300 ease-out
-              group-hover:h-[50px]
-            "
-          />
+          <span className="block w-4 bg-red-500 h-[24px] transition-[height] duration-300 ease-out group-hover:h-[50px]" />
           <span
             aria-hidden
-            className="
-              block w-4 h-[40px] bg-red-500
-              [clip-path:polygon(0_0,100%_0,100%_100%,50%_72%,0_100%)]
-            "
+            className="block w-4 h-[40px] bg-red-500 [clip-path:polygon(0_0,100%_0,100%_100%,50%_72%,0_100%)]"
           />
         </div>
       </div>
