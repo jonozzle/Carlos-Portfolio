@@ -11,6 +11,25 @@ import { unlockAppScroll } from "@/lib/scroll-lock";
 import { unlockHover } from "@/lib/hover-lock";
 import { APP_EVENTS } from "@/lib/app-events";
 
+declare global {
+  interface Window {
+    __fadeOverlayActive?: boolean;
+  }
+}
+
+function getTransitionLayer(): HTMLDivElement | null {
+  if (typeof document === "undefined") return null;
+  return document.getElementById("transition-layer") as HTMLDivElement | null;
+}
+
+function clearFadeOverlay() {
+  const layer = getTransitionLayer();
+  if (!layer) return;
+  gsap.killTweensOf(layer);
+  gsap.set(layer, { opacity: 0, clearProps: "background,willChange" });
+  (window as any).__fadeOverlayActive = false;
+}
+
 function finalizeParkedHero() {
   const current = window.__heroPending as PendingHero | undefined;
   const slug = current?.slug;
@@ -68,23 +87,29 @@ export default function PageEnterShell({ children }: Props) {
     const skipInitial = window.__pageEnterSkipInitial;
     window.__pageEnterSkipInitial = undefined;
 
-    if (!pending) {
+    // If nothing is pending, ensure overlay isn't left on
+    if (!pending && !heroPending) {
+      clearFadeOverlay();
+
       if (!skipInitial) {
         gsap.fromTo(
           pageRoot,
           { opacity: 0 },
-          { opacity: 1, duration: 0.45, ease: "power2.out", clearProps: "opacity" }
+          { opacity: 1, duration: 0.55, ease: "power2.out", clearProps: "opacity" }
         );
       }
       return;
     }
 
-    const direction: "up" | "down" = pending.direction === "down" ? "down" : "up";
+    const direction: "up" | "down" = pending?.direction === "down" ? "down" : "up";
 
     // =========================
-    // HERO PENDING (unchanged)
+    // HERO PENDING (UNCHANGED)
     // =========================
     if (heroPending) {
+      // hero has its own overlay; fade overlay must be off
+      clearFadeOverlay();
+
       const animateEls = gsap.utils.toArray<HTMLElement>("[data-hero-page-animate]");
 
       const runFallbackUnlock = () => {
@@ -107,7 +132,7 @@ export default function PageEnterShell({ children }: Props) {
             { opacity: 0 },
             {
               opacity: 1,
-              duration: 0.45,
+              duration: 0.55,
               ease: "power2.out",
               clearProps: "opacity",
               onComplete: () => {
@@ -140,7 +165,7 @@ export default function PageEnterShell({ children }: Props) {
           gsap.to(animateEls, {
             y: 0,
             opacity: 1,
-            duration: 0.8,
+            duration: 0.9,
             ease: "power3.out",
             clearProps: "transform,opacity,willChange",
             onComplete: () => {
@@ -181,7 +206,7 @@ export default function PageEnterShell({ children }: Props) {
         clearTimer(timer);
         gsap.to(animateEls, {
           opacity: 1,
-          duration: 0.45,
+          duration: 0.55,
           ease: "power2.out",
           clearProps: "opacity,willChange",
           onComplete: finalizeParkedHero,
@@ -201,74 +226,79 @@ export default function PageEnterShell({ children }: Props) {
     }
 
     // =========================
-    // FADE BACK TO HOME: HOLD UNTIL HS RESTORE
+    // FADE ENTRY (CROSSFADE IN)
     // =========================
-    const isEnteringHome = pathname === "/";
-    const hasTargetSection = !!pending.homeSectionId;
-    const isFadeKind = pending.kind === "simple" || pending.kind === "fadeHero";
+    const layer = getTransitionLayer();
+    const overlayActive = !!(window as any).__fadeOverlayActive && !!layer;
 
-    // Only hold when we expect ScrollManager to restore home position
-    // (prevents the “flash top then jump to section”)
-    const shouldHoldForHomeRestore = isEnteringHome && isFadeKind && hasTargetSection;
+    // Match fadeOut minimum. Make this a bit longer for nicer entry.
+    const D_IN = 0.75;
 
-    if (shouldHoldForHomeRestore) {
+    const crossFadeIn = () => {
       gsap.killTweensOf(pageRoot);
       gsap.set(pageRoot, { opacity: 0 });
 
-      let doneRan = false;
+      // Let theme settle for a tick, then crossfade in
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (overlayActive && layer) {
+            gsap.killTweensOf(layer);
 
-      const done = () => {
-        if (doneRan) return;
-        doneRan = true;
+            const tl = gsap.timeline({
+              defaults: { ease: "power2.inOut" },
+              onComplete: () => {
+                clearFadeOverlay();
+                unlockAppScroll();
+                requestAnimationFrame(() => unlockHover());
+              },
+            });
 
-        gsap.killTweensOf(pageRoot);
-        gsap.to(pageRoot, {
-          opacity: 1,
-          duration: 0.35,
-          ease: "power2.out",
-          clearProps: "opacity",
-          onComplete: () => {
-            unlockAppScroll();
-            requestAnimationFrame(() => unlockHover());
-          },
+            tl.to(pageRoot, { opacity: 1, duration: D_IN, clearProps: "opacity" }, 0);
+            tl.to(layer, { opacity: 0, duration: D_IN, clearProps: "background,willChange" }, 0);
+            return;
+          }
+
+          gsap.to(pageRoot, {
+            opacity: 1,
+            duration: D_IN,
+            ease: "power2.out",
+            clearProps: "opacity",
+            onComplete: () => {
+              unlockAppScroll();
+              requestAnimationFrame(() => unlockHover());
+            },
+          });
         });
-      };
+      });
+    };
 
-      // If restore already happened, fade in next frame
+    // If entering home and restoration is needed, wait (prevents top flash + preserves fade)
+    const isEnteringHome = pathname === "/";
+    const hasTargetSection = !!pending?.homeSectionId;
+    const isFadeKind = pending?.kind === "simple" || pending?.kind === "fadeHero";
+    const shouldWaitForHomeRestore = isEnteringHome && isFadeKind && hasTargetSection;
+
+    if (shouldWaitForHomeRestore) {
+      // keep page hidden until restore, overlay remains visible from fadeOutPageRoot
+      gsap.set(pageRoot, { opacity: 0 });
+
+      const run = () => crossFadeIn();
+
       if ((window as any).__homeHsRestored) {
-        requestAnimationFrame(done);
+        run();
         return;
       }
 
-      // Otherwise wait for ScrollManager restore event
-      window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, done, { once: true });
-
-      // Safety fallback (don’t get stuck hidden)
-      const t = window.setTimeout(done, 1400);
+      window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, run, { once: true });
+      const t = window.setTimeout(run, 1600);
 
       return () => {
-        window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, done as any);
+        window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, run as any);
         window.clearTimeout(t);
       };
     }
 
-    // =========================
-    // NORMAL SIMPLE / FADEHERO ENTRY
-    // =========================
-    gsap.fromTo(
-      pageRoot,
-      { opacity: 0 },
-      {
-        opacity: 1,
-        duration: 0.35,
-        ease: "power2.out",
-        clearProps: "opacity",
-        onComplete: () => {
-          unlockAppScroll();
-          requestAnimationFrame(() => unlockHover());
-        },
-      }
-    );
+    crossFadeIn();
   }, [pathname]);
 
   return <>{children}</>;
