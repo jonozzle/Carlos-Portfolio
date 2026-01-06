@@ -47,7 +47,7 @@ export default async function Page({ params }: PageProps) {
     <HScrollerWrapper>
       <ThemeSetter theme={page.theme ?? null} />
 
-      <section className="h-panel w-screen relative">
+      <section data-panel-height="viewport" className="h-panel w-screen relative">
         <div className="grid grid-cols-1 md:grid-cols-2 h-full">
           <div className="px-6 md:px-10" data-hero-page-animate>
             <div className="h-full flex flex-col">

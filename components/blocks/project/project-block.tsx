@@ -1,3 +1,4 @@
+// ProjectBlock
 // components/project/project-block.tsx
 "use client";
 
@@ -11,12 +12,15 @@ import ScrollTrigger from "gsap/ScrollTrigger";
 import { APP_EVENTS } from "@/lib/app-events";
 import { HOVER_EVENTS, isHoverLocked, getLastMouse } from "@/lib/hover-lock";
 import SectionScrollLine from "@/components/ui/section-scroll-line";
+import { getCurrentScrollY, setCurrentScrollY } from "@/lib/scroll-state";
 
 if (typeof window !== "undefined") {
     gsap.registerPlugin(ScrollTrigger);
 }
 
 type Theme = ThemeInput | null;
+
+type MobileLayout = "below-left" | "below-right" | "left" | "right";
 
 type SingleGalleryItem = {
     slug?: string | null;
@@ -39,6 +43,7 @@ type Slot = {
 
 type ProjectLayoutEntry = {
     project: SingleGalleryItem;
+    mobileLayout: MobileLayout;
     imageRowStart: number;
     imageRowEnd: number;
     imageColStart: number;
@@ -56,6 +61,11 @@ type Props = {
     width?: string | null;
     projects?: {
         project?: SingleGalleryItem | null;
+
+        // MOBILE
+        mobileLayout?: MobileLayout | null;
+
+        // DESKTOP GRID
         imageRowStart?: number | null;
         imageRowEnd?: number | null;
         imageColStart?: number | null;
@@ -70,6 +80,7 @@ type Props = {
 type CellProps = {
     item: SingleGalleryItem;
     slot: Slot;
+    mobileLayout: MobileLayout;
     themeCtx: ThemeContext;
     index: number;
     activeIndex: number | null;
@@ -77,9 +88,27 @@ type CellProps = {
     isScrollingRef: React.MutableRefObject<boolean>;
 };
 
+function cx(...parts: Array<string | null | undefined | false>) {
+    return parts.filter(Boolean).join(" ");
+}
+
+function normalizeMobileLayout(v: unknown): MobileLayout {
+    if (v === "below-left" || v === "below-right" || v === "left" || v === "right") return v;
+    return "below-left";
+}
+
+function isMobileNow() {
+    try {
+        return window.matchMedia("(max-width: 767px)").matches;
+    } catch {
+        return false;
+    }
+}
+
 const ProjectBlockCell = React.memo(function ProjectBlockCell({
     item,
     slot,
+    mobileLayout,
     themeCtx,
     index,
     activeIndex,
@@ -122,7 +151,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     }, []);
 
     const clearHover = useCallback(() => {
-        if (navLockedRef.current) return; // do not snap back on click
+        if (navLockedRef.current) return;
         if (hasTheme) clearPreview();
         setActiveIndex((prev) => (prev === index ? null : prev));
         animateScale(1);
@@ -138,16 +167,12 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     }, [hasTheme, previewTheme, theme, setActiveIndex, index, isScrollingRef, animateScale]);
 
     const handleLeave = useCallback(() => {
-        if (navLockedRef.current) return; // keep hover scale through transition start
+        if (navLockedRef.current) return;
         if (isScrollingRef.current) return;
         if (isHoverLocked()) return;
         clearHover();
     }, [clearHover, isScrollingRef]);
 
-    /**
-     * Lock theme BEFORE navigation begins, and also freeze the hovered scale
-     * so the portal starts from the hovered (scaled) state.
-     */
     const handleNavLockCapture = useCallback(() => {
         if (!slug) return;
 
@@ -157,14 +182,10 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             lockTheme(theme, { animate: false, force: true, durationMs: 0 });
         }
 
-        // ensure we don't get a late mouseleave -> reset before PageTransitionButton starts the overlay
         const el = imgScaleRef.current;
-        if (el) {
-            gsap.killTweensOf(el); // freeze at current scale (whatever it is right now)
-        }
+        if (el) gsap.killTweensOf(el);
     }, [slug, hasTheme, lockTheme, theme]);
 
-    // When hover unlocks after transition, if mouse is currently over this tile, apply hover smoothly.
     useEffect(() => {
         if (typeof window === "undefined") return;
 
@@ -186,7 +207,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
     }, [handleEnter, hardResetScale]);
 
-
+    // Project -> Home: overlay targets this tile
     useLayoutEffect(() => {
         if (typeof window === "undefined") return;
         if (!slug) return;
@@ -205,14 +226,20 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         let lastRect: { left: number; top: number; width: number; height: number } | null = null;
         let stableCount = 0;
 
-        const EPS = 0.75; // px
+        const EPS = 0.75;
         const STABLE_FRAMES = 4;
-        const MAX_FRAMES = 300;
+        const MAX_FRAMES = 360;
+
+        let nudged = false;
 
         const rectDelta = (
             a: { left: number; top: number; width: number; height: number },
             b: { left: number; top: number; width: number; height: number }
-        ) => Math.abs(a.left - b.left) + Math.abs(a.top - b.top) + Math.abs(a.width - b.width) + Math.abs(a.height - b.height);
+        ) =>
+            Math.abs(a.left - b.left) +
+            Math.abs(a.top - b.top) +
+            Math.abs(a.width - b.width) +
+            Math.abs(a.height - b.height);
 
         const rectOk = (r: DOMRect) =>
             Number.isFinite(r.left) &&
@@ -233,6 +260,22 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             const slackY = vh * 0.25;
 
             return r.right > -slackX && r.left < vw + slackX && r.bottom > -slackY && r.top < vh + slackY;
+        };
+
+        const nudgeIntoView = (el: HTMLElement) => {
+            if (nudged) return;
+            nudged = true;
+
+            const r = el.getBoundingClientRect();
+            const vh = window.innerHeight || 1;
+
+            // center tile in viewport
+            const targetY = getCurrentScrollY() + r.top - (vh / 2 - r.height / 2);
+            setCurrentScrollY(targetY);
+
+            // after we move scroll, we must re-stabilize rect
+            lastRect = null;
+            stableCount = 0;
         };
 
         const run = () => {
@@ -279,7 +322,13 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 
             const inView = isTargetInViewport(el);
 
-            // Key: only complete once rect is stable (prevents the first tile “valid early” bug)
+            // Mobile + auto-height panels: if we restored to the section top but the tile is lower, bring it into view once.
+            if (isMobileNow() && !inView && frames === 12) {
+                nudgeIntoView(el);
+                raf = requestAnimationFrame(tick);
+                return;
+            }
+
             if (inView && stableCount >= STABLE_FRAMES) {
                 raf = requestAnimationFrame(() => requestAnimationFrame(run));
                 return;
@@ -332,9 +381,37 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         }
         : { href, direction: "up" as const };
 
+    const isBelow = mobileLayout === "below-left" || mobileLayout === "below-right";
+    const isSide = mobileLayout === "left" || mobileLayout === "right";
+
+    const cellLayoutClass = cx(
+        "gap-2 md:gap-0 md:contents",
+        isBelow && "flex flex-col",
+        isSide && "flex items-stretch",
+        mobileLayout === "right" && "flex-row",
+        mobileLayout === "left" && "flex-row-reverse",
+        isSide && "h-[46vh] min-h-[260px] max-h-[440px]"
+    );
+
+    const imgBoxClass = cx(
+        "relative block cursor-pointer z-10",
+        isBelow && "h-[56vh] min-h-[320px] max-h-[560px] md:h-full",
+        isSide && "h-full flex-[0_0_50%]"
+    );
+
+    const desktopInfoAlign =
+        slot.info.align === "right" ? "md:items-end md:text-right" : "md:items-start md:text-left";
+
+    const infoBoxClass = cx(
+        "relative z-10 flex flex-col justify-start text-left",
+        desktopInfoAlign,
+        isSide && "h-full flex-[0_0_50%] justify-center",
+        mobileLayout === "below-right" && "self-end max-w-[85%] md:self-auto md:max-w-none"
+    );
+
     return (
         <div
-            className="contents"
+            className={cellLayoutClass}
             onMouseEnter={handleEnter}
             onMouseLeave={handleLeave}
             onFocusCapture={handleEnter}
@@ -344,7 +421,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         >
             <div
                 ref={tileRef}
-                className="relative block cursor-pointer z-10"
+                className={imgBoxClass}
                 style={{ gridColumn: slot.img.col, gridRow: slot.img.row }}
                 data-dim-item={dimState}
                 data-hero-slug={slug || undefined}
@@ -353,7 +430,11 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             >
                 <PageTransitionButton {...buttonCommonProps} className="block w-full h-full cursor-pointer">
                     <div className="relative w-full h-full overflow-hidden">
-                        <div ref={imgScaleRef} data-hero-img-scale className="relative w-full h-full will-change-transform transform-gpu">
+                        <div
+                            ref={imgScaleRef}
+                            data-hero-img-scale
+                            className="relative w-full h-full will-change-transform transform-gpu"
+                        >
                             {imgUrl ? (
                                 <SmoothImage
                                     src={imgUrl}
@@ -375,11 +456,18 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             </div>
 
             <div
-                className="relative z-10 flex flex-col justify-start text-left flex-start"
+                className={infoBoxClass}
                 style={{ gridColumn: slot.info.col, gridRow: slot.info.row }}
                 data-dim-item={dimState}
             >
-                <PageTransitionButton {...buttonCommonProps} className="flex flex-col items-start text-left">
+                <PageTransitionButton
+                    {...buttonCommonProps}
+                    className={cx(
+                        "flex flex-col",
+                        isSide ? "justify-center h-full" : "justify-start",
+                        "items-start text-left"
+                    )}
+                >
                     <h3 className="text-lg md:text-4xl font-serif font-bold leading-tight tracking-tighter" data-speed-x="0.96">
                         {item?.title ?? "Untitled"}
                     </h3>
@@ -446,9 +534,8 @@ export default function ProjectBlock(props: Props) {
     const entries: ProjectLayoutEntry[] = useMemo(() => {
         const raw = props.projects ?? [];
 
-        const defaults: ProjectLayoutEntry[] = [
+        const defaults: Omit<ProjectLayoutEntry, "project" | "mobileLayout">[] = [
             {
-                project: (raw[0]?.project ?? null) as any,
                 imageRowStart: 2,
                 imageRowEnd: 5,
                 imageColStart: 2,
@@ -459,7 +546,6 @@ export default function ProjectBlock(props: Props) {
                 infoColEnd: 10,
             },
             {
-                project: (raw[1]?.project ?? null) as any,
                 imageRowStart: 7,
                 imageRowEnd: 11,
                 imageColStart: 4,
@@ -470,7 +556,6 @@ export default function ProjectBlock(props: Props) {
                 infoColEnd: 10,
             },
             {
-                project: (raw[2]?.project ?? null) as any,
                 imageRowStart: 2,
                 imageRowEnd: 6,
                 imageColStart: 6,
@@ -481,7 +566,6 @@ export default function ProjectBlock(props: Props) {
                 infoColEnd: 12,
             },
             {
-                project: (raw[3]?.project ?? null) as any,
                 imageRowStart: 7,
                 imageRowEnd: 11,
                 imageColStart: 3,
@@ -503,32 +587,41 @@ export default function ProjectBlock(props: Props) {
 
                 const fallback = defaults[index] ?? defaults[0];
 
-                let imageRowStart = typeof p.imageRowStart === "number" && p.imageRowStart > 0 ? p.imageRowStart : fallback.imageRowStart;
+                let imageRowStart =
+                    typeof p.imageRowStart === "number" && p.imageRowStart > 0 ? p.imageRowStart : fallback.imageRowStart;
                 imageRowStart = clampN(imageRowStart, 1, 12);
 
-                let imageRowEnd = typeof p.imageRowEnd === "number" && p.imageRowEnd > imageRowStart ? p.imageRowEnd : fallback.imageRowEnd;
+                let imageRowEnd =
+                    typeof p.imageRowEnd === "number" && p.imageRowEnd > imageRowStart ? p.imageRowEnd : fallback.imageRowEnd;
                 imageRowEnd = clampN(imageRowEnd, imageRowStart + 1, 13);
 
-                let imageColStart = typeof p.imageColStart === "number" && p.imageColStart > 0 ? p.imageColStart : fallback.imageColStart;
+                let imageColStart =
+                    typeof p.imageColStart === "number" && p.imageColStart > 0 ? p.imageColStart : fallback.imageColStart;
                 imageColStart = clampN(imageColStart, 1, 12);
 
-                let imageColEnd = typeof p.imageColEnd === "number" && p.imageColEnd > imageColStart ? p.imageColEnd : fallback.imageColEnd;
+                let imageColEnd =
+                    typeof p.imageColEnd === "number" && p.imageColEnd > imageColStart ? p.imageColEnd : fallback.imageColEnd;
                 imageColEnd = clampN(imageColEnd, imageColStart + 1, 13);
 
-                let infoRowStart = typeof p.infoRowStart === "number" && p.infoRowStart > 0 ? p.infoRowStart : fallback.infoRowStart;
+                let infoRowStart =
+                    typeof p.infoRowStart === "number" && p.infoRowStart > 0 ? p.infoRowStart : fallback.infoRowStart;
                 infoRowStart = clampN(infoRowStart, 1, 12);
 
-                let infoRowEnd = typeof p.infoRowEnd === "number" && p.infoRowEnd > infoRowStart ? p.infoRowEnd : fallback.infoRowEnd;
+                let infoRowEnd =
+                    typeof p.infoRowEnd === "number" && p.infoRowEnd > infoRowStart ? p.infoRowEnd : fallback.infoRowEnd;
                 infoRowEnd = clampN(infoRowEnd, infoRowStart + 1, 13);
 
-                let infoColStart = typeof p.infoColStart === "number" && p.infoColStart > 0 ? p.infoColStart : fallback.infoColStart;
+                let infoColStart =
+                    typeof p.infoColStart === "number" && p.infoColStart > 0 ? p.infoColStart : fallback.infoColStart;
                 infoColStart = clampN(infoColStart, 1, 12);
 
-                let infoColEnd = typeof p.infoColEnd === "number" && p.infoColEnd > infoColStart ? p.infoColEnd : fallback.infoColEnd;
+                let infoColEnd =
+                    typeof p.infoColEnd === "number" && p.infoColEnd > infoColStart ? p.infoColEnd : fallback.infoColEnd;
                 infoColEnd = clampN(infoColEnd, infoColStart + 1, 13);
 
                 return {
                     project,
+                    mobileLayout: normalizeMobileLayout(p?.mobileLayout),
                     imageRowStart,
                     imageRowEnd,
                     imageColStart,
@@ -547,18 +640,19 @@ export default function ProjectBlock(props: Props) {
     return (
         <section
             ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
-            className="h-screen p-2 gap-2 grid grid-cols-12 grid-rows-12 relative overflow-hidden will-change-transform transform-gpu"
-            style={{ width, containIntrinsicSize: "100vh 50vw" }}
+            data-panel-height="auto"
+            className={cx(
+                "relative p-2 flex flex-col gap-6 overflow-visible",
+                "md:h-screen md:overflow-hidden md:gap-2 md:grid md:grid-cols-12 md:grid-rows-12",
+                "will-change-transform transform-gpu",
+                "w-screen md:w-[var(--pb-width)]",
+                "md:[contain-intrinsic-size:100vh_50vw]"
+            )}
+            style={{ ["--pb-width" as any]: width }}
         >
+
             {props.title ? (
-                <div
-                    className="pointer-events-none px-4 md:px-6 will-change-transform transform-gpu"
-                    style={{
-                        gridColumn: "1 / span 8",
-                        gridRow: "1 / span 1",
-                        alignSelf: "center",
-                    }}
-                >
+                <div className="pointer-events-none px-4 md:px-6 will-change-transform transform-gpu md:[grid-column:1/span_8] md:[grid-row:1/span_1] md:self-center">
                     <h2 className="text-base md:text-xl italic tracking-tight will-change-transform transform-gpu">{props.title}</h2>
                 </div>
             ) : null}
@@ -584,6 +678,7 @@ export default function ProjectBlock(props: Props) {
                             key={key}
                             item={entry.project}
                             slot={slot}
+                            mobileLayout={entry.mobileLayout}
                             themeCtx={themeCtx}
                             index={index}
                             activeIndex={activeIndex}
@@ -593,7 +688,7 @@ export default function ProjectBlock(props: Props) {
                     );
                 })
             ) : (
-                <div className="col-span-12 row-span-12 grid place-items-center text-xs opacity-60" style={{ gridColumn: "1 / span 12", gridRow: "1 / span 12" }}>
+                <div className="grid place-items-center text-xs opacity-60 md:[grid-column:1/span_12] md:[grid-row:1/span_12]">
                     No projects
                 </div>
             )}

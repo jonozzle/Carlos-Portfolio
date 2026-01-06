@@ -1,3 +1,4 @@
+// ProjectBlock query
 // sanity/queries/project-block.ts
 import { groq } from "next-sanity";
 
@@ -9,6 +10,10 @@ export const projectBlockQuery = groq`
     title,
     width,
     projects[]{
+      // MOBILE
+      mobileLayout,
+
+      // DESKTOP GRID
       imageRowStart,
       imageRowEnd,
       imageColStart,
@@ -17,6 +22,7 @@ export const projectBlockQuery = groq`
       infoRowEnd,
       infoColStart,
       infoColEnd,
+
       "project": project->{
         "slug": slug.current,
         title,

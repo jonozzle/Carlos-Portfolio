@@ -1,7 +1,7 @@
 // components/ui/section-scroll-line.tsx
 "use client";
 
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 
@@ -31,10 +31,31 @@ export default function SectionScrollLine({
   pollMs = 100,
 }: Props) {
   const progressRef = useRef<HTMLDivElement | null>(null);
+  const [isMdUp, setIsMdUp] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(min-width: 768px)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mq = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsMdUp(mq.matches);
+    update();
+
+    const mqAny = mq as any;
+    if (typeof mq.addEventListener === "function") mq.addEventListener("change", update);
+    else if (typeof mqAny.addListener === "function") mqAny.addListener(update);
+
+    return () => {
+      if (typeof mq.removeEventListener === "function") mq.removeEventListener("change", update);
+      else if (typeof mqAny.removeListener === "function") mqAny.removeListener(update);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
-    if (!enabled) return;
+    if (!enabled || !isMdUp) return;
 
     let st: ScrollTrigger | null = null;
     let checkId: number | null = null;
@@ -112,9 +133,9 @@ export default function SectionScrollLine({
       window.removeEventListener("hs-rebuilt", onHsChange);
       kill();
     };
-  }, [enabled, triggerRef, horizontalScrollTriggerId, pollMs]);
+  }, [enabled, triggerRef, horizontalScrollTriggerId, pollMs, isMdUp]);
 
-  if (!enabled) return null;
+  if (!enabled || !isMdUp) return null;
 
   // identical markup/classes as before
   return (

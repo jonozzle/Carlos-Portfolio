@@ -134,7 +134,7 @@ body {
 }
 
 
-/* Mobile: turn the rail into a vertical stack (layout-only). md+ untouched. */
+/* Mobile: vertical stack + auto-height panels by default */
 @media (max-width: 767px) {
   [data-hs-container] {
     height: auto !important;
@@ -147,14 +147,23 @@ body {
     height: auto !important;
   }
 
-  /* Each direct panel becomes a full-viewport “page” (keeps hero rects valid) */
+  /* Default: auto-height */
   [data-hs-rail]>* {
     width: 100% !important;
-    height: 100vh !important;
+    height: auto !important;
+    min-height: 0 !important;
     flex: 0 0 auto !important;
     min-width: 0 !important;
   }
+
+  /* Opt-in: panels that must behave like a viewport “page” (hero targets) */
+  [data-hs-rail]>[data-panel-height="viewport"] {
+    height: 100svh !important;
+    min-height: 100svh !important;
+  }
 }
+
+
 
 
 /* globals.css */

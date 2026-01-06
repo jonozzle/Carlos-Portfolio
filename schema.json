@@ -722,6 +722,31 @@
                   },
                   "optional": true
                 },
+                "mobileLayout": {
+                  "type": "objectAttribute",
+                  "value": {
+                    "type": "union",
+                    "of": [
+                      {
+                        "type": "string",
+                        "value": "below-left"
+                      },
+                      {
+                        "type": "string",
+                        "value": "below-right"
+                      },
+                      {
+                        "type": "string",
+                        "value": "left"
+                      },
+                      {
+                        "type": "string",
+                        "value": "right"
+                      }
+                    ]
+                  },
+                  "optional": true
+                },
                 "imageRowStart": {
                   "type": "objectAttribute",
                   "value": {

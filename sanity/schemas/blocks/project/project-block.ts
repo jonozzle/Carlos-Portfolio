@@ -1,3 +1,4 @@
+// ProjectBlock schema
 // sanity/schemas/objects/project-block.ts
 import { defineType, defineField } from "sanity";
 import { LayoutTemplate } from "lucide-react";
@@ -28,6 +29,18 @@ export default defineType({
                     name: "projectWithLayout",
                     title: "Project with layout",
                     type: "object",
+                    fieldsets: [
+                        {
+                            name: "mobile",
+                            title: "Mobile",
+                            options: { collapsible: true, collapsed: true },
+                        },
+                        {
+                            name: "desktopGrid",
+                            title: "Desktop grid",
+                            options: { collapsible: true, collapsed: false },
+                        },
+                    ],
                     fields: [
                         defineField({
                             name: "project",
@@ -37,11 +50,33 @@ export default defineType({
                             validation: (r) => r.required(),
                         }),
 
-                        // IMAGE GRID CONTROL
+                        // MOBILE LAYOUT
+                        defineField({
+                            name: "mobileLayout",
+                            title: "Mobile layout",
+                            type: "string",
+                            fieldset: "mobile",
+                            description:
+                                "Applies below md. Controls where the project text sits relative to the image.",
+                            initialValue: "below-left",
+                            options: {
+                                list: [
+                                    { title: "Below left", value: "below-left" },
+                                    { title: "Below right", value: "below-right" },
+                                    { title: "Left", value: "left" },
+                                    { title: "Right", value: "right" },
+                                ],
+                                layout: "radio",
+                                direction: "vertical",
+                            },
+                        }),
+
+                        // IMAGE GRID CONTROL (DESKTOP)
                         defineField({
                             name: "imageRowStart",
                             title: "Image row start",
                             type: "number",
+                            fieldset: "desktopGrid",
                             description: "Row line where the image starts (1–12).",
                             validation: (r) => r.min(1).max(12),
                         }),
@@ -49,6 +84,7 @@ export default defineType({
                             name: "imageRowEnd",
                             title: "Image row end",
                             type: "number",
+                            fieldset: "desktopGrid",
                             description:
                                 "Exclusive end row (CSS grid style, e.g. 5 means rows 2–4 for start=2).",
                             validation: (r) => r.min(2).max(13),
@@ -57,6 +93,7 @@ export default defineType({
                             name: "imageColStart",
                             title: "Image column start",
                             type: "number",
+                            fieldset: "desktopGrid",
                             description: "Column line where the image starts (1–12).",
                             validation: (r) => r.min(1).max(12),
                         }),
@@ -64,16 +101,18 @@ export default defineType({
                             name: "imageColEnd",
                             title: "Image column end",
                             type: "number",
+                            fieldset: "desktopGrid",
                             description:
                                 "Exclusive end column (CSS grid style, e.g. 8 means columns 2–7 for start=2).",
                             validation: (r) => r.min(2).max(13),
                         }),
 
-                        // INFO GRID CONTROL
+                        // INFO GRID CONTROL (DESKTOP)
                         defineField({
                             name: "infoRowStart",
                             title: "Info row start",
                             type: "number",
+                            fieldset: "desktopGrid",
                             description: "Row line where the info block starts (1–12).",
                             validation: (r) => r.min(1).max(12),
                         }),
@@ -81,6 +120,7 @@ export default defineType({
                             name: "infoRowEnd",
                             title: "Info row end",
                             type: "number",
+                            fieldset: "desktopGrid",
                             description:
                                 "Exclusive end row (CSS grid style, e.g. 6 means rows 5–5 for start=5).",
                             validation: (r) => r.min(2).max(13),
@@ -89,6 +129,7 @@ export default defineType({
                             name: "infoColStart",
                             title: "Info column start",
                             type: "number",
+                            fieldset: "desktopGrid",
                             description: "Column line where the info block starts (1–12).",
                             validation: (r) => r.min(1).max(12),
                         }),
@@ -96,6 +137,7 @@ export default defineType({
                             name: "infoColEnd",
                             title: "Info column end",
                             type: "number",
+                            fieldset: "desktopGrid",
                             description:
                                 "Exclusive end column (CSS grid style, e.g. 10 means columns 2–9 for start=2).",
                             validation: (r) => r.min(2).max(13),
@@ -114,29 +156,14 @@ export default defineType({
             thirdProjectTitle: "projects.2.project.title",
             fourthProjectTitle: "projects.3.project.title",
         },
-        prepare({
-            label,
-            firstProjectTitle,
-            secondProjectTitle,
-            thirdProjectTitle,
-            fourthProjectTitle,
-        }) {
-            const titles = [
-                firstProjectTitle,
-                secondProjectTitle,
-                thirdProjectTitle,
-                fourthProjectTitle,
-            ].filter(Boolean);
+        prepare({ label, firstProjectTitle, secondProjectTitle, thirdProjectTitle, fourthProjectTitle }) {
+            const titles = [firstProjectTitle, secondProjectTitle, thirdProjectTitle, fourthProjectTitle].filter(Boolean);
 
-            const subtitleBase =
-                label || titles[0] || "Select at least one project";
+            const subtitleBase = label || titles[0] || "Select at least one project";
 
             return {
                 title: "Project Block",
-                subtitle:
-                    titles.length > 1
-                        ? `${subtitleBase} (+${titles.length - 1} more)`
-                        : subtitleBase,
+                subtitle: titles.length > 1 ? `${subtitleBase} (+${titles.length - 1} more)` : subtitleBase,
             };
         },
     },

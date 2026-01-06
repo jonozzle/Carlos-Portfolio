@@ -41,17 +41,19 @@ export default function AdSection({
     const isVertical = orientation === "vertical";
 
     const sectionWidthClass = useMemo(() => {
+        // Mobile: always full width
+        // Desktop (md+): respect CMS sectionWidth
         switch (sectionWidth) {
             case "narrow":
-                return "w-[35vw]";
+                return "w-full md:w-[35vw]";
             case "medium":
-                return "w-[50vw]";
+                return "w-full md:w-[50vw]";
             case "wide":
-                return "w-[65vw]";
+                return "w-full md:w-[65vw]";
             case "full":
-                return "w-screen";
+                return "w-full md:w-screen";
             default:
-                return "w-[50vw]";
+                return "w-full md:w-[50vw]";
         }
     }, [sectionWidth]);
 
@@ -114,9 +116,19 @@ export default function AdSection({
         >
             <div className="relative h-full w-full">
                 {isVertical ? (
-                    <VerticalImageSlider images={imgs ?? []} size={sliderSize} label={sliderLabel} className="h-full w-full" />
+                    <VerticalImageSlider
+                        images={imgs ?? []}
+                        size={sliderSize}
+                        label={sliderLabel}
+                        className="h-full w-full"
+                    />
                 ) : (
-                    <HorizontalImageSlider images={imgs ?? []} size={sliderSize} label={sliderLabel} className="h-full w-full" />
+                    <HorizontalImageSlider
+                        images={imgs ?? []}
+                        size={sliderSize}
+                        label={sliderLabel}
+                        className="h-full w-full"
+                    />
                 )}
             </div>
         </section>
