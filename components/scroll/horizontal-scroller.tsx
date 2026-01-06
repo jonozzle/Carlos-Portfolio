@@ -19,10 +19,6 @@ type HomeActiveSection = {
   index: number;
 };
 
-function clamp(n: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, n));
-}
-
 export default function HorizontalScroller({ children, className = "" }: Props) {
   const containerRef = useRef<HTMLElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -44,8 +40,18 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
     let raf2 = 0;
 
     let readyOnce = false;
-
     let lastActiveId: string | null = null;
+
+    const mq = window.matchMedia("(min-width: 768px)");
+    let isDesktop = mq.matches;
+
+    const setMode = (mode: "horizontal" | "vertical") => {
+      try {
+        (window as any).__hsMode = mode;
+      } catch {
+        // ignore
+      }
+    };
 
     const dispatch = (name: "hs-ready" | "hs-rebuilt") => {
       try {
@@ -56,6 +62,7 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
     };
 
     const publishActive = (next: HomeActiveSection) => {
+      if (!next?.id) return;
       if (lastActiveId === next.id) return;
       lastActiveId = next.id;
 
@@ -72,7 +79,15 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
       }
     };
 
-    const computeActive = (self: ScrollTrigger, amountToScroll: number) => {
+    const publishFirst = () => {
+      const first = track.querySelector<HTMLElement>("[data-section-id]");
+      if (!first) return;
+      const id = first.getAttribute("data-section-id") || "";
+      const type = first.getAttribute("data-section-type") || "";
+      if (id) publishActive({ id, type, index: 0 });
+    };
+
+    const computeActiveHorizontal = (self: ScrollTrigger, amountToScroll: number) => {
       const panels = Array.from(track.querySelectorAll<HTMLElement>("[data-section-id]"));
       if (!panels.length) return;
 
@@ -96,7 +111,33 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
       const el = panels[bestIdx];
       const id = el.getAttribute("data-section-id") || "";
       const type = el.getAttribute("data-section-type") || "";
+      if (id) publishActive({ id, type, index: bestIdx });
+    };
 
+    const computeActiveVertical = () => {
+      const panels = Array.from(track.querySelectorAll<HTMLElement>("[data-section-id]"));
+      if (!panels.length) return;
+
+      const vh = window.innerHeight || 1;
+      const centerY = vh / 2;
+
+      let bestIdx = 0;
+      let bestDist = Number.POSITIVE_INFINITY;
+
+      for (let i = 0; i < panels.length; i++) {
+        const p = panels[i];
+        const r = p.getBoundingClientRect();
+        const cy = r.top + r.height / 2;
+        const d = Math.abs(cy - centerY);
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+
+      const el = panels[bestIdx];
+      const id = el.getAttribute("data-section-id") || "";
+      const type = el.getAttribute("data-section-type") || "";
       if (id) publishActive({ id, type, index: bestIdx });
     };
 
@@ -128,32 +169,59 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
       }
     };
 
-    const build = () => {
+    const finalizeDispatch = () => {
+      if (!readyOnce) {
+        readyOnce = true;
+        dispatch("hs-ready");
+      } else {
+        dispatch("hs-rebuilt");
+      }
+    };
+
+    const buildMobile = () => {
       killInstance();
+      setMode("vertical");
+
+      // no spacer / no horizontal motion
+      spacer.style.height = "0px";
+      gsap.set(track, { x: 0 });
+
+      // keep plumbing happy: id "hs-horizontal" + animation exists (so hasHsTrigger() stays true)
+      ctx = gsap.context(() => {
+        const tl = gsap.timeline({ defaults: { ease: "none" } }); // intentionally empty
+
+        st = ScrollTrigger.create({
+          id: "hs-horizontal",
+          trigger: container,
+          start: "top top",
+          end: "bottom bottom",
+          scrub: 0,
+          pin: false,
+          pinSpacing: false,
+          invalidateOnRefresh: false,
+          animation: tl,
+          onUpdate: () => computeActiveVertical(),
+        });
+      }, container);
+
+      // IMPORTANT: do NOT call publishFirst() here (it overwrites the real active section)
+      computeActiveVertical();
+      finalizeDispatch();
+    };
+
+    const buildDesktop = () => {
+      killInstance();
+      setMode("horizontal");
 
       const trackWidth = track.scrollWidth;
       const viewportWidth = window.innerWidth;
       const amountToScroll = trackWidth - viewportWidth;
 
-      // Not wide enough -> no pinning
       if (!Number.isFinite(amountToScroll) || amountToScroll <= 0) {
         spacer.style.height = "0px";
         gsap.set(track, { x: 0 });
-
-        // still publish an “active section” (first panel)
-        const first = track.querySelector<HTMLElement>("[data-section-id]");
-        if (first) {
-          const id = first.getAttribute("data-section-id") || "";
-          const type = first.getAttribute("data-section-type") || "";
-          if (id) publishActive({ id, type, index: 0 });
-        }
-
-        if (!readyOnce) {
-          readyOnce = true;
-          dispatch("hs-ready");
-        } else {
-          dispatch("hs-rebuilt");
-        }
+        publishFirst();
+        finalizeDispatch();
         return;
       }
 
@@ -198,7 +266,7 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
           anticipatePin: 0,
           invalidateOnRefresh: false,
           animation: tl,
-          onUpdate: (self) => computeActive(self, amountToScroll),
+          onUpdate: (self) => computeActiveHorizontal(self, amountToScroll),
         });
       }, container);
 
@@ -208,14 +276,13 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
         // ignore
       }
 
-      if (st) computeActive(st, amountToScroll);
+      if (st) computeActiveHorizontal(st, amountToScroll);
+      finalizeDispatch();
+    };
 
-      if (!readyOnce) {
-        readyOnce = true;
-        dispatch("hs-ready");
-      } else {
-        dispatch("hs-rebuilt");
-      }
+    const build = () => {
+      if (isDesktop) buildDesktop();
+      else buildMobile();
     };
 
     const scheduleBuild = () => {
@@ -233,28 +300,53 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
     const onResize = () => scheduleBuild();
     window.addEventListener("resize", onResize);
 
+    const onMqChange = () => {
+      isDesktop = mq.matches;
+      scheduleBuild();
+    };
+
+    const mqAny = mq as any;
+    if (typeof mq.addEventListener === "function") mq.addEventListener("change", onMqChange);
+    else if (typeof mqAny.addListener === "function") mqAny.addListener(onMqChange);
+
+    // Extra safety: in vertical mode, keep active section updated while scrolling
+    const onScroll = () => {
+      if (!isDesktop) computeActiveVertical();
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+
     return () => {
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll);
+
+      if (typeof mq.removeEventListener === "function") mq.removeEventListener("change", onMqChange);
+      else if (typeof mqAny.removeListener === "function") mqAny.removeListener(onMqChange);
+
       if (raf) cancelAnimationFrame(raf);
       if (raf2) cancelAnimationFrame(raf2);
+
       try {
         ro?.disconnect();
       } catch {
         // ignore
       }
       ro = null;
+
       killInstance();
     };
   }, []);
 
+  // Markup stays identical; mobile vertical is handled by CSS
   return (
     <>
       <section
         ref={containerRef as React.MutableRefObject<HTMLElement | null>}
+        data-hs-container
         className="relative h-screen w-full overflow-hidden"
       >
         <div
           ref={trackRef}
+          data-hs-rail
           className={`hs-rail flex h-full w-max [transform:translate3d(0,0,0)] ${className}`}
         >
           {children}

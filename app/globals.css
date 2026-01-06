@@ -133,6 +133,30 @@ body {
   contain: paint;
 }
 
+
+/* Mobile: turn the rail into a vertical stack (layout-only). md+ untouched. */
+@media (max-width: 767px) {
+  [data-hs-container] {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  [data-hs-rail] {
+    flex-direction: column !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Each direct panel becomes a full-viewport “page” (keeps hero rects valid) */
+  [data-hs-rail]>* {
+    width: 100% !important;
+    height: 100vh !important;
+    flex: 0 0 auto !important;
+    min-width: 0 !important;
+  }
+}
+
+
 /* globals.css */
 @media (pointer: fine) {
 

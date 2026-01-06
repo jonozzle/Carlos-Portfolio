@@ -19,6 +19,7 @@ type HomeActiveSection = {
 declare global {
   interface Window {
     __homeActiveSection?: HomeActiveSection;
+    __hsMode?: "horizontal" | "vertical";
   }
 }
 
@@ -65,14 +66,36 @@ export function saveActiveHomeSectionNow() {
   saveHomeSection({ id: active.id, type: active.type || "" });
 }
 
+function maxScrollY(): number {
+  if (typeof window === "undefined") return 0;
+  const vh = window.innerHeight || 1;
+  const docH = document.documentElement?.scrollHeight || 0;
+  return Math.max(0, docH - vh);
+}
+
 export function scrollHomeToSectionId(sectionId: string) {
   if (typeof window === "undefined") return;
 
-  const st = (ScrollTrigger.getById("hs-horizontal") as ScrollTrigger) ?? null;
-  if (!st) return;
-
   const el = document.querySelector<HTMLElement>(`[data-section-id="${CSS.escape(sectionId)}"]`);
   if (!el) return;
+
+  const mode = ((window as any).__hsMode as "horizontal" | "vertical" | undefined) ?? "horizontal";
+
+  // MOBILE (vertical stack)
+  if (mode === "vertical") {
+    const vh = window.innerHeight || 1;
+
+    // Center the section in the viewport (closest equivalent to your horizontal centering)
+    const targetY = el.offsetTop + el.offsetHeight / 2 - vh / 2;
+    const y = Math.max(0, Math.min(maxScrollY(), targetY));
+
+    setCurrentScrollY(y);
+    return;
+  }
+
+  // DESKTOP (pinned horizontal mapping)
+  const st = (ScrollTrigger.getById("hs-horizontal") as ScrollTrigger) ?? null;
+  if (!st) return;
 
   const amountToScroll = Math.max(0, (st.end ?? 0) - (st.start ?? 0));
   if (!Number.isFinite(amountToScroll) || amountToScroll <= 0) return;
