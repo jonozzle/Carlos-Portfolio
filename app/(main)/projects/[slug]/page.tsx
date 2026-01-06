@@ -66,7 +66,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                             </div>
 
                             <div className="mt-auto pb-6 md:pb-8 flex justify-center">
-                                <h1 className="text-center text-[9vw] font-serif font-medium leading-none tracking-tighter">
+                                <h1 className="text-center text-[12vw] md:text-[9vw] font-serif font-medium leading-none tracking-tighter">
                                     <StylizedLabel text={project.title ?? "Untitled Project"} />
                                 </h1>
                             </div>

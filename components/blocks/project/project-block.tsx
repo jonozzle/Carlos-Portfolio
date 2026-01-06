@@ -761,7 +761,7 @@ export default function ProjectBlock(props: Props) {
             data-panel-height="auto"
             className={cx(
                 // Mobile: px-12 sides, py-20. Larger gaps between blocks.
-                "relative px-16 py-28 flex flex-col gap-18 overflow-visible",
+                "relative px-20 py-32 flex flex-col gap-18 overflow-visible",
                 // Desktop unchanged
                 "md:p-6 md:h-screen md:overflow-hidden md:gap-2 md:grid md:grid-cols-12 md:grid-rows-12",
                 "will-change-transform transform-gpu",
