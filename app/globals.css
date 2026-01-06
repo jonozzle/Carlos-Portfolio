@@ -248,63 +248,6 @@ html[data-home-hold="1"] #page-root {
 
 
 
-/* ============================= */
-/* Grid Text Block CSS           */
-/* ============================= */
-
-
-
-/* components/blocks/grid/image-text-grid-text-block.module.css */
-.pt .block {
-  margin: 0;
-  padding: 0;
-  font-weight: 400;
-}
-
-/* spacing between blocks (instead of browser default margins) */
-.pt .block+.block {
-  margin-top: 0.9em;
-}
-
-/*
-  Dropcap mechanics:
-  - font-size = 2 lines: cap-lines * lh * 1em
-  - line-height on the cap kept tight so it doesn't add extra vertical
-  - negative margin-bottom trims the float reservation
-*/
-.dropcapTarget::first-letter {
-  float: left;
-  display: block;
-  position: relative;
-
-  font-size: calc(var(--cap-lines, 2) * var(--lh, 1.4) * 1em);
-  line-height: 0.85;
-
-  top: var(--cap-top, 0.07em);
-  margin-right: 0.55rem;
-
-  margin-bottom: calc(-1 * var(--cap-trim, 0.3) * 1em);
-
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-/* Optional Safari path */
-@supports (-webkit-initial-letter: 2) or (initial-letter: 2) {
-  .dropcapTarget::first-letter {
-    float: none;
-    display: inline;
-    margin: 0 0.55rem 0 0;
-    line-height: normal;
-    top: 0;
-
-    -webkit-initial-letter: 2;
-    initial-letter: 2;
-
-    font-weight: 600;
-    letter-spacing: -0.02em;
-  }
-}
 
 
 
@@ -453,6 +396,11 @@ html[data-home-hold="1"] #page-root {
     max-width: 640px;
     padding-left: 2rem;
     padding-right: 2rem;
+
+
+
+
+
   }
 
   @media (width >=theme(--breakpoint-md)) {
@@ -536,6 +484,55 @@ html[data-home-hold="1"] #page-root {
 
     @media (width >=theme(--breakpoint-md)) {
       font-size: 1rem;
+    }
+  }
+}
+
+
+/* ADD THIS AT THE VERY BOTTOM OF globals.css (after your @layer base block) */
+@layer utilities {
+
+  /* PortableText block reset */
+  .it-pt .it-pt-block {
+    margin: 0;
+    padding: 0;
+    font-weight: 400;
+  }
+
+  .it-pt .it-pt-block+.it-pt-block {
+    margin-top: 0.9em;
+  }
+
+  /* Dropcap (NO SPACE before ::first-letter) */
+  .it-dropcap-target::first-letter {
+    float: left;
+    display: block;
+    position: relative;
+
+    font-size: calc(var(--cap-lines, 2) * var(--lh, 1.4) * 1em);
+    line-height: 0.85;
+
+    top: var(--cap-top, 0.07em);
+    margin-right: 0.55rem;
+    margin-bottom: calc(-1 * var(--cap-trim, 0.3) * 1em);
+
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  @supports (-webkit-initial-letter: 2) or (initial-letter: 2) {
+    .it-dropcap-target::first-letter {
+      float: none;
+      display: inline;
+      margin: 0 0.55rem 0 0;
+      line-height: normal;
+      top: 0;
+
+      -webkit-initial-letter: 2;
+      initial-letter: 2;
+
+      font-weight: 600;
+      letter-spacing: -0.02em;
     }
   }
 }

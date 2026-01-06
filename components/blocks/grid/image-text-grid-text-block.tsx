@@ -14,10 +14,10 @@ type Props = {
 
 type StyleCfg = {
   tag: "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "blockquote";
-  className: string; // includes explicit leading
-  lh: number; // must match the leading above
-  capTop: string; // visual nudge down
-  capTrimEm: number; // trims the float’s reserved height (fixes “bottom margin” look)
+  className: string;
+  lh: number;
+  capTop: string;
+  capTrimEm: number;
 };
 
 function cfgForStyle(styleKey: string): StyleCfg {
@@ -52,7 +52,6 @@ export default function ImageTextGridTextBlock({ gridColumn, gridRow, body, drop
 
   const components = useMemo(() => {
     return {
-      // regular by default; bold only when editor applies strong.
       marks: {
         strong: (p: any) => <strong className="font-bold">{p.children}</strong>,
       },
@@ -60,7 +59,6 @@ export default function ImageTextGridTextBlock({ gridColumn, gridRow, body, drop
         const styleKey = p?.value?.style || "normal";
         const isFirst = !!dropCap && !!firstBlockKey && p?.value?._key === firstBlockKey;
         const cfg = cfgForStyle(styleKey);
-
         const Tag = cfg.tag as any;
 
         const className = clsx(
@@ -90,8 +88,7 @@ export default function ImageTextGridTextBlock({ gridColumn, gridRow, body, drop
   return (
     <div className="relative z-10 w-full md:w-auto" style={{ gridColumn, gridRow }}>
       <div className="w-full md:h-full overflow-visible md:overflow-hidden flex items-start">
-        {/* Mobile: more padding than images */}
-        <div className="w-full max-w-full it-pt px-8 py-10 md:p-0">
+        <div className="w-full max-w-full it-pt px-16 py-16 md:p-0">
           {body?.length ? <PortableText value={body} components={components as any} /> : <div className="text-xs opacity-60">No text</div>}
         </div>
       </div>

@@ -344,7 +344,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
           C
         </span>
 
-        <span ref={restFirstRef} className="font-serif text-[48px] md:text-[78px] leading-none tracking-tight inline-block ml-2">
+        <span ref={restFirstRef} className="font-serif text-[48px] md:text-[78px] leading-none tracking-tight inline-block ml-0">
           arlos
         </span>
 
@@ -352,7 +352,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
           C
         </span>
 
-        <span ref={restSecondRef} className="font-serif text-[48px] md:text-[78px] leading-none tracking-tight inline-block ml-2">
+        <span ref={restSecondRef} className="font-serif text-[48px] md:text-[78px] leading-none tracking-tight inline-block ml-0">
           astrosin
         </span>
       </div>
