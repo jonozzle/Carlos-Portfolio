@@ -1053,7 +1053,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         {/* scroll hint (center vertically, right edge) */}
         {showScrollHint && loaderDone ? (
           <div
-            className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 z-20"
+            className="hidden md:block pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 z-20"
             aria-hidden="true"
           >
             <div className="flex flex-col items-center gap-2">
