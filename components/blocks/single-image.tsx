@@ -139,7 +139,7 @@ export default function SingleImage(props: Props) {
   return (
     <section
       ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
-      className="h-screen flex flex-none items-center justify-center relative overflow-hidden will-change-transform"
+      className="h-auto md:h-screen flex flex-none items-center justify-center relative overflow-hidden will-change-transform"
       style={sectionStyle}
       aria-label={label}
       data-cursor-blend="normal"

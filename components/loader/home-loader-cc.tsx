@@ -340,19 +340,19 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
   return (
     <div ref={rootRef} className="fixed inset-0 z-[100000] isolate flex items-center justify-center bg-gray-200">
       <div ref={nameRowRef} className="flex items-baseline text-black">
-        <span ref={bigCRef} className="font-serif text-[110px] leading-none inline-block">
+        <span ref={bigCRef} className="font-serif text-[64px] md:text-[110px] leading-none inline-block">
           C
         </span>
 
-        <span ref={restFirstRef} className="font-serif text-[78px] leading-none tracking-tight inline-block ml-2">
+        <span ref={restFirstRef} className="font-serif text-[48px] md:text-[78px] leading-none tracking-tight inline-block ml-2">
           arlos
         </span>
 
-        <span ref={smallCRef} className="font-serif text-[110px] leading-none inline-block ml-5">
+        <span ref={smallCRef} className="font-serif text-[64px] md:text-[110px] leading-none inline-block ml-5">
           C
         </span>
 
-        <span ref={restSecondRef} className="font-serif text-[78px] leading-none tracking-tight inline-block ml-2">
+        <span ref={restSecondRef} className="font-serif text-[48px] md:text-[78px] leading-none tracking-tight inline-block ml-2">
           astrosin
         </span>
       </div>

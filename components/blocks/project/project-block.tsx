@@ -2,7 +2,14 @@
 // components/project/project-block.tsx
 "use client";
 
-import React, { useCallback, useMemo, useRef, useState, useEffect, useLayoutEffect } from "react";
+import React, {
+    useCallback,
+    useMemo,
+    useRef,
+    useState,
+    useEffect,
+    useLayoutEffect,
+} from "react";
 import SmoothImage from "@/components/ui/smooth-image";
 import { useTheme, type ThemeInput } from "@/components/theme-provider";
 import PageTransitionButton from "@/components/page-transition-button";
@@ -130,6 +137,63 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 
     const isActive = activeIndex === index && !isScrollingRef.current;
     const dimState: "active" | "inactive" = isActive ? "active" : "inactive";
+
+    const [isMobile, setIsMobile] = useState(false);
+    const [imgMeta, setImgMeta] = useState<{
+        w: number;
+        h: number;
+        ratio: number;
+        isPortrait: boolean;
+    } | null>(null);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const mq = window.matchMedia("(max-width: 767px)");
+        const update = () => setIsMobile(mq.matches);
+        update();
+
+        // Safari < 14 fallback not needed for modern targets, but keep safe:
+        try {
+            mq.addEventListener("change", update);
+            return () => mq.removeEventListener("change", update);
+        } catch {
+            mq.addListener(update);
+            return () => mq.removeListener(update);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!imgUrl) {
+            setImgMeta(null);
+            return;
+        }
+
+        let cancelled = false;
+        const im = new Image();
+        im.decoding = "async";
+        im.src = imgUrl;
+
+        im.onload = () => {
+            if (cancelled) return;
+            const w = im.naturalWidth || 1;
+            const h = im.naturalHeight || 1;
+            setImgMeta({
+                w,
+                h,
+                ratio: w / h,
+                isPortrait: h > w,
+            });
+        };
+
+        im.onerror = () => {
+            if (cancelled) return;
+            setImgMeta(null);
+        };
+
+        return () => {
+            cancelled = true;
+        };
+    }, [imgUrl]);
 
     const animateScale = useCallback((to: number) => {
         const el = imgScaleRef.current;
@@ -384,30 +448,68 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     const isBelow = mobileLayout === "below-left" || mobileLayout === "below-right";
     const isSide = mobileLayout === "left" || mobileLayout === "right";
 
+    // Mobile text alignment to the outside edges (left layouts => left, right layouts => right)
+    const isMobileRightAligned =
+        mobileLayout === "below-right" || mobileLayout === "right";
+
+    const mobileInfoAlign = isMobileRightAligned ? "items-end text-right" : "items-start text-left";
+
+    const desktopInfoAlign =
+        slot.info.align === "right" ? "md:items-end md:text-right" : "md:items-start md:text-left";
+
+    // Aspect-ratio driven image box (mobile) to preserve image shape; clamp tall images.
+    const imgAspectStyle = useMemo(() => {
+        if (!imgMeta) return undefined;
+        return { aspectRatio: `${imgMeta.w} / ${imgMeta.h}` } as React.CSSProperties;
+    }, [imgMeta]);
+
     const cellLayoutClass = cx(
-        "gap-2 md:gap-0 md:contents",
+        "gap-6 md:gap-0 md:contents", // increased gap between blocks on mobile
         isBelow && "flex flex-col",
         isSide && "flex items-stretch",
         mobileLayout === "right" && "flex-row",
         mobileLayout === "left" && "flex-row-reverse",
+        // keep the side-layout rail height controlled on mobile
         isSide && "h-[46vh] min-h-[260px] max-h-[440px]"
     );
 
     const imgBoxClass = cx(
         "relative block cursor-pointer z-10",
-        isBelow && "h-[56vh] min-h-[320px] max-h-[560px] md:h-full",
-        isSide && "h-full flex-[0_0_50%]"
+        // Below layouts: preserve ratio; cap height so portrait images don't get ridiculous.
+        isBelow && "w-full max-h-[70vh] md:h-full md:max-h-none",
+        // Side layouts: image is full height, width follows aspect ratio (not a forced 50/50 crop).
+        isSide && "h-full w-auto shrink-0 max-w-[70%] md:w-full md:max-w-none"
     );
-
-    const desktopInfoAlign =
-        slot.info.align === "right" ? "md:items-end md:text-right" : "md:items-start md:text-left";
 
     const infoBoxClass = cx(
-        "relative z-10 flex flex-col justify-start text-left",
+        "relative z-10 flex flex-col justify-start w-full",
+        mobileInfoAlign,
         desktopInfoAlign,
-        isSide && "h-full flex-[0_0_50%] justify-center",
-        mobileLayout === "below-right" && "self-end max-w-[85%] md:self-auto md:max-w-none"
+        isSide && "h-full flex-1 justify-center"
     );
+
+    const objectFit = isMobile ? "contain" : "cover";
+
+    const metaRowClass = cx(
+        "-mt-1 flex w-full font-serif text-sm md:text-base tracking-tighter",
+        isMobileRightAligned ? "justify-end" : "justify-start",
+        "md:justify-start" // desktop alignment handled by md:text-* / md:items-*
+    );
+
+    const infoButtonClass = cx(
+        "flex flex-col w-full",
+        isSide ? "justify-center h-full" : "justify-start",
+        mobileInfoAlign,
+        desktopInfoAlign
+    );
+
+    const imgStyle = useMemo(() => {
+        return {
+            gridColumn: slot.img.col,
+            gridRow: slot.img.row,
+            ...(imgAspectStyle ?? {}),
+        } as React.CSSProperties;
+    }, [slot.img.col, slot.img.row, imgAspectStyle]);
 
     return (
         <div
@@ -422,7 +524,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             <div
                 ref={tileRef}
                 className={imgBoxClass}
-                style={{ gridColumn: slot.img.col, gridRow: slot.img.row }}
+                style={imgStyle}
                 data-dim-item={dimState}
                 data-hero-slug={slug || undefined}
                 data-hero-target="home"
@@ -445,10 +547,12 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                                     hiMaxWidth={1200}
                                     fetchPriority="high"
                                     loading="eager"
-                                    objectFit="cover"
+                                    objectFit={objectFit}
                                 />
                             ) : (
-                                <div className="absolute inset-0 grid place-items-center text-xs opacity-60">No image</div>
+                                <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
+                                    No image
+                                </div>
                             )}
                         </div>
                     </div>
@@ -460,18 +564,15 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 style={{ gridColumn: slot.info.col, gridRow: slot.info.row }}
                 data-dim-item={dimState}
             >
-                <PageTransitionButton
-                    {...buttonCommonProps}
-                    className={cx(
-                        "flex flex-col",
-                        isSide ? "justify-center h-full" : "justify-start",
-                        "items-start text-left"
-                    )}
-                >
-                    <h3 className="text-lg md:text-4xl font-serif font-bold leading-tight tracking-tighter" data-speed-x="0.96">
+                <PageTransitionButton {...buttonCommonProps} className={infoButtonClass}>
+                    <h3
+                        className="text-4xl md:text-4xl font-serif font-bold leading-tight tracking-tighter"
+                        data-speed-x="0.96"
+                    >
                         {item?.title ?? "Untitled"}
                     </h3>
-                    <div className="-mt-1 flex w-full font-serif text-sm md:text-base tracking-tighter" data-speed-x="0.95">
+
+                    <div className={metaRowClass} data-speed-x="0.95">
                         <span>{item?.year ? String(item.year) : "\u00A0"}</span>
                         <span className="mr-1">,</span>
                         <span className="italic">{item?.client ?? "\u00A0"}</span>
@@ -577,7 +678,8 @@ export default function ProjectBlock(props: Props) {
             },
         ];
 
-        const clampN = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+        const clampN = (value: number, min: number, max: number) =>
+            Math.min(max, Math.max(min, value));
 
         return raw
             .slice(0, 4)
@@ -588,35 +690,51 @@ export default function ProjectBlock(props: Props) {
                 const fallback = defaults[index] ?? defaults[0];
 
                 let imageRowStart =
-                    typeof p.imageRowStart === "number" && p.imageRowStart > 0 ? p.imageRowStart : fallback.imageRowStart;
+                    typeof p.imageRowStart === "number" && p.imageRowStart > 0
+                        ? p.imageRowStart
+                        : fallback.imageRowStart;
                 imageRowStart = clampN(imageRowStart, 1, 12);
 
                 let imageRowEnd =
-                    typeof p.imageRowEnd === "number" && p.imageRowEnd > imageRowStart ? p.imageRowEnd : fallback.imageRowEnd;
+                    typeof p.imageRowEnd === "number" && p.imageRowEnd > imageRowStart
+                        ? p.imageRowEnd
+                        : fallback.imageRowEnd;
                 imageRowEnd = clampN(imageRowEnd, imageRowStart + 1, 13);
 
                 let imageColStart =
-                    typeof p.imageColStart === "number" && p.imageColStart > 0 ? p.imageColStart : fallback.imageColStart;
+                    typeof p.imageColStart === "number" && p.imageColStart > 0
+                        ? p.imageColStart
+                        : fallback.imageColStart;
                 imageColStart = clampN(imageColStart, 1, 12);
 
                 let imageColEnd =
-                    typeof p.imageColEnd === "number" && p.imageColEnd > imageColStart ? p.imageColEnd : fallback.imageColEnd;
+                    typeof p.imageColEnd === "number" && p.imageColEnd > imageColStart
+                        ? p.imageColEnd
+                        : fallback.imageColEnd;
                 imageColEnd = clampN(imageColEnd, imageColStart + 1, 13);
 
                 let infoRowStart =
-                    typeof p.infoRowStart === "number" && p.infoRowStart > 0 ? p.infoRowStart : fallback.infoRowStart;
+                    typeof p.infoRowStart === "number" && p.infoRowStart > 0
+                        ? p.infoRowStart
+                        : fallback.infoRowStart;
                 infoRowStart = clampN(infoRowStart, 1, 12);
 
                 let infoRowEnd =
-                    typeof p.infoRowEnd === "number" && p.infoRowEnd > infoRowStart ? p.infoRowEnd : fallback.infoRowEnd;
+                    typeof p.infoRowEnd === "number" && p.infoRowEnd > infoRowStart
+                        ? p.infoRowEnd
+                        : fallback.infoRowEnd;
                 infoRowEnd = clampN(infoRowEnd, infoRowStart + 1, 13);
 
                 let infoColStart =
-                    typeof p.infoColStart === "number" && p.infoColStart > 0 ? p.infoColStart : fallback.infoColStart;
+                    typeof p.infoColStart === "number" && p.infoColStart > 0
+                        ? p.infoColStart
+                        : fallback.infoColStart;
                 infoColStart = clampN(infoColStart, 1, 12);
 
                 let infoColEnd =
-                    typeof p.infoColEnd === "number" && p.infoColEnd > infoColStart ? p.infoColEnd : fallback.infoColEnd;
+                    typeof p.infoColEnd === "number" && p.infoColEnd > infoColStart
+                        ? p.infoColEnd
+                        : fallback.infoColEnd;
                 infoColEnd = clampN(infoColEnd, infoColStart + 1, 13);
 
                 return {
@@ -642,18 +760,21 @@ export default function ProjectBlock(props: Props) {
             ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
             data-panel-height="auto"
             className={cx(
-                "relative p-2 flex flex-col gap-6 overflow-visible",
-                "md:h-screen md:overflow-hidden md:gap-2 md:grid md:grid-cols-12 md:grid-rows-12",
+                // Mobile: px-12 sides, py-20. Larger gaps between blocks.
+                "relative px-12 py-20 flex flex-col gap-10 overflow-visible",
+                // Desktop unchanged
+                "md:p-6 md:h-screen md:overflow-hidden md:gap-2 md:grid md:grid-cols-12 md:grid-rows-12",
                 "will-change-transform transform-gpu",
                 "w-screen md:w-[var(--pb-width)]",
                 "md:[contain-intrinsic-size:100vh_50vw]"
             )}
             style={{ ["--pb-width" as any]: width }}
         >
-
             {props.title ? (
-                <div className="pointer-events-none px-4 md:px-6 will-change-transform transform-gpu md:[grid-column:1/span_8] md:[grid-row:1/span_1] md:self-center">
-                    <h2 className="text-base md:text-xl italic tracking-tight will-change-transform transform-gpu">{props.title}</h2>
+                <div className="pointer-events-none px-0 md:px-6 will-change-transform transform-gpu md:[grid-column:1/span_8] md:[grid-row:1/span_1] md:self-center">
+                    <h2 className="text-base md:text-xl italic tracking-tight will-change-transform transform-gpu">
+                        {props.title}
+                    </h2>
                 </div>
             ) : null}
 

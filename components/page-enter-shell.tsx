@@ -10,190 +10,77 @@ import type { PendingHero, PageTransitionPending } from "@/lib/transitions/state
 import { unlockAppScroll } from "@/lib/scroll-lock";
 import { unlockHover } from "@/lib/hover-lock";
 
-function isMobileHsMode() {
+function resetTransitionLayer() {
+  if (typeof document === "undefined") return;
+  const layer = document.getElementById("transition-layer") as HTMLDivElement | null;
+  if (!layer) return;
+
   try {
-    return (window as any).__hsMode === "vertical";
-  } catch {
-    return false;
-  }
-}
-
-function fadeOutAndRemoveOverlay(overlay: HTMLDivElement) {
-  try {
-    gsap.killTweensOf(overlay);
-    gsap.to(overlay, {
-      opacity: 0,
-      duration: 0.22,
-      ease: "power2.out",
-      overwrite: "auto",
-      onComplete: () => {
-        try {
-          overlay.remove();
-        } catch {
-          // ignore
-        }
-      },
-    });
-  } catch {
-    try {
-      overlay.remove();
-    } catch {
-      // ignore
-    }
-  }
-}
-
-/**
- * Mobile-only: prevent the “overlay disappears, then tile image appears” blink.
- * We:
- * - force the destination hero targets + inner images to opacity:1 with transitions disabled briefly
- * - wait 2 frames so the browser can paint the tile
- * - then fade the overlay out
- */
-function forceShowHomeTargets(slug: string) {
-  const targets = Array.from(document.querySelectorAll<HTMLElement>(`[data-hero-slug="${slug}"]`));
-  if (!targets.length) return;
-
-  // collect likely opacity-animated descendants too
-  const els: HTMLElement[] = [];
-  const push = (e: HTMLElement) => {
-    if (!e) return;
-    if (els.includes(e)) return;
-    els.push(e);
-  };
-
-  targets.forEach((t) => {
-    push(t);
-    t.querySelectorAll<HTMLElement>("img, picture, video, [data-hero-img-scale], [data-hero-target]").forEach(push);
-  });
-
-  // kill any in-flight fades that might snap opacity
-  try {
-    gsap.killTweensOf(els);
+    gsap.killTweensOf(layer);
+    gsap.killTweensOf(Array.from(layer.children));
   } catch {
     // ignore
   }
 
-  // hard-force visible; disable transitions briefly so we don’t see a second fade-in
-  els.forEach((el) => {
-    try {
-      const prev = (el as any).__prevTransition;
-      if (prev === undefined) (el as any).__prevTransition = el.style.transition || "";
-      el.style.transition = "none";
-      el.style.opacity = "1";
-      el.style.visibility = "visible";
-      el.style.pointerEvents = ""; // let normal rules apply
-    } catch {
-      // ignore
-    }
-  });
+  try {
+    layer.innerHTML = "";
+  } catch {
+    // ignore
+  }
 
-  // restore transitions after a short moment (opacity stays at 1)
-  window.setTimeout(() => {
-    els.forEach((el) => {
-      try {
-        const prev = (el as any).__prevTransition;
-        if (typeof prev === "string") el.style.transition = prev;
-        (el as any).__prevTransition = undefined;
-      } catch {
-        // ignore
-      }
+  try {
+    gsap.set(layer, {
+      autoAlpha: 0,
+      backgroundColor: "transparent",
+      clearProps: "opacity,visibility,filter,transform,background,backgroundColor",
     });
-  }, 350);
+  } catch {
+    // ignore
+  }
 }
 
-function removeOverlayWhenTargetPainted(overlay: HTMLDivElement, slug: string, targetEl: HTMLElement | null) {
-  if (!overlay) return;
-
-  // Desktop: keep original behavior (remove immediately)
-  if (!isMobileHsMode()) {
-    requestAnimationFrame(() => {
-      try {
-        overlay.remove();
-      } catch {
-        // ignore
-      }
-    });
-    return;
-  }
-
-  // Mobile: wait until the destination image is actually ready, then force-show + crossfade overlay out
-  const img = targetEl?.querySelector("img") as HTMLImageElement | null;
-
-  const looksReady = () => !!(img && img.complete && img.naturalWidth > 0);
-
-  const finish = () => {
-    // make sure the home tile is visible BEFORE overlay fades
-    forceShowHomeTargets(slug);
-
-    // give the browser a chance to paint the now-visible tile before removing overlay
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        fadeOutAndRemoveOverlay(overlay);
-      });
-    });
-  };
-
-  if (!img) {
-    finish();
-    return;
-  }
-
-  if (looksReady()) {
-    finish();
-    return;
-  }
-
-  let done = false;
-
-  const settle = () => {
-    if (done) return;
-    done = true;
-
-    try {
-      img.removeEventListener("load", settle as any);
-      img.removeEventListener("error", settle as any);
-    } catch {
-      // ignore
-    }
-
-    finish();
-  };
-
-  // fallback timeout (don’t hang)
-  const t = window.setTimeout(settle, 900);
-
+function forcePageRootVisible(pageRoot: HTMLElement) {
+  // Critical: if the previous page faded out (#page-root opacity:0),
+  // we must guarantee the next route makes it visible again.
   try {
-    img.addEventListener("load", () => {
-      window.clearTimeout(t);
-      settle();
-    }, { once: true });
-    img.addEventListener("error", () => {
-      window.clearTimeout(t);
-      settle();
-    }, { once: true });
+    gsap.killTweensOf(pageRoot);
   } catch {
     // ignore
   }
 
-  // Prefer decode() when available
   try {
-    const dec = (img as any).decode;
-    if (typeof dec === "function") {
-      dec
-        .call(img)
-        .then(() => {
-          window.clearTimeout(t);
-          settle();
-        })
-        .catch(() => {
-          window.clearTimeout(t);
-          settle();
-        });
-    }
+    gsap.set(pageRoot, {
+      opacity: 1,
+      visibility: "visible",
+      pointerEvents: "auto",
+      clearProps: "opacity,visibility,pointerEvents",
+    });
   } catch {
     // ignore
   }
+}
+
+function clearStaleHeroPending() {
+  const current = window.__heroPending as PendingHero | undefined;
+  if (!current) return;
+
+  const slug = current.slug;
+  const overlay = current.overlay;
+
+  // Make sure any hidden hero targets are visible again
+  if (slug) {
+    const targets = document.querySelectorAll<HTMLElement>(`[data-hero-slug="${slug}"]`);
+    targets.forEach((el) => gsap.set(el, { opacity: 1, clearProps: "visibility,pointerEvents" }));
+  }
+
+  try {
+    overlay?.remove();
+  } catch {
+    // ignore
+  }
+
+  window.__heroPending = undefined;
+  (window as any).__heroDone = true;
 }
 
 function finalizeParkedHero() {
@@ -214,14 +101,9 @@ function finalizeParkedHero() {
 
   if (current?.targetEl) gsap.set(current.targetEl, { opacity: 1 });
 
-  const targetEl = current?.targetEl ?? null;
-  const heroSlug = slug ?? "";
-
   window.__heroPending = undefined;
 
-  if (overlay && heroSlug) {
-    removeOverlayWhenTargetPainted(overlay, heroSlug, targetEl);
-  } else if (overlay) {
+  if (overlay) {
     requestAnimationFrame(() => {
       try {
         overlay.remove();
@@ -243,8 +125,13 @@ export default function PageEnterShell({ children }: Props) {
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
 
+    resetTransitionLayer();
+
     const pageRoot = document.getElementById("page-root");
     if (!pageRoot) return;
+
+    // ALWAYS unhide page root first (prevents “blank but interactive” state)
+    forcePageRootVisible(pageRoot);
 
     gsap.set(pageRoot, { yPercent: 0 });
 
@@ -253,25 +140,33 @@ export default function PageEnterShell({ children }: Props) {
 
     window.__pageTransitionLast = pending?.kind ?? "simple";
 
-    const heroPending = window.__heroPending as PendingHero | undefined;
-
     const skipInitial = window.__pageEnterSkipInitial;
     window.__pageEnterSkipInitial = undefined;
 
+    const heroPending = window.__heroPending as PendingHero | undefined;
+    const isHeroNav = pending?.kind === "hero";
+
+    // If a hero overlay is hanging around but this nav isn't hero, kill it
+    if (heroPending && !isHeroNav) clearStaleHeroPending();
+
     if (!pending) {
+      // Even when skipping initial entry fade (loader), ensure visible
       if (!skipInitial) {
         gsap.fromTo(
           pageRoot,
           { opacity: 0 },
           { opacity: 1, duration: 0.45, ease: "power2.out", clearProps: "opacity" }
         );
+      } else {
+        gsap.set(pageRoot, { opacity: 1, clearProps: "opacity" });
       }
       return;
     }
 
     const direction: "up" | "down" = pending.direction === "down" ? "down" : "up";
 
-    if (heroPending) {
+    // HERO branch ONLY for real hero navs
+    if (isHeroNav && (window.__heroPending as PendingHero | undefined)) {
       const animateEls = gsap.utils.toArray<HTMLElement>("[data-hero-page-animate]");
 
       const runFallbackUnlock = () => {
@@ -352,10 +247,9 @@ export default function PageEnterShell({ children }: Props) {
       // direction === "down"
       gsap.set(animateEls, { opacity: 0 });
 
-      if (heroPending.slug) {
-        const heroTargets = document.querySelectorAll<HTMLElement>(
-          `[data-hero-slug="${heroPending.slug}"]`
-        );
+      const hp = window.__heroPending as PendingHero | undefined;
+      if (hp?.slug) {
+        const heroTargets = document.querySelectorAll<HTMLElement>(`[data-hero-slug="${hp.slug}"]`);
         heroTargets.forEach((el) => gsap.set(el, { opacity: 0 }));
       }
 
@@ -387,13 +281,13 @@ export default function PageEnterShell({ children }: Props) {
       };
     }
 
-    // simple / fadeHero
+    // simple / fadeHero: do a normal fade-in
     gsap.fromTo(
       pageRoot,
       { opacity: 0 },
       {
         opacity: 1,
-        duration: 0.35,
+        duration: 0.45,
         ease: "power2.out",
         clearProps: "opacity",
         onComplete: () => {

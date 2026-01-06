@@ -23,7 +23,12 @@ function clampN(value: number, min: number, max: number) {
 }
 
 function resolveArea(
-  item: { rowStart?: number | null; rowEnd?: number | null; colStart?: number | null; colEnd?: number | null },
+  item: {
+    rowStart?: number | null;
+    rowEnd?: number | null;
+    colStart?: number | null;
+    colEnd?: number | null;
+  },
   fallback: { rowStart: number; rowEnd: number; colStart: number; colEnd: number }
 ) {
   let rowStart = typeof item.rowStart === "number" && item.rowStart > 0 ? item.rowStart : fallback.rowStart;
@@ -87,8 +92,19 @@ export default function ImageTextGrid(props: Props) {
   return (
     <section
       ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
-      className="h-screen p-2 gap-2 grid grid-cols-12 grid-rows-12 relative overflow-hidden will-change-transform transform-gpu"
-      style={{ width, containIntrinsicSize: `100vh ${width}` }}
+      className={[
+        // width
+        "mx-auto w-full md:w-[var(--it-width)]",
+        // mobile: stacked blocks; desktop: 12x12 grid
+        "flex flex-col md:grid md:grid-cols-12 md:grid-rows-12",
+        // spacing
+        "gap-8 md:gap-2",
+        // sizing + padding
+        "h-auto md:h-screen p-0 md:p-2",
+        // behavior
+        "relative overflow-visible md:overflow-hidden will-change-transform transform-gpu",
+      ].join(" ")}
+      style={{ ["--it-width" as any]: width } as React.CSSProperties}
       aria-label="Image + Text Grid"
       data-cursor-blend="normal"
     >
@@ -126,7 +142,9 @@ export default function ImageTextGrid(props: Props) {
           return null;
         })
       ) : (
-        <div className="col-span-12 row-span-12 grid place-items-center text-xs opacity-60">No items</div>
+        <div className="w-full md:col-span-12 md:row-span-12 grid place-items-center text-xs opacity-60">
+          No items
+        </div>
       )}
 
       <SectionScrollLine triggerRef={sectionRef} enabled={showScrollLine} />
