@@ -352,7 +352,11 @@ export default function PageLinkSection(props: Props) {
   const items = useMemo(() => props.items ?? [], [props.items]);
 
   const isHalf = props.width === "half";
-  const widthClass = isHalf ? "w-[50vw]" : "w-screen";
+
+  // Mobile (<md): always full width.
+  // md+: keep existing behavior (half => 50vw, full => screen).
+  const widthClass = isHalf ? "w-screen md:w-[50vw]" : "w-screen";
+
   const paddingMode = props.paddingMode ?? "default";
 
   const activeRef = useRef<number | null>(null);
@@ -471,9 +475,7 @@ export default function PageLinkSection(props: Props) {
     sectionStyle.padding = `${v}px`;
   }
 
-  const tileColumns = isHalf
-    ? "repeat(1, minmax(0, 1fr))"
-    : "repeat(3, minmax(0, 1fr))";
+  const tileColumns = isHalf ? "repeat(1, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))";
 
   return (
     <section

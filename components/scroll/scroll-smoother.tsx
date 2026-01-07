@@ -36,7 +36,7 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
       wrapper: wrapperRef.current!,
       content: contentRef.current!,
       smooth: 0.5,
-      smoothTouch: 0.1,
+      smoothTouch: 0,
       effects: true,
       normalizeScroll: true,
     });
