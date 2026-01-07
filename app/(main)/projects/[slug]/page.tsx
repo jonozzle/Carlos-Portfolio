@@ -1,4 +1,3 @@
-// app/(main)/projects/[slug]/page.tsx
 import { notFound } from "next/navigation";
 
 import Blocks from "@/components/blocks";
@@ -7,7 +6,6 @@ import ProjectDetails from "@/components/project/project-details";
 import HeroImage from "@/components/project/hero-image";
 import ThemeSetter from "@/components/theme/theme-setter";
 import { StylizedLabel } from "@/components/ui/stylised-label";
-import BackToHomeButton from "@/components/project/back-to-home";
 import {
     fetchSanityProjectBySlug,
     fetchSanityProjectsStaticParams,
@@ -48,16 +46,19 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         <HScrollerWrapper>
             <ThemeSetter theme={project.theme ?? null} />
 
-            <section data-panel-height="viewport" className="h-panel w-screen relative">
-                <div className="grid grid-cols-1 md:grid-cols-2 h-full">
-                    <div className="px-6 md:px-10" data-hero-page-animate>
+            {/* md+: width can grow/shrink based on hero. mobile: viewport width. */}
+            <section
+                data-panel-height="viewport"
+                className="h-panel relative w-screen md:w-auto overflow-hidden"
+            >
+                <div className="h-full flex flex-col md:flex-row md:items-stretch">
+                    {/* LEFT: fixed 50vw on md+ */}
+                    <div className="w-full md:w-[50vw] md:shrink-0 px-6 md:px-10" data-hero-page-animate>
                         <div className="h-full flex flex-col">
                             <div className="pt-6 md:pt-10 text-center">
                                 <div className="text-sm md:text-base font-serif leading-tight tracking-tighter flex flex-col items-center">
                                     {project.year && <span className="mb-0 md:text-xl">{project.year}</span>}
                                     {project.client && <span className="italic">{project.client}</span>}
-
-                                    {/*<BackToHomeButton slug={slug} heroImgUrl={heroSrc} /> */}
                                 </div>
                             </div>
 
@@ -73,15 +74,14 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                         </div>
                     </div>
 
-                    <div className="py-6 px-6 md:px-0">
-                        <HeroImage src={heroSrc} alt={heroAlt} slug={slug} />
+                    {/* RIGHT: padded container so image isn't flush to edge */}
+                    <div className="w-full md:w-auto md:shrink-0 px-6 md:px-6 py-6 md:py-6 h-auto md:h-full">
+                        <HeroImage src={heroSrc} alt={heroAlt} slug={slug} autoWidth />
                     </div>
                 </div>
             </section>
 
-
             <Blocks blocks={project.blocks ?? []} />
-
         </HScrollerWrapper>
     );
 }
