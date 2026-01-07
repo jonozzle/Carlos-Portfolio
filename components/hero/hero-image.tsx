@@ -36,6 +36,11 @@ export default function HeroImage({
     initialAR,
 }: Props) {
     const outerRef = useRef<HTMLDivElement | null>(null);
+
+    // IMPORTANT:
+    // This flag prevents the "non-hero nav fade-in" from running again after a hero completion.
+    // Without this, an AR update (or any dependency change) can re-trigger opacity:0 -> 1,
+    // causing the flash you described.
     const didCompleteRef = useRef(false);
 
     // Seed from Sanity AR if present to avoid layout shift + scroll plumbing hitches.
@@ -205,7 +210,20 @@ export default function HeroImage({
             };
         }
 
-        // NON-HERO nav: fade in
+        // NON-HERO nav:
+        // If we've already completed a hero transition into this element, DO NOT run the fade-in again
+        // (this is the common cause of the "flash off/on" after the hero finishes).
+        if (didCompleteRef.current) {
+            try {
+                gsap.killTweensOf(el);
+            } catch {
+                // ignore
+            }
+            gsap.set(el, { opacity: 1, clearProps: "opacity,visibility,pointerEvents" });
+            return;
+        }
+
+        // Fresh mount: fade in
         gsap.killTweensOf(el);
         gsap.set(el, { opacity: 0 });
         gsap.to(el, {
@@ -213,8 +231,6 @@ export default function HeroImage({
             duration: 0.55,
             ease: "power2.out",
             overwrite: true,
-            // IMPORTANT: do NOT clear opacity props while className includes `opacity-0`
-            // or it will snap back to invisible on reload.
         });
 
         try {

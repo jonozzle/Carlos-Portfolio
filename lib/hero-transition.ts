@@ -1,4 +1,4 @@
-// lib/hero-transition.ts
+// Hero Transition
 "use client";
 
 import { gsap } from "gsap";
@@ -36,8 +36,9 @@ function markOverlayTweening(overlay: HTMLDivElement, tweening: boolean) {
   }
 }
 
-function isOverlayTweening(overlay: HTMLDivElement) {
-  return overlay.dataset?.heroTweening === "1";
+function isOverlayBusy(overlay: HTMLDivElement) {
+  // Busy if tweening OR parked (parkThenPage mode)
+  return overlay.dataset?.heroTweening === "1" || overlay.dataset?.heroParked === "1";
 }
 
 function rectLooksValid(r: DOMRect) {
@@ -92,7 +93,8 @@ function parseBestFromSrcset(srcset: string): string | null {
 }
 
 function looksLikePlaceholder(url: string) {
-  const u = url.toLowerCase();
+  const u = (url || "").toLowerCase();
+  if (!u) return true;
   if (u.startsWith("data:")) return true;
   if (u.includes("w=16") || u.includes("w=24") || u.includes("w=32")) return true;
   if (u.includes("blur") || u.includes("lqip")) return true;
@@ -106,8 +108,20 @@ function pickSourceUrl(sourceEl: HTMLElement, fallbackUrl: string) {
 
   if (!existing) return fallbackUrl;
 
+  // Prefer the *currently displayed* resource if it's already loaded and non-placeholder.
+  const painted = existing.currentSrc || existing.src || "";
+  if (
+    painted &&
+    !looksLikePlaceholder(painted) &&
+    existing.complete &&
+    (existing.naturalWidth ?? 0) > 0
+  ) {
+    return painted;
+  }
+
+  // Otherwise, try best from srcset (may trigger a new request, so we only do this as fallback).
   const fromSrcset = existing.srcset ? parseBestFromSrcset(existing.srcset) : null;
-  const candidate = fromSrcset || existing.currentSrc || existing.src || fallbackUrl;
+  const candidate = fromSrcset || painted || fallbackUrl;
 
   if (!candidate) return fallbackUrl;
   if (looksLikePlaceholder(candidate)) return fallbackUrl;
@@ -167,6 +181,110 @@ function pickBestHeroTarget(slug: string): HTMLElement | null {
   return best;
 }
 
+function bgFromSource(sourceEl: HTMLElement) {
+  try {
+    const cs = getComputedStyle(sourceEl);
+    const bg = cs.backgroundColor;
+    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") return bg;
+  } catch {
+    // ignore
+  }
+  return "transparent";
+}
+
+function bestLoadedImgIn(container: HTMLElement | null): HTMLImageElement | null {
+  if (!container) return null;
+  const imgs = Array.from(container.querySelectorAll("img")) as HTMLImageElement[];
+  if (!imgs.length) return null;
+
+  let best: HTMLImageElement | null = null;
+  let bestScore = -1;
+
+  for (const img of imgs) {
+    const url = img.currentSrc || img.src || "";
+    if (looksLikePlaceholder(url)) continue;
+    if (!img.complete) continue;
+
+    const w = img.naturalWidth || 0;
+    const h = img.naturalHeight || 0;
+    if (w <= 0 || h <= 0) continue;
+
+    const score = w * h;
+    if (score > bestScore) {
+      bestScore = score;
+      best = img;
+    }
+  }
+
+  return best;
+}
+
+async function decodeIfPossible(img: HTMLImageElement) {
+  try {
+    const dec = (img as any).decode?.();
+    if (dec && typeof dec.then === "function") await dec;
+  } catch {
+    // ignore
+  }
+}
+
+async function waitForBestNonPlaceholderImg(container: HTMLElement | null, timeoutMs = 900) {
+  if (typeof window === "undefined") return null;
+
+  const start = performance.now();
+
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    let raf = 0;
+
+    const tick = () => {
+      const best = bestLoadedImgIn(container);
+      if (best) {
+        decodeIfPossible(best).finally(() => resolve(best));
+        return;
+      }
+
+      if (performance.now() - start >= timeoutMs) {
+        resolve(null);
+        return;
+      }
+
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+  });
+}
+
+function fadeOutAndRemoveOverlay(overlay: HTMLDivElement, onRemoved?: () => void) {
+  if (typeof document === "undefined") return;
+
+  if (!document.body.contains(overlay)) {
+    onRemoved?.();
+    return;
+  }
+
+  try {
+    gsap.killTweensOf(overlay);
+  } catch {
+    // ignore
+  }
+
+  gsap.to(overlay, {
+    opacity: 0,
+    duration: 0.14,
+    ease: "power1.out",
+    overwrite: "auto",
+    onComplete: () => {
+      try {
+        overlay.remove();
+      } catch {
+        // ignore
+      }
+      onRemoved?.();
+    },
+  });
+}
+
 export function startHeroTransition({ slug, sourceEl, imgUrl, onNavigate }: StartHeroTransitionArgs) {
   if (typeof window === "undefined") {
     onNavigate();
@@ -188,17 +306,23 @@ export function startHeroTransition({ slug, sourceEl, imgUrl, onNavigate }: Star
   overlay.style.pointerEvents = "none";
   overlay.style.willChange = "left, top, width, height, transform, opacity";
   overlay.style.transform = "translateZ(0)";
+  overlay.style.background = bgFromSource(sourceEl);
 
   const overlayImg = ensureOverlayImage(sourceEl, imgUrl);
   overlay.appendChild(overlayImg);
 
   document.body.appendChild(overlay);
 
+  // Hide the source after the overlay is inserted (prevents a blank frame).
   requestAnimationFrame(() => {
-    sourceEl.style.transition = "none";
-    sourceEl.style.opacity = "0";
-    sourceEl.style.visibility = "hidden";
-    sourceEl.style.pointerEvents = "none";
+    try {
+      sourceEl.style.transition = "none";
+      sourceEl.style.opacity = "0";
+      sourceEl.style.visibility = "hidden";
+      sourceEl.style.pointerEvents = "none";
+    } catch {
+      // ignore
+    }
   });
 
   requestAnimationFrame(() => {
@@ -256,7 +380,7 @@ export function completeHeroTransition({
   const overlay = pending.overlay;
   const overlayImg = pending.overlayImg ?? null;
 
-  if (isOverlayTweening(overlay)) return;
+  if (isOverlayBusy(overlay)) return;
 
   let tries = 0;
   const maxTries = 180;
@@ -308,10 +432,15 @@ export function completeHeroTransition({
       opacity: 1,
     });
 
+    // Hide target during flight.
     gsap.set(t, { opacity: 0 });
 
-    gsap.killTweensOf(overlay);
-    if (overlayImg) gsap.killTweensOf(overlayImg);
+    try {
+      gsap.killTweensOf(overlay);
+      if (overlayImg) gsap.killTweensOf(overlayImg);
+    } catch {
+      // ignore
+    }
 
     markOverlayTweening(overlay, true);
 
@@ -344,10 +473,23 @@ export function completeHeroTransition({
     }
 
     if (mode === "parkThenPage") {
-      (window as any).__heroPending = { slug, overlay, targetEl: t, overlayImg };
-
       tl.eventCallback("onComplete", () => {
+        // Make target visible immediately under the overlay (helps mask tile image crossfades).
+        try {
+          gsap.set(t, { opacity: 1 });
+          t.style.pointerEvents = "none";
+        } catch {
+          // ignore
+        }
+
         markOverlayTweening(overlay, false);
+        try {
+          overlay.dataset.heroParked = "1";
+        } catch {
+          // ignore
+        }
+
+        (window as any).__heroPending = { slug, overlay, targetEl: t, overlayImg };
         dispatchHeroDone();
         onDone?.();
       });
@@ -360,15 +502,21 @@ export function completeHeroTransition({
 
       gsap.set(t, { opacity: 1 });
 
-      try {
-        overlay.remove();
-      } catch {
-        // ignore
-      }
-
-      (window as any).__heroPending = undefined;
       dispatchHeroDone();
       onDone?.();
+
+      waitForBestNonPlaceholderImg(t, 900).finally(() => {
+        if (typeof document !== "undefined" && !document.body.contains(overlay)) {
+          (window as any).__heroPending = undefined;
+          return;
+        }
+
+        fadeOutAndRemoveOverlay(overlay, () => {
+          const cur = (window as any).__heroPending as PendingHero | undefined;
+          if (cur?.overlay === overlay) (window as any).__heroPending = undefined;
+          markOverlayTweening(overlay, false);
+        });
+      });
     });
   };
 
@@ -390,6 +538,7 @@ export function clearHeroPendingHard() {
 
   try {
     markOverlayTweening(pending.overlay, false);
+    delete pending.overlay.dataset.heroParked;
   } catch {
     // ignore
   }
