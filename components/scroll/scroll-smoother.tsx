@@ -45,19 +45,71 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
       predecodeNextImages(contentRef.current, 10);
     }
 
-    const refresh = () => scheduleScrollTriggerRefresh();
+    // Refresh helpers:
+    // - refreshNow: immediate (hero transition events)
+    // - refreshIdle: run when main thread is idle (avoids hitching during scroll)
+    let rafId: number | null = null;
+
+    let idleId: number | null = null;
+    let idleMode: "ric" | "timeout" | null = null;
+    let idleCancel: ((id: number) => void) | null = null;
+
+    const refreshNow = () => {
+      if (rafId != null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        scheduleScrollTriggerRefresh();
+      });
+    };
+
+    const refreshIdle = () => {
+      if (idleId != null) return;
+
+      const run = () => {
+        idleId = null;
+        idleMode = null;
+        idleCancel = null;
+        scheduleScrollTriggerRefresh();
+      };
+
+      // Use runtime feature detection; avoid redeclaring DOM types (caused your TS errors).
+      const w = window as any;
+
+      if (typeof w.requestIdleCallback === "function") {
+        idleMode = "ric";
+        idleCancel = typeof w.cancelIdleCallback === "function" ? w.cancelIdleCallback.bind(window) : null;
+        idleId = w.requestIdleCallback(run, { timeout: 800 }) as number;
+      } else {
+        idleMode = "timeout";
+        idleId = window.setTimeout(run, 120);
+      }
+    };
 
     // Initial refresh after layout settles
-    requestAnimationFrame(() => requestAnimationFrame(refresh));
+    requestAnimationFrame(() => requestAnimationFrame(refreshNow));
 
-    window.addEventListener("hero-transition-done", refresh);
-    window.addEventListener("hero-page-hero-show", refresh);
-    window.addEventListener("images-preloaded", refresh);
+    window.addEventListener("hero-transition-done", refreshNow);
+    window.addEventListener("hero-page-hero-show", refreshNow);
+
+    // If predecode dispatches this while scrolling, don’t spike refresh immediately.
+    window.addEventListener("images-preloaded", refreshIdle);
 
     return () => {
-      window.removeEventListener("hero-transition-done", refresh);
-      window.removeEventListener("hero-page-hero-show", refresh);
-      window.removeEventListener("images-preloaded", refresh);
+      window.removeEventListener("hero-transition-done", refreshNow);
+      window.removeEventListener("hero-page-hero-show", refreshNow);
+      window.removeEventListener("images-preloaded", refreshIdle);
+
+      if (rafId != null) cancelAnimationFrame(rafId);
+      rafId = null;
+
+      if (idleId != null) {
+        if (idleMode === "ric" && idleCancel) idleCancel(idleId);
+        else window.clearTimeout(idleId);
+      }
+      idleId = null;
+      idleMode = null;
+      idleCancel = null;
+
       smoother.kill();
     };
   }, []);

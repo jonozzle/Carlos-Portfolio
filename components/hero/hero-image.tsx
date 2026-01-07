@@ -1,25 +1,31 @@
 // components/project/hero-image.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import Image from "next/image";
 import { gsap } from "gsap";
 import { completeHeroTransition } from "@/lib/hero-transition";
+import type { PendingHero } from "@/lib/transitions/state";
 
 type Props = {
     src: string;
     alt: string;
     slug: string;
-
-    /**
-     * autoWidth:
-     * - <md: ratio-sized box (no h-full), image object-contain
-     * - md+: full-height box with aspect-ratio driving width
-     */
     autoWidth?: boolean;
-
     className?: string;
+    /** Seed AR (e.g. from Sanity) to avoid layout shifts. */
+    initialAR?: number;
 };
+
+function isGoodAR(n: number) {
+    return Number.isFinite(n) && n > 0.05 && n < 20;
+}
+
+function safeAR(n: number | null | undefined, fallback = 1) {
+    if (typeof n !== "number") return fallback;
+    return isGoodAR(n) ? n : fallback;
+}
 
 export default function HeroImage({
     src,
@@ -27,99 +33,179 @@ export default function HeroImage({
     slug,
     autoWidth = false,
     className = "",
+    initialAR,
 }: Props) {
     const outerRef = useRef<HTMLDivElement | null>(null);
-
-    const [ar, setAr] = useState<number | null>(null); // width/height
-    const arLockedRef = useRef(false);
     const didCompleteRef = useRef(false);
 
-    // Resolve aspect ratio once (and then lock it once we complete a hero flight)
+    // Seed from Sanity AR if present to avoid layout shift + scroll plumbing hitches.
+    const [ar, setAr] = useState<number>(() => safeAR(initialAR, 1));
+
+    // Resolve mobile at first client render (no “desktop-first” flash on mobile).
+    const [isMobile, setIsMobile] = useState<boolean>(() => {
+        if (typeof window === "undefined") return false;
+        return window.matchMedia("(max-width: 767px)").matches;
+    });
+
     useEffect(() => {
-        if (!autoWidth) return;
         if (typeof window === "undefined") return;
-        if (!src) return;
-        if (ar && ar > 0) return;
 
-        // Prefer the overlay image if present (usually already loaded / correct)
-        const pending = (window as any).__heroPending as any;
-        const overlayImg: HTMLImageElement | undefined = pending?.overlayImg;
+        const mq = window.matchMedia("(max-width: 767px)");
+        const onChange = () => setIsMobile(mq.matches);
 
-        const maybeSet = (w: number, h: number) => {
-            if (arLockedRef.current) return;
-            if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
-            setAr(w / h);
-        };
+        onChange();
 
-        if (overlayImg) {
-            const ow = overlayImg.naturalWidth;
-            const oh = overlayImg.naturalHeight;
-
-            if (ow > 0 && oh > 0) {
-                maybeSet(ow, oh);
-                return;
-            }
-
-            const onLoad = () => maybeSet(overlayImg.naturalWidth, overlayImg.naturalHeight);
-            overlayImg.addEventListener("load", onLoad, { once: true });
-            return () => overlayImg.removeEventListener("load", onLoad);
-        }
-
-        // Fallback: preload the src to get natural dims
-        const img = new window.Image();
-        img.decoding = "async";
-        img.onload = () => maybeSet(img.naturalWidth, img.naturalHeight);
-        img.onerror = () => {
-            // if it truly fails, pick a stable fallback and don't update later
-            if (!arLockedRef.current) setAr(16 / 9);
-        };
-        img.src = src;
-
-        if (img.complete) {
-            maybeSet(img.naturalWidth, img.naturalHeight);
-        }
+        if (typeof mq.addEventListener === "function") mq.addEventListener("change", onChange);
+        else (mq as any).addListener(onChange);
 
         return () => {
-            img.onload = null;
-            img.onerror = null;
+            if (typeof mq.removeEventListener === "function") mq.removeEventListener("change", onChange);
+            else (mq as any).removeListener(onChange);
         };
-    }, [autoWidth, src, ar]);
+    }, []);
+
+    const computedStyle = useMemo((): CSSProperties | undefined => {
+        if (!autoWidth) return undefined;
+
+        const ratio = safeAR(ar, 1);
+
+        // MOBILE:
+        // - landscape => full width, auto height
+        // - portrait  => height-limited, auto width
+        if (isMobile) {
+            const portrait = ratio < 1;
+
+            if (portrait) {
+                return {
+                    aspectRatio: String(ratio),
+                    height: "min(70vh, 100%)",
+                    width: "auto",
+                    maxWidth: "100%",
+                    maxHeight: "70vh",
+                    marginLeft: "auto",
+                    marginRight: "auto",
+                };
+            }
+
+            return {
+                aspectRatio: String(ratio),
+                width: "100%",
+                height: "auto",
+                maxHeight: "70vh",
+            };
+        }
+
+        // DESKTOP: full height, auto width from AR
+        return {
+            aspectRatio: String(safeAR(ar, 1)),
+            height: "100%",
+            width: "auto",
+        };
+    }, [autoWidth, isMobile, ar]);
 
     useEffect(() => {
         if (typeof window === "undefined" || !outerRef.current) return;
 
         const el = outerRef.current;
 
-        const pending = (window as any).__heroPending as { slug?: string } | undefined;
-        const hasHeroFlight = !!pending && pending.slug === slug;
+        const pending = window.__heroPending as PendingHero | undefined;
+        const isHeroNav = !!pending && pending.slug === slug;
 
-        // For autoWidth, do not complete until AR is known and the box has rendered with it.
-        if (hasHeroFlight) {
-            if (autoWidth && (!ar || ar <= 0)) return;
-            if (didCompleteRef.current) return;
-            didCompleteRef.current = true;
+        // HERO NAV: for autoWidth, force final sizing before completing transition.
+        if (isHeroNav && autoWidth) {
+            const overlayImg = pending?.overlayImg ?? null;
 
-            // Lock AR so it cannot change post-flight (prevents the “snap”)
-            arLockedRef.current = true;
+            if (isMobile && overlayImg) {
+                try {
+                    overlayImg.style.objectFit = "contain";
+                } catch {
+                    // ignore
+                }
+            }
 
-            // Double RAF gives layout a beat to apply aspectRatio + sizing before measuring rects.
-            const raf1 = requestAnimationFrame(() => {
-                const raf2 = requestAnimationFrame(() => {
-                    completeHeroTransition({ slug, targetEl: el, mode: "simple" });
+            let rafId = 0;
+            let timeoutId: number | null = null;
+            const start = performance.now();
+
+            const applySizingToTarget = (ratio: number) => {
+                const r = safeAR(ratio, 1);
+
+                try {
+                    el.style.aspectRatio = String(r);
+                } catch {
+                    // ignore
+                }
+
+                if (isMobile) {
+                    if (r < 1) {
+                        el.style.height = "min(70vh, 100%)";
+                        el.style.width = "auto";
+                        el.style.maxWidth = "100%";
+                        el.style.maxHeight = "70vh";
+                        el.style.marginLeft = "auto";
+                        el.style.marginRight = "auto";
+                    } else {
+                        el.style.width = "100%";
+                        el.style.height = "auto";
+                        el.style.maxHeight = "70vh";
+                        el.style.marginLeft = "";
+                        el.style.marginRight = "";
+                    }
+                } else {
+                    el.style.height = "100%";
+                    el.style.width = "auto";
+                    el.style.maxHeight = "";
+                    el.style.maxWidth = "";
+                    el.style.marginLeft = "";
+                    el.style.marginRight = "";
+                }
+            };
+
+            const finalize = () => {
+                if (didCompleteRef.current) return;
+                didCompleteRef.current = true;
+
+                applySizingToTarget(ar);
+
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        completeHeroTransition({ slug, targetEl: el, mode: "simple" });
+                    });
                 });
-                (el as any).__heroRaf2 = raf2;
-            });
-            (el as any).__heroRaf1 = raf1;
+            };
+
+            const tick = () => {
+                const w = overlayImg?.naturalWidth ?? 0;
+                const h = overlayImg?.naturalHeight ?? 0;
+
+                if (w > 0 && h > 0) {
+                    const ratio = w / h;
+                    if (isGoodAR(ratio)) {
+                        setAr(ratio);
+                        applySizingToTarget(ratio);
+                        finalize();
+                        return;
+                    }
+                }
+
+                if (performance.now() - start > 250) {
+                    finalize();
+                    return;
+                }
+
+                rafId = requestAnimationFrame(tick);
+            };
+
+            rafId = requestAnimationFrame(tick);
+            timeoutId = window.setTimeout(() => finalize(), 900);
 
             return () => {
-                cancelAnimationFrame((el as any).__heroRaf1);
-                cancelAnimationFrame((el as any).__heroRaf2);
+                cancelAnimationFrame(rafId);
+                if (timeoutId) window.clearTimeout(timeoutId);
             };
         }
 
-        // No hero flight: fade in (for autoWidth, wait for AR so we don't fade a wrong-sized box)
-        if (autoWidth && (!ar || ar <= 0)) return;
-
+        // NON-HERO nav: fade in
         gsap.killTweensOf(el);
         gsap.set(el, { opacity: 0 });
         gsap.to(el, {
@@ -127,7 +213,8 @@ export default function HeroImage({
             duration: 0.55,
             ease: "power2.out",
             overwrite: true,
-            clearProps: "opacity",
+            // IMPORTANT: do NOT clear opacity props while className includes `opacity-0`
+            // or it will snap back to invisible on reload.
         });
 
         try {
@@ -135,17 +222,15 @@ export default function HeroImage({
         } catch {
             // ignore
         }
-    }, [slug, autoWidth, ar]);
+    }, [slug, autoWidth, isMobile, ar]);
 
-    // Default mode (keeps other pages unchanged)
     if (!autoWidth) {
         return (
             <div
                 ref={outerRef}
                 data-hero-slug={slug}
                 data-hero-target="project"
-                className={`relative h-full w-full overflow-hidden ${className}`.trim()}
-                style={{ opacity: 0 }}
+                className={`relative h-full w-full overflow-hidden opacity-0 ${className}`.trim()}
             >
                 {src ? (
                     <Image
@@ -153,7 +238,7 @@ export default function HeroImage({
                         alt={alt}
                         fill
                         priority
-                        className="object-cover"
+                        className="object-cover [transform:translateZ(0)]"
                         sizes="(max-width: 768px) 100vw, 50vw"
                     />
                 ) : (
@@ -163,25 +248,13 @@ export default function HeroImage({
         );
     }
 
-    // autoWidth mode:
-    // - MOBILE: ratio box (no h-full) so the hero overlay lands at the correct size (no snap)
-    // - MD+: full-height + aspect-ratio drives width
     return (
         <div
             ref={outerRef}
             data-hero-slug={slug}
             data-hero-target="project"
-            className={`
-      relative overflow-hidden
-      w-full md:w-auto
-      h-auto md:h-full
-      max-h-[70vh] md:max-h-none
-      ${className}
-    `.trim()}
-            style={{
-                opacity: 0,
-                aspectRatio: ar && ar > 0 ? ar : undefined,
-            }}
+            className={`relative overflow-hidden opacity-0 ${className}`.trim()}
+            style={computedStyle}
         >
             {src ? (
                 <Image
@@ -189,15 +262,24 @@ export default function HeroImage({
                     alt={alt}
                     fill
                     priority
-                    className="object-contain"
-                    sizes="100vw"
+                    className="object-contain [transform:translateZ(0)]"
+                    sizes="(max-width: 767px) 100vw, 50vw"
+                    onLoadingComplete={(img) => {
+                        // If we already have a reliable AR (from Sanity), do not update it on load.
+                        // Avoids layout shift + scroll/trigger rebuild hitches.
+                        if (typeof initialAR === "number" && isGoodAR(initialAR)) return;
+
+                        const w = img?.naturalWidth ?? 0;
+                        const h = img?.naturalHeight ?? 0;
+                        if (w > 0 && h > 0) {
+                            const ratio = w / h;
+                            if (isGoodAR(ratio)) setAr(ratio);
+                        }
+                    }}
                 />
             ) : (
-                <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
-                    No image
-                </div>
+                <div className="absolute inset-0 grid place-items-center text-xs opacity-60">No image</div>
             )}
         </div>
     );
-
 }

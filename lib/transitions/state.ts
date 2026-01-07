@@ -1,4 +1,3 @@
-// transitions/state
 // lib/transitions/state.ts
 export type PageDirection = "up" | "down";
 export type PageTransitionKind = "hero" | "fadeHero" | "simple";
@@ -30,7 +29,6 @@ declare global {
 
         __homeHsRestored?: boolean;
 
-        // NEW: sticky “did the user scroll on this route?”
         __routeHasScrolled?: boolean;
     }
 }

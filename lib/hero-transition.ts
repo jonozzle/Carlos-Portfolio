@@ -1,4 +1,3 @@
-// hero-transition
 // lib/hero-transition.ts
 "use client";
 

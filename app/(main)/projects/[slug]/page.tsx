@@ -1,3 +1,4 @@
+// app/(main)/projects/[slug]/page.tsx
 import { notFound } from "next/navigation";
 
 import Blocks from "@/components/blocks";
@@ -16,6 +17,22 @@ type Project = NonNullable<Awaited<ReturnType<typeof fetchSanityProjectBySlug>>>
 type ProjectPageProps = {
     params: Promise<{ slug: string }>;
 };
+
+function capSanityImage(url: string, maxW = 2000) {
+    if (!url) return "";
+    try {
+        const u = new URL(url);
+        // Sanity Image API params (safe even if your URL is already a transformed one)
+        u.searchParams.set("auto", "format");
+        u.searchParams.set("fit", "max");
+        u.searchParams.set("q", "80");
+        u.searchParams.set("w", String(maxW));
+        return u.toString();
+    } catch {
+        // If URL parsing fails, fall back to original.
+        return url;
+    }
+}
 
 export async function generateMetadata({ params }: ProjectPageProps) {
     const { slug } = await params;
@@ -39,20 +56,26 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
     if (!project) notFound();
 
-    const heroSrc = project.featuredImage?.asset?.url ?? "";
+    const rawHeroSrc = project.featuredImage?.asset?.url ?? "";
+    const heroSrc = capSanityImage(rawHeroSrc, 2000);
     const heroAlt = project.title ?? "Project image";
+
+    // Pull aspect ratio from Sanity if present (prevents layout shifts during hero flight / scroll)
+    const dims = (project as any)?.featuredImage?.asset?.metadata?.dimensions as
+        | { width?: number; height?: number }
+        | undefined;
+
+    const heroAR =
+        dims?.width && dims?.height && dims.width > 0 && dims.height > 0
+            ? dims.width / dims.height
+            : undefined;
 
     return (
         <HScrollerWrapper>
             <ThemeSetter theme={project.theme ?? null} />
 
-            {/* md+: width can grow/shrink based on hero. mobile: viewport width. */}
-            <section
-                data-panel-height="viewport"
-                className="h-panel relative w-screen md:w-auto overflow-hidden"
-            >
+            <section data-panel-height="viewport" className="h-panel relative w-screen md:w-auto overflow-hidden">
                 <div className="h-full flex flex-col md:flex-row md:items-stretch">
-                    {/* LEFT: fixed 50vw on md+ */}
                     <div className="w-full md:w-[50vw] md:shrink-0 px-6 md:px-10" data-hero-page-animate>
                         <div className="h-full flex flex-col">
                             <div className="pt-6 md:pt-10 text-center">
@@ -66,7 +89,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                                 <ProjectDetails details={project.details ?? []} />
                             </div>
 
-                            <div className="mt-auto pb-6 md:pb-8 flex justify-center">
+                            <div className="mt-18 md:mt-auto pb-6 md:pb-8 flex justify-center">
                                 <h1 className="text-center text-[12vw] md:text-[9vw] font-serif font-medium leading-none tracking-tighter">
                                     <StylizedLabel text={project.title ?? "Untitled Project"} />
                                 </h1>
@@ -74,9 +97,8 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                         </div>
                     </div>
 
-                    {/* RIGHT: padded container so image isn't flush to edge */}
                     <div className="w-full md:w-auto md:shrink-0 px-6 md:px-6 py-6 md:py-6 h-auto md:h-full">
-                        <HeroImage src={heroSrc} alt={heroAlt} slug={slug} autoWidth />
+                        <HeroImage src={heroSrc} alt={heroAlt} slug={slug} autoWidth initialAR={heroAR} />
                     </div>
                 </div>
             </section>
