@@ -156,7 +156,7 @@ const UnderlineLink = React.forwardRef<HTMLAnchorElement, Props>(function Underl
           ref={underlineRef}
           aria-hidden="true"
           className={cn(
-            "absolute left-0 right-0 bottom-[0.2em] h-px bg-current will-change-transform transform-gpu",
+            "absolute left-0 right-0 bottom-[0em] h-px bg-current will-change-transform transform-gpu",
             underlineClassName
           )}
           style={{ transform: "scaleX(0)", transformOrigin: "0% 50%" }}

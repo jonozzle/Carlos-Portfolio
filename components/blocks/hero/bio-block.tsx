@@ -184,14 +184,22 @@ export default function BioBlock({
 
       const SQUARE_SIZE = 64; // closed square
       const EXPANDED_WIDTH = SQUARE_SIZE + 220;
-      const EXPANDED_HEIGHT = SQUARE_SIZE + 110;
+      const EXPANDED_MIN_HEIGHT = SQUARE_SIZE + 110;
+
+      const SMALL_C_SCALE = 0.92;
 
       // CLOSED small-c manual offsets
-      const SMALL_C_OFFSET_X = -3; // tweak as needed
-      const SMALL_C_OFFSET_Y = 4; // tweak as needed
+      const SMALL_C_OFFSET_X = -6; // tweak as needed
+      const SMALL_C_OFFSET_Y = 0; // tweak as needed
 
       // Hide while we set up to avoid flashes
       gsap.set(box, { autoAlpha: 0 });
+
+      // Inner content: measure to fit bio + links, then lock size for stable animation.
+      gsap.set(inner, { width: EXPANDED_WIDTH, height: "auto" });
+      const measuredHeight = Math.ceil(inner.getBoundingClientRect().height);
+      const expandedHeight = Math.max(EXPANDED_MIN_HEIGHT, measuredHeight);
+      gsap.set(inner, { height: expandedHeight });
 
       // Outer box: animates from square to expanded
       gsap.set(box, {
@@ -199,20 +207,23 @@ export default function BioBlock({
         height: SQUARE_SIZE,
       });
 
-      // Inner content: always final size so layout is stable
-      gsap.set(inner, {
-        width: EXPANDED_WIDTH,
-        height: EXPANDED_HEIGHT,
-      });
-
       // Name row base state (fixed band at the top)
       gsap.set(nameRow, { y: 0 });
 
       // Reset Cs before measuring
-      gsap.set([bigC, smallC], {
+      gsap.set(bigC, {
         x: 0,
         y: 0,
         rotation: 0,
+        scale: 1,
+        transformOrigin: "50% 50%",
+      });
+
+      gsap.set(smallC, {
+        x: 0,
+        y: 0,
+        rotation: 0,
+        scale: SMALL_C_SCALE,
         transformOrigin: "50% 50%",
       });
 
@@ -273,7 +284,7 @@ export default function BioBlock({
         box,
         {
           width: EXPANDED_WIDTH,
-          height: EXPANDED_HEIGHT,
+          height: expandedHeight,
           duration: 1.4,
           ease: "power2.inOut",
         },
@@ -297,6 +308,7 @@ export default function BioBlock({
             x: 0,
             y: 0,
             rotation: 0,
+            scale: 1,
             duration: 1.4,
             ease: "power3.out",
           },
@@ -365,16 +377,16 @@ export default function BioBlock({
             ref={nameRowRef}
             className="absolute left-0 right-0 top-0 h-[64px] flex items-center px-3 pointer-events-none transform-gpu"
           >
-            <div className="flex flex-wrap items-baseline gap-x-1 relative">
+            <div className="flex flex-wrap items-baseline gap-x-0 relative">
               {/* C of Carlos */}
-              <span ref={bigCRef} className="font-serif text-4xl leading-none inline-block">
+              <span ref={bigCRef} className="font-serif text-[36px] leading-none inline-block">
                 {firstC}
               </span>
 
               {/* "arlos" */}
               <span
                 ref={restFirstRef}
-                className="text-base tracking-tight font-serif leading-none inline-block"
+                className="font-serif text-[27px] leading-none tracking-tight inline-block ml-0"
               >
                 {restFirst}
               </span>
@@ -382,7 +394,7 @@ export default function BioBlock({
               {/* C of Castrosin */}
               <span
                 ref={smallCRef}
-                className="font-serif lowercase text-4xl leading-none inline-block"
+                className="font-serif text-[36px] leading-none inline-block ml-3"
               >
                 {secondC}
               </span>
@@ -390,7 +402,7 @@ export default function BioBlock({
               {/* "astrosin" */}
               <span
                 ref={restSecondRef}
-                className="text-base tracking-tight font-serif leading-none inline-block"
+                className="font-serif text-[27px] leading-none tracking-tight inline-block ml-0"
               >
                 {restSecond}
               </span>

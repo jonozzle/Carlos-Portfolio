@@ -230,14 +230,18 @@ export default function HeroUnderlineLink({
       underlineInEase="expo.out"
       underlineOutEase="power3.inOut"
     >
-      <span ref={textRef} data-hero-text className="relative inline-block whitespace-nowrap">
-        <span ref={normalWeightRef} data-hero-weight="normal" className="relative inline-block">
+      <span ref={textRef} data-hero-text className="relative inline-grid whitespace-nowrap">
+        <span
+          ref={normalWeightRef}
+          data-hero-weight="normal"
+          className="col-start-1 row-start-1 inline-block"
+        >
           {children}
         </span>
         <span
           ref={boldWeightRef}
           data-hero-weight="bold"
-          className={cn("absolute inset-0 inline-block", activeTextClassName)}
+          className={cn("col-start-1 row-start-1 inline-block", activeTextClassName)}
           aria-hidden="true"
         >
           {children}

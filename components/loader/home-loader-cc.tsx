@@ -2,7 +2,7 @@
 // components/loader/home-loader-cc.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
@@ -115,7 +115,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
   const [done, setDone] = useState(false);
   const [allowed, setAllowed] = useState(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (typeof window === "undefined") return;
 
     if (playingRef.current && pathname === "/") {

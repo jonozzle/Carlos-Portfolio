@@ -116,6 +116,19 @@ export default function HeroImage({
         const pending = window.__heroPending as PendingHero | undefined;
         const isHeroNav = !!pending && pending.slug === slug;
 
+        // HERO NAV: non-autoWidth can complete immediately once the target exists.
+        if (isHeroNav && !autoWidth) {
+            if (didCompleteRef.current) return;
+            didCompleteRef.current = true;
+
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    completeHeroTransition({ slug, targetEl: el, mode: "simple" });
+                });
+            });
+            return;
+        }
+
         // HERO NAV: for autoWidth, force final sizing before completing transition.
         if (isHeroNav && autoWidth) {
             const overlayImg = pending?.overlayImg ?? null;

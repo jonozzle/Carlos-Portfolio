@@ -5,11 +5,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NextImage from "next/image";
 import clsx from "clsx";
 import { highSrc, lowSrc } from "@/lib/img";
+import { useThemeActions, type ThemeInput } from "@/components/theme-provider";
+import { APP_EVENTS } from "@/lib/app-events";
+import { getLastMouse, HOVER_EVENTS, isHoverLocked } from "@/lib/hover-lock";
 
 export type AdvertImage = {
     asset?: { url?: string | null; width?: number | null; height?: number | null } | null;
     alt?: string | null;
 };
+
+function isAppScrolling() {
+    if (typeof window === "undefined") return false;
+    return !!(window as any).__appScrolling;
+}
 
 type Props = {
     images?: AdvertImage[] | null;
@@ -18,6 +26,7 @@ type Props = {
     defaultIndex?: number;
     label?: string;
     showUI?: boolean;
+    theme?: ThemeInput | null;
 };
 
 type PreparedImage = {
@@ -33,7 +42,11 @@ export default function Advert({
     defaultIndex = 0,
     label = "Advertisement",
     showUI = false,
+    theme = null,
 }: Props) {
+    const themeActions = useThemeActions();
+    const hasTheme = !!(theme?.bg || theme?.text);
+
     // data
     const prepared = useMemo<PreparedImage[]>(() => {
         const maxWidth =
@@ -65,6 +78,62 @@ export default function Advert({
     const rafRef = useRef<number | null>(null);
     const lastSwap = useRef(0);
     const clearPrevTO = useRef<number | null>(null);
+
+    const applyTheme = useCallback(
+        (allowIdle?: boolean, force?: boolean) => {
+            if (!hasTheme) return;
+            const forceAnim = typeof force === "boolean" ? force : isAppScrolling();
+            themeActions.previewTheme(theme, { animate: true, force: forceAnim, allowIdle: !!allowIdle });
+        },
+        [hasTheme, themeActions, theme]
+    );
+
+    const clearTheme = useCallback(
+        (force?: boolean) => {
+            if (!hasTheme) return;
+            const forceAnim = typeof force === "boolean" ? force : isAppScrolling();
+            themeActions.clearPreview({ animate: true, force: forceAnim });
+        },
+        [hasTheme, themeActions]
+    );
+
+    const isPointerInside = useCallback(() => {
+        if (typeof document === "undefined") return false;
+        const el = wrapRef.current;
+        if (!el) return false;
+
+        const pos = getLastMouse();
+        if (pos) {
+            const hit = document.elementFromPoint(pos.x, pos.y);
+            return !!(hit && el.contains(hit));
+        }
+
+        return el.matches(":hover");
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined" || !hasTheme) return;
+
+        const onScrollEnd = () => {
+            if (isHoverLocked()) return;
+            if (isPointerInside()) applyTheme(true);
+            else clearTheme();
+        };
+
+        window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
+        return () => window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
+    }, [applyTheme, clearTheme, hasTheme, isPointerInside]);
+
+    useEffect(() => {
+        if (typeof window === "undefined" || !hasTheme) return;
+
+        const onUnlocked = () => {
+            if (isPointerInside()) applyTheme(true);
+        };
+
+        window.addEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked);
+        return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
+    }, [applyTheme, hasTheme, isPointerInside]);
 
     // measure
     const measure = useCallback(() => {
@@ -177,8 +246,15 @@ export default function Advert({
     );
 
     const onPointerEnter = useCallback(() => {
+        if (!isHoverLocked()) applyTheme();
         measure();
-    }, [measure]);
+    }, [applyTheme, measure]);
+
+    const onPointerLeave = useCallback(() => {
+        if (isHoverLocked()) return;
+        if (isAppScrolling() && isPointerInside()) return;
+        clearTheme(isAppScrolling());
+    }, [clearTheme, isPointerInside]);
 
     // a11y
     const roleDesc = useMemo(
@@ -258,6 +334,15 @@ export default function Advert({
             aria-label={roleDesc}
             onPointerMove={onPointerMove}
             onPointerEnter={onPointerEnter}
+            onPointerLeave={onPointerLeave}
+            onFocusCapture={() => {
+                if (isHoverLocked()) return;
+                applyTheme();
+            }}
+            onBlurCapture={() => {
+                if (isHoverLocked()) return;
+                clearTheme(isAppScrolling());
+            }}
         >
             <div className="absolute inset-0">{renderImg(prev, false)}</div>
             <div className="absolute inset-0">{renderImg(curr, true)}</div>

@@ -1433,7 +1433,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       {/* RIGHT – content */}
       <div
         ref={rightRef}
-        className="relative h-full px-6 pt-6 pb-2 overflow-hidden flex flex-col"
+        className="relative h-full px-6 pt-6 pb-5 overflow-hidden flex flex-col"
         style={{ contain: "layout paint" }}
       >
         {/* HEADER */}

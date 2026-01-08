@@ -5,19 +5,23 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
 } from "react";
 import { gsap } from "gsap";
+import ScrollTrigger from "gsap/ScrollTrigger";
 import SmoothImage from "@/components/ui/smooth-image";
 import { useThemeActions } from "@/components/theme-provider";
 import PageTransitionButton from "@/components/page-transition-button";
+import { completeHeroTransition } from "@/lib/hero-transition";
 import { APP_EVENTS } from "@/lib/app-events";
+import { getCurrentScrollY, setCurrentScrollY } from "@/lib/scroll-state";
 import {
   HOVER_EVENTS,
   getLastMouse,
-  hasRecentPointerMove,
   isHoverLocked,
 } from "@/lib/hover-lock";
 
@@ -63,6 +67,18 @@ function isAppScrolling() {
   return !!(window as any).__appScrolling;
 }
 
+function isMobileNow() {
+  try {
+    return window.matchMedia("(max-width: 767px)").matches;
+  } catch {
+    return false;
+  }
+}
+
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(ScrollTrigger);
+}
+
 /* -------------------------------------------------------
    Local stylized label (no ScrollTrigger here)
 ------------------------------------------------------- */
@@ -96,7 +112,7 @@ type TileProps = {
   unregister: (index: number) => void;
   activate: (index: number, theme: Theme) => void;
   activateFromUnlock: (index: number, theme: Theme) => void;
-  deactivate: (index: number) => void;
+  deactivate: (index: number, opts?: { force?: boolean }) => void;
 };
 
 const PageLinkTile = React.memo(function PageLinkTile({
@@ -130,6 +146,13 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
   const labelText = item.label ?? item.page?.title ?? "Untitled";
   const sizes = isHalf ? "50vw" : "33vw";
+
+  const [heroState, setHeroState] = useState<"idle" | "transitioning" | "shown">(() => {
+    if (typeof window === "undefined" || !slug) return "idle";
+    const pending = (window as any).__heroPending as { slug?: string } | undefined;
+    return pending?.slug === slug ? "transitioning" : "idle";
+  });
+  const [isHeroMatch, setIsHeroMatch] = useState(false);
 
   const setHover = useCallback((on: boolean, immediate?: boolean) => {
     const el = imgScaleRef.current;
@@ -183,28 +206,212 @@ const PageLinkTile = React.memo(function PageLinkTile({
     return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
   }, [activateFromUnlock, index, theme, setHover]);
 
-  const onMouseEnter = useCallback(() => {
-    if (isAppScrolling()) return;
-    if (isHoverLocked()) return;
-    if (!hasRecentPointerMove(180)) return;
+  // Hero overlay -> this tile (page -> home case)
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!slug) return;
+    if (!imgTileRef.current) return;
 
+    const pending = (window as any).__heroPending as { slug?: string } | undefined;
+    const match = !!pending && pending.slug === slug;
+    setIsHeroMatch(match);
+
+    if (match) {
+      setHeroState("transitioning");
+
+      const scaleEl = imgScaleRef.current;
+      if (scaleEl) {
+        gsap.killTweensOf(scaleEl);
+        gsap.set(scaleEl, { scale: 1 });
+      }
+
+      let raf = 0;
+      let frames = 0;
+      let ran = false;
+
+      let lastRect: { left: number; top: number; width: number; height: number } | null = null;
+      let stableCount = 0;
+
+      const EPS = 0.75;
+      const STABLE_FRAMES = 4;
+      const MAX_FRAMES = 360;
+
+      let nudged = false;
+
+      const rectDelta = (
+        a: { left: number; top: number; width: number; height: number },
+        b: { left: number; top: number; width: number; height: number }
+      ) =>
+        Math.abs(a.left - b.left) +
+        Math.abs(a.top - b.top) +
+        Math.abs(a.width - b.width) +
+        Math.abs(a.height - b.height);
+
+      const rectOk = (r: DOMRect) =>
+        Number.isFinite(r.left) &&
+        Number.isFinite(r.top) &&
+        Number.isFinite(r.width) &&
+        Number.isFinite(r.height) &&
+        r.width > 2 &&
+        r.height > 2;
+
+      const isTargetInViewport = (el: HTMLElement) => {
+        const r = el.getBoundingClientRect();
+        if (!rectOk(r)) return false;
+
+        const vw = window.innerWidth || 1;
+        const vh = window.innerHeight || 1;
+
+        const slackX = vw * 0.25;
+        const slackY = vh * 0.25;
+
+        return r.right > -slackX && r.left < vw + slackX && r.bottom > -slackY && r.top < vh + slackY;
+      };
+
+      const nudgeIntoView = (el: HTMLElement) => {
+        if (nudged) return;
+        nudged = true;
+
+        const r = el.getBoundingClientRect();
+        const vh = window.innerHeight || 1;
+
+        const targetY = getCurrentScrollY() + r.top - (vh / 2 - r.height / 2);
+        setCurrentScrollY(targetY);
+
+        lastRect = null;
+        stableCount = 0;
+      };
+
+      const run = () => {
+        if (ran) return;
+        ran = true;
+
+        const el = imgTileRef.current;
+        if (!el) return;
+
+        completeHeroTransition({
+          slug,
+          targetEl: el,
+          mode: "parkThenPage",
+        });
+      };
+
+      const tick = () => {
+        frames += 1;
+
+        try {
+          ScrollTrigger.update();
+        } catch {
+          // ignore
+        }
+
+        const el = imgTileRef.current;
+        if (!el) return;
+
+        const r = el.getBoundingClientRect();
+        if (!rectOk(r)) {
+          if (frames < MAX_FRAMES) raf = requestAnimationFrame(tick);
+          else raf = requestAnimationFrame(() => requestAnimationFrame(run));
+          return;
+        }
+
+        const now = { left: r.left, top: r.top, width: r.width, height: r.height };
+
+        if (lastRect) {
+          const d = rectDelta(now, lastRect);
+          if (d < EPS) stableCount += 1;
+          else stableCount = 0;
+        }
+        lastRect = now;
+
+        const inView = isTargetInViewport(el);
+
+        if (isMobileNow() && !inView && frames === 12) {
+          nudgeIntoView(el);
+          raf = requestAnimationFrame(tick);
+          return;
+        }
+
+        if (inView && stableCount >= STABLE_FRAMES) {
+          raf = requestAnimationFrame(() => requestAnimationFrame(run));
+          return;
+        }
+
+        if (frames < MAX_FRAMES) {
+          raf = requestAnimationFrame(tick);
+          return;
+        }
+
+        raf = requestAnimationFrame(() => requestAnimationFrame(run));
+      };
+
+      const start = () => {
+        raf = requestAnimationFrame(tick);
+      };
+
+      if ((window as any).__homeHsRestored) {
+        start();
+      } else {
+        const onHomeRestored = () => start();
+        window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored, { once: true });
+        return () => {
+          window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored as any);
+          if (raf) cancelAnimationFrame(raf);
+        };
+      }
+
+      return () => {
+        if (raf) cancelAnimationFrame(raf);
+      };
+    }
+
+  }, [slug]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!slug) return;
+
+    const onHeroShow = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { slug?: string } | undefined;
+      if (detail?.slug === slug) setHeroState("shown");
+    };
+
+    window.addEventListener("hero-page-hero-show", onHeroShow);
+    return () => {
+      window.removeEventListener("hero-page-hero-show", onHeroShow as any);
+    };
+  }, [slug]);
+
+  const isPointerInside = useCallback(() => {
+    const hit = hitRef.current;
+    if (!hit) return false;
+
+    const pos = getLastMouse();
+    if (pos) {
+      const under = document.elementFromPoint(pos.x, pos.y);
+      return !!(under && hit.contains(under));
+    }
+
+    return hit.matches(":hover");
+  }, []);
+
+  const onMouseEnter = useCallback(() => {
+    if (isHoverLocked()) return;
     activate(index, hasTheme ? theme : null);
   }, [activate, index, hasTheme, theme]);
 
   const onMouseLeave = useCallback(() => {
-    if (isAppScrolling()) return;
     if (isHoverLocked()) return;
-    deactivate(index);
-  }, [deactivate, index]);
+    if (isAppScrolling() && isPointerInside()) return;
+    deactivate(index, { force: isAppScrolling() });
+  }, [deactivate, index, isPointerInside]);
 
   const onFocus = useCallback(() => {
-    if (isAppScrolling()) return;
     if (isHoverLocked()) return;
     activate(index, hasTheme ? theme : null);
   }, [activate, index, hasTheme, theme]);
 
   const onBlur = useCallback(() => {
-    if (isAppScrolling()) return;
     if (isHoverLocked()) return;
     deactivate(index);
   }, [deactivate, index]);
@@ -219,19 +426,26 @@ const PageLinkTile = React.memo(function PageLinkTile({
     }
     : null;
 
+  const isHeroImageHidden = isHeroMatch && heroState !== "shown";
+
   const renderImage = () => {
     return (
-      <div className="relative w-full h-full overflow-hidden">
-        <div ref={imgScaleRef} className="relative w-full h-full will-change-transform transform-gpu">
+      <div className="relative w-full h-full overflow-hidden" style={{ opacity: isHeroImageHidden ? 0 : 1 }}>
+        <div
+          ref={imgScaleRef}
+          data-hero-img-scale
+          className="relative w-full h-full will-change-transform transform-gpu"
+        >
           {imgUrl ? (
             <SmoothImage
               src={imgUrl}
               alt={alt}
               fill
               sizes={sizes}
-              lqipWidth={16}
+              lqipWidth={0}
               objectFit="cover"
-              loading="lazy"
+              loading="eager"
+              fetchPriority="high"
             />
           ) : (
             <div className="absolute inset-0 grid place-items-center text-xs opacity-60">No image</div>
@@ -289,6 +503,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
         <div
           ref={imgTileRef}
           data-hero-slug={isInternal ? slug : undefined}
+          data-hero-target={isInternal ? "home" : undefined}
           className="relative w-full h-full min-h-0 overflow-hidden"
         >
           <ImageWrapper>{renderImage()}</ImageWrapper>
@@ -302,6 +517,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
       <div
         ref={imgTileRef}
         data-hero-slug={isInternal ? slug : undefined}
+        data-hero-target={isInternal ? "home" : undefined}
         className="relative w-full h-full min-h-0 overflow-hidden"
       >
         <ImageWrapper>{renderImage()}</ImageWrapper>
@@ -322,6 +538,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
         <div
           ref={imgTileRef}
           data-hero-slug={isInternal ? slug : undefined}
+          data-hero-target={isInternal ? "home" : undefined}
           className="relative w-full flex-1 min-h-0 overflow-hidden"
         >
           <ImageWrapper>{renderImage()}</ImageWrapper>
@@ -360,45 +577,93 @@ export default function PageLinkSection(props: Props) {
 
   const paddingMode = props.paddingMode ?? "default";
 
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const activeRef = useRef<number | null>(null);
   const handlesRef = useRef(new Map<number, TileHandle>());
+  const dimParticipationRef = useRef(false);
+
+  const setDim = useCallback((activeIndex: number | null) => {
+    activeRef.current = activeIndex;
+    setActiveIndex(activeIndex);
+
+    for (const [i, h] of handlesRef.current.entries()) {
+      for (const el of h.dimEls) {
+        if (!el) continue;
+        if (activeIndex == null) {
+          el.setAttribute("data-dim-item", "inactive");
+        } else {
+          el.setAttribute("data-dim-item", i === activeIndex ? "active" : "inactive");
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") return;
+
+    const root = document.documentElement as HTMLElement & { dataset: DOMStringMap };
+    const w = window as any;
+    if (w.__dimItemsCount == null) w.__dimItemsCount = 0;
+
+    const currentlyActive = activeIndex !== null;
+
+    if (currentlyActive && !dimParticipationRef.current) {
+      w.__dimItemsCount += 1;
+      dimParticipationRef.current = true;
+      root.dataset.dimItems = "true";
+    } else if (!currentlyActive && dimParticipationRef.current) {
+      w.__dimItemsCount = Math.max(0, (w.__dimItemsCount || 1) - 1);
+      dimParticipationRef.current = false;
+      if (w.__dimItemsCount === 0) {
+        delete root.dataset.dimItems;
+      }
+    }
+
+    return () => {
+      if (dimParticipationRef.current) {
+        w.__dimItemsCount = Math.max(0, (w.__dimItemsCount || 1) - 1);
+        dimParticipationRef.current = false;
+        if (w.__dimItemsCount === 0) {
+          delete root.dataset.dimItems;
+        }
+      }
+    };
+  }, [activeIndex]);
 
   const register = useCallback((index: number, handle: TileHandle) => {
     handlesRef.current.set(index, handle);
+
+    const activeIndex = activeRef.current;
+    for (const el of handle.dimEls) {
+      if (!el) continue;
+      if (activeIndex == null) {
+        el.setAttribute("data-dim-item", "inactive");
+      } else {
+        el.setAttribute("data-dim-item", index === activeIndex ? "active" : "inactive");
+      }
+    }
   }, []);
 
   const unregister = useCallback((index: number) => {
     handlesRef.current.delete(index);
   }, []);
 
-  const setDim = useCallback((activeIndex: number | null) => {
-    activeRef.current = activeIndex;
+  const applyTheme = useCallback(
+    (t: Theme, opts?: { allowIdle?: boolean; force?: boolean }) => {
+      const forceAnim = typeof opts?.force === "boolean" ? opts.force : isAppScrolling();
+      const themeOpts = { animate: true, force: forceAnim, allowIdle: opts?.allowIdle };
 
-    for (const [i, h] of handlesRef.current.entries()) {
-      for (const el of h.dimEls) {
-        if (!el) continue;
-        if (activeIndex == null) {
-          el.removeAttribute("data-dim-item");
-        } else {
-          el.setAttribute("data-dim-item", i === activeIndex ? "active" : "inactive");
-        }
-      }
-    }
-
-    try {
-      const root = document.documentElement as any;
-      if (activeIndex == null) delete root.dataset.dimItems;
-      else root.dataset.dimItems = "true";
-    } catch {
-      // ignore
-    }
-  }, []);
+      if (t?.bg || t?.text) theme.previewTheme(t, themeOpts);
+      else theme.clearPreview(themeOpts);
+    },
+    [theme]
+  );
 
   const clearAll = useCallback(
-    (immediateScale = false) => {
+    (immediateScale = false, opts?: { force?: boolean }) => {
       const curr = activeRef.current;
       setDim(null);
-      theme.clearPreview({ animate: true });
+      applyTheme(null, { force: opts?.force });
 
       if (curr != null) {
         const h = handlesRef.current.get(curr);
@@ -408,7 +673,7 @@ export default function PageLinkSection(props: Props) {
         for (const h of handlesRef.current.values()) h.setHover(false, immediateScale);
       }
     },
-    [setDim, theme]
+    [setDim, applyTheme]
   );
 
   const isPointerOverSection = useCallback(() => {
@@ -425,6 +690,20 @@ export default function PageLinkSection(props: Props) {
     return sectionEl.matches(":hover");
   }, []);
 
+  const getHitIndex = useCallback(() => {
+    if (typeof document === "undefined") return null;
+    const pos = getLastMouse();
+    const under = pos ? document.elementFromPoint(pos.x, pos.y) : null;
+
+    for (const [i, h] of handlesRef.current.entries()) {
+      const el = h.hitEl;
+      if (!el) continue;
+      if (under ? el.contains(under) : el.matches(":hover")) return i;
+    }
+
+    return null;
+  }, []);
+
   const activate = useCallback(
     (index: number, t: Theme) => {
       const prev = activeRef.current;
@@ -434,13 +713,11 @@ export default function PageLinkSection(props: Props) {
       }
 
       setDim(index);
-
-      if (t?.bg || t?.text) theme.previewTheme(t, { animate: true });
-      else theme.clearPreview({ animate: true });
+      applyTheme(t);
 
       handlesRef.current.get(index)?.setHover(true);
     },
-    [setDim, theme]
+    [setDim, applyTheme]
   );
 
   const activateFromUnlock = useCallback(
@@ -454,34 +731,46 @@ export default function PageLinkSection(props: Props) {
 
       setDim(index);
 
-      if (t?.bg || t?.text) theme.previewTheme(t, { animate: true });
-      else theme.clearPreview({ animate: true });
+      applyTheme(t, { allowIdle: true });
 
       handlesRef.current.get(index)?.setHover(true);
     },
-    [setDim, theme]
+    [setDim, applyTheme]
   );
 
   const deactivate = useCallback(
-    (index: number) => {
+    (index: number, opts?: { force?: boolean }) => {
       if (activeRef.current !== index) return;
-      clearAll(false);
+      clearAll(false, opts);
     },
     [clearAll]
   );
 
-  // Clear on scroll start (prevents hover/theme churn while scrolling)
+  // On scroll end, re-sync hover/theme with the element under the pointer.
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const onScrollStart = () => {
-      if (!isPointerOverSection()) return;
-      clearAll(true);
-    };
-    window.addEventListener(APP_EVENTS.SCROLL_START, onScrollStart);
+    const onScrollEnd = () => {
+      if (isHoverLocked()) return;
 
-    return () => window.removeEventListener(APP_EVENTS.SCROLL_START, onScrollStart as any);
-  }, [clearAll, isPointerOverSection]);
+      const hitIndex = getHitIndex();
+      if (hitIndex == null) {
+        clearAll(false);
+        return;
+      }
+
+      const t = items[hitIndex]?.page?.theme ?? null;
+      if (activeRef.current === hitIndex) {
+        applyTheme(t, { allowIdle: true });
+        return;
+      }
+
+      activateFromUnlock(hitIndex, t);
+    };
+    window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
+
+    return () => window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
+  }, [activateFromUnlock, applyTheme, clearAll, getHitIndex, items]);
 
   let paddingClass = "";
   const sectionStyle: CSSProperties = { containIntrinsicSize: "100vh 50vw" };
@@ -501,14 +790,14 @@ export default function PageLinkSection(props: Props) {
       className={`${widthClass} h-screen ${paddingClass} gap-2 md:gap-3 grid grid-cols-12 grid-rows-12 relative overflow-hidden will-change-transform`}
       style={sectionStyle}
       onMouseLeave={() => {
-        if (isAppScrolling()) return;
         if (isHoverLocked()) return;
-        clearAll(false);
+        if (isAppScrolling() && isPointerOverSection()) return;
+        clearAll(false, { force: isAppScrolling() });
       }}
       onBlurCapture={() => {
         if (isAppScrolling()) return;
         if (isHoverLocked()) return;
-        clearAll(false);
+        clearAll(false, { force: isAppScrolling() });
       }}
     >
       <div

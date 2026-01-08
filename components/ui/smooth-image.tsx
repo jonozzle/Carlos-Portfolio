@@ -1,7 +1,7 @@
 // components/ui/smooth-image.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import NextImage, { type ImageProps } from "next/image";
 import { lowSrc, highSrc } from "@/lib/img";
 
@@ -23,13 +23,18 @@ export default function SmoothImage({
   objectFit = "cover",
   ...rest
 }: Props) {
-  const [loaded, setLoaded] = useState(false);
+  const useLqip = lqipWidth > 0;
+  const [loaded, setLoaded] = useState(!useLqip);
 
   const raw = typeof src === "string" ? src : "";
-  const lo = lowSrc(raw, lqipWidth);
+  const lo = useLqip ? lowSrc(raw, lqipWidth) : "";
   const hi = typeof src === "string" ? highSrc(src, hiMaxWidth) : src;
 
   const fitClass = objectFit === "contain" ? "object-contain" : "object-cover";
+
+  useEffect(() => {
+    if (!useLqip) setLoaded(true);
+  }, [useLqip]);
 
   return (
     <div className={`absolute inset-0 ${className}`} style={{ contain: "paint" }}>

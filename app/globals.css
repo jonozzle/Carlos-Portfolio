@@ -240,6 +240,11 @@ html.fouc-ready [data-fouc] {
   visibility: visible;
 }
 
+html:not(.fouc-ready),
+html:not(.fouc-ready) body {
+  background-color: #e5e7eb;
+}
+
 
 html[data-home-hold="1"] #page-root {
   opacity: 0 !important;

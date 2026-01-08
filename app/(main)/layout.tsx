@@ -28,24 +28,25 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       <div className="has-custom-cursor">
         <HomeLoader enable={true} />
         <UiRevealCoordinator />
+        <div data-fouc>
+          <DomDebugger />
+          <Header />
 
-        <DomDebugger />
-        <Header />
+          <div
+            id="transition-layer"
+            aria-hidden="true"
+            className="pointer-events-none fixed inset-0 z-[9999]"
+          />
 
-        <div
-          id="transition-layer"
-          aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-[9999]"
-        />
+          <SmoothScroller>
+            <ScrollManager />
+            <PageEnterShell>
+              <main id="page-root">{children}</main>
+            </PageEnterShell>
+          </SmoothScroller>
 
-        <SmoothScroller>
-          <ScrollManager />
-          <PageEnterShell>
-            <main id="page-root">{children}</main>
-          </PageEnterShell>
-        </SmoothScroller>
-
-        <Cursor size={10} />
+          <Cursor size={10} />
+        </div>
       </div>
     </>
   );

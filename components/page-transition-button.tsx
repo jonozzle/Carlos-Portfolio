@@ -132,10 +132,13 @@ export default function PageTransitionButton({
 
         const atTop = rawYBeforeLock <= TOP_THRESHOLD;
 
+        const isHeroBackType =
+          saved?.type === "project-block" || saved?.type === "page-link-section";
+
         const shouldHeroBack =
           enteredKind === "hero" &&
           atTop &&
-          saved?.type === "project-block" &&
+          isHeroBackType &&
           !!saved?.id;
 
         if (shouldHeroBack) {

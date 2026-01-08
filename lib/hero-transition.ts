@@ -3,12 +3,15 @@
 
 import { gsap } from "gsap";
 import type { PendingHero } from "@/lib/transitions/state";
+import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 
 type StartHeroTransitionArgs = {
   slug: string;
   sourceEl: HTMLElement;
   imgUrl: string;
   onNavigate: () => void;
+  fadePage?: boolean;
+  fadeDuration?: number;
 };
 
 type CompleteHeroTransitionArgs = {
@@ -285,7 +288,14 @@ function fadeOutAndRemoveOverlay(overlay: HTMLDivElement, onRemoved?: () => void
   });
 }
 
-export function startHeroTransition({ slug, sourceEl, imgUrl, onNavigate }: StartHeroTransitionArgs) {
+export function startHeroTransition({
+  slug,
+  sourceEl,
+  imgUrl,
+  onNavigate,
+  fadePage = true,
+  fadeDuration,
+}: StartHeroTransitionArgs) {
   if (typeof window === "undefined") {
     onNavigate();
     return;
@@ -302,7 +312,7 @@ export function startHeroTransition({ slug, sourceEl, imgUrl, onNavigate }: Star
   overlay.style.width = `${fromRect.width}px`;
   overlay.style.height = `${fromRect.height}px`;
   overlay.style.overflow = "hidden";
-  overlay.style.zIndex = "9999";
+  overlay.style.zIndex = "10000";
   overlay.style.pointerEvents = "none";
   overlay.style.willChange = "left, top, width, height, transform, opacity";
   overlay.style.transform = "translateZ(0)";
@@ -325,20 +335,28 @@ export function startHeroTransition({ slug, sourceEl, imgUrl, onNavigate }: Star
     }
   });
 
-  requestAnimationFrame(() => {
-    try {
-      if ((window as any).__heroPending?.overlay && (window as any).__heroPending.overlay !== overlay) {
-        (window as any).__heroPending.overlay.remove();
-      }
-    } catch {
-      // ignore
+  try {
+    if ((window as any).__heroPending?.overlay && (window as any).__heroPending.overlay !== overlay) {
+      (window as any).__heroPending.overlay.remove();
     }
+  } catch {
+    // ignore
+  }
 
-    const pending: PendingHero = { slug, overlay, overlayImg };
-    (window as any).__heroPending = pending;
+  const pending: PendingHero = { slug, overlay, overlayImg };
+  (window as any).__heroPending = pending;
 
-    onNavigate();
-  });
+  const runNavigate = () => {
+    requestAnimationFrame(() => {
+      onNavigate();
+    });
+  };
+
+  if (fadePage) {
+    void fadeOutPageRoot({ duration: fadeDuration }).finally(runNavigate);
+  } else {
+    runNavigate();
+  }
 }
 
 export function completeHeroTransition({

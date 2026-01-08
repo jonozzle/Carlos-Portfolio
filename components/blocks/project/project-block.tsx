@@ -140,7 +140,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 
     const { previewTheme, clearPreview, lockTheme } = themeCtx;
 
-    const isActive = activeIndex === index && !isScrollingRef.current;
+    const isActive = activeIndex === index;
     const dimState: "active" | "inactive" = isActive ? "active" : "inactive";
 
     const [isMobile, setIsMobile] = useState(false);
@@ -643,6 +643,7 @@ export default function ProjectBlock(props: Props) {
 
     const isScrollingRef = useRef(false);
     const [activeIndex, setActiveIndex] = useState<number | null>(null);
+    const dimParticipationRef = useRef(false);
 
     const width = props.width || "50vw";
 
@@ -666,7 +667,6 @@ export default function ProjectBlock(props: Props) {
         const onScroll = () => {
             if (!isScrollingRef.current) {
                 isScrollingRef.current = true;
-                setActiveIndex(null);
             }
 
             if (timeoutId !== null) window.clearTimeout(timeoutId);
@@ -698,14 +698,35 @@ export default function ProjectBlock(props: Props) {
     }, [clearPreview, isPointerOverCell]);
 
     useEffect(() => {
-        if (typeof document === "undefined") return;
-        const root = document.documentElement;
+        if (typeof document === "undefined" || typeof window === "undefined") return;
 
-        if (activeIndex !== null && !isScrollingRef.current) {
-            (root as any).dataset.dimItems = "true";
-        } else {
-            delete (root as any).dataset.dimItems;
+        const root = document.documentElement as HTMLElement & { dataset: DOMStringMap };
+        const w = window as any;
+        if (w.__dimItemsCount == null) w.__dimItemsCount = 0;
+
+        const currentlyActive = activeIndex !== null;
+
+        if (currentlyActive && !dimParticipationRef.current) {
+            w.__dimItemsCount += 1;
+            dimParticipationRef.current = true;
+            root.dataset.dimItems = "true";
+        } else if (!currentlyActive && dimParticipationRef.current) {
+            w.__dimItemsCount = Math.max(0, (w.__dimItemsCount || 1) - 1);
+            dimParticipationRef.current = false;
+            if (w.__dimItemsCount === 0) {
+                delete root.dataset.dimItems;
+            }
         }
+
+        return () => {
+            if (dimParticipationRef.current) {
+                w.__dimItemsCount = Math.max(0, (w.__dimItemsCount || 1) - 1);
+                dimParticipationRef.current = false;
+                if (w.__dimItemsCount === 0) {
+                    delete root.dataset.dimItems;
+                }
+            }
+        };
     }, [activeIndex]);
 
     const entries: ProjectLayoutEntry[] = useMemo(() => {

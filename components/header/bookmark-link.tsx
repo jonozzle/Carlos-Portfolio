@@ -116,7 +116,12 @@ export default function BookmarkLink({
 
     gsap.killTweensOf(el);
     gsap.set(el, { pointerEvents: "auto" });
-    gsap.to(el, { autoAlpha: 1, y: 0, duration: 0.45, ease: "power3.out", overwrite: "auto" });
+    gsap.set(el, { autoAlpha: 1 });
+    gsap.fromTo(
+      el,
+      { y: -42 },
+      { y: 0, duration: 0.7, ease: "bounce.out", overwrite: "auto" }
+    );
   }, []);
 
   const onClick = useCallback(
@@ -139,12 +144,15 @@ export default function BookmarkLink({
       const enteredKind =
         ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
 
+      const isHeroBackType =
+        saved?.type === "project-block" || saved?.type === "page-link-section";
+
       const shouldHeroBack =
         href === "/" &&
         pathname !== "/" &&
         enteredKind === "hero" &&
         atTop &&
-        saved?.type === "project-block" &&
+        isHeroBackType &&
         !!saved?.id;
 
       lockAppScroll();
@@ -248,7 +256,7 @@ export default function BookmarkLink({
       onClick={onClick}
       aria-label="Back"
       className={cn(
-        "group fixed top-0 z-50",
+        "group fixed top-0 z-[10010]",
         side === "left" ? "left-6" : "right-6",
         "inline-flex items-start justify-center",
         "h-[92px] w-12",

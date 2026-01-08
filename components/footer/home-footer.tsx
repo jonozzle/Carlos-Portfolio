@@ -6,6 +6,7 @@ import gsap from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
 import { StylizedLabel } from "@/components/ui/stylised-label";
+import UnderlineLink from "@/components/ui/underline-link";
 import SmoothImage from "@/components/ui/smooth-image";
 import type { FooterData } from "@/sanity/lib/fetch";
 
@@ -239,13 +240,14 @@ export default function HomeFooter({ footer }: Props) {
                             {links.map((link) => {
                                 if (!link?.href || !link?.label) return null;
                                 return (
-                                    <a
+                                    <UnderlineLink
                                         key={link._key}
                                         href={link.href}
-                                        className="underline underline-offset-4 decoration-1 hover:opacity-70 transition-opacity"
+                                        hoverUnderline
+                                        className="hover:opacity-70 transition-opacity"
                                     >
                                         {link.label}
-                                    </a>
+                                    </UnderlineLink>
                                 );
                             })}
                         </div>

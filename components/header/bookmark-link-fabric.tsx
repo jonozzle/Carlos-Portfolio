@@ -25,6 +25,8 @@ type BookmarkLinkFabricProps = {
 };
 
 const TOP_THRESHOLD = 24;
+const TUG_COOLDOWN_MS = 1000;
+const CANVAS_BLEED = 16;
 
 // Target brand red
 const RED_500 = { r: 251 / 255, g: 44 / 255, b: 54 / 255 };
@@ -149,8 +151,11 @@ export default function BookmarkLinkFabric({
 
   const shownRef = useRef(false);
   const [webglOk, setWebglOk] = useState(true);
+  const [canvasReady, setCanvasReady] = useState(false);
+  const canvasReadyRef = useRef(false);
 
   const pull = useRef({ v: 0 }); // 0..1
+  const lastTugAtRef = useRef(0);
 
   // drag/click suppression
   const dragRef = useRef({
@@ -192,7 +197,12 @@ export default function BookmarkLinkFabric({
 
     gsap.killTweensOf(el);
     gsap.set(el, { pointerEvents: "auto" });
-    gsap.to(el, { autoAlpha: 1, y: 0, duration: 0.45, ease: "power3.out", overwrite: "auto" });
+    gsap.set(el, { autoAlpha: 1 });
+    gsap.fromTo(
+      el,
+      { y: -42 },
+      { y: 0, duration: 0.7, ease: "bounce.out", overwrite: "auto" }
+    );
   }, []);
 
   const doNavigate = useCallback(async () => {
@@ -203,12 +213,15 @@ export default function BookmarkLinkFabric({
     const enteredKind =
       ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
 
+    const isHeroBackType =
+      saved?.type === "project-block" || saved?.type === "page-link-section";
+
     const shouldHeroBack =
       href === "/" &&
       pathname !== "/" &&
       enteredKind === "hero" &&
       atTop &&
-      saved?.type === "project-block" &&
+      isHeroBackType &&
       !!saved?.id;
 
     lockAppScroll();
@@ -296,12 +309,19 @@ export default function BookmarkLinkFabric({
       clickLock.current = true;
 
       try {
-        await new Promise<void>((resolve) => {
-          gsap
-            .timeline({ defaults: { overwrite: "auto" }, onComplete: resolve })
-            .to(pull.current, { v: 1, duration: 0.10, ease: "power2.out" })
-            .to(pull.current, { v: 0, duration: 0.18, ease: "power2.in" });
-        });
+        const now = performance.now();
+        if (now - lastTugAtRef.current > TUG_COOLDOWN_MS) {
+          lastTugAtRef.current = now;
+          gsap.killTweensOf(pull.current);
+          pull.current.v = 0;
+
+          await new Promise<void>((resolve) => {
+            gsap
+              .timeline({ defaults: { overwrite: "auto" }, onComplete: resolve })
+              .to(pull.current, { v: 1, duration: 0.10, ease: "power2.out" })
+              .to(pull.current, { v: 0, duration: 0.18, ease: "power2.in" });
+          });
+        }
 
         await doNavigate();
       } finally {
@@ -452,6 +472,10 @@ export default function BookmarkLinkFabric({
     const host = linkRef.current;
     if (!canvas || !host) return;
 
+    let isActive = true;
+    canvasReadyRef.current = false;
+    setCanvasReady(false);
+
     const gl =
       canvas.getContext("webgl", {
         alpha: true,
@@ -584,9 +608,14 @@ export default function BookmarkLinkFabric({
     // Draw region: 16px strip centered inside 48px host, height 64px (matches original)
     const STRIP_W = 16;
     const STRIP_H = 64;
-    const centerX = 24;
+    const baseRect = host.getBoundingClientRect();
+    const baseW = Math.max(1, Math.round(baseRect.width || 48));
+    const baseH = Math.max(1, Math.round(baseRect.height || 92));
+    const canvasW = baseW + CANVAS_BLEED * 2;
+    const canvasH = baseH + CANVAS_BLEED * 2;
+    const centerX = canvasW / 2;
     const startX = centerX - STRIP_W / 2;
-    const startY = 0;
+    const startY = CANVAS_BLEED;
 
     const stepX = STRIP_W / (COLS - 1);
     const stepY = STRIP_H / (ROWS - 1);
@@ -705,22 +734,31 @@ export default function BookmarkLinkFabric({
       const r = host.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-      const w = Math.max(1, Math.round(r.width * dpr));
-      const h = Math.max(1, Math.round(r.height * dpr));
+      const fullW = Math.max(1, r.width + CANVAS_BLEED * 2);
+      const fullH = Math.max(1, r.height + CANVAS_BLEED * 2);
+      const w = Math.max(1, Math.round(fullW * dpr));
+      const h = Math.max(1, Math.round(fullH * dpr));
 
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
-        canvas.style.width = `${r.width}px`;
-        canvas.style.height = `${r.height}px`;
+        canvas.style.width = `${fullW}px`;
+        canvas.style.height = `${fullH}px`;
+        canvas.style.left = `${-CANVAS_BLEED}px`;
+        canvas.style.top = `${-CANVAS_BLEED}px`;
         gl.viewport(0, 0, w, h);
       }
 
       gl.useProgram(prog);
-      gl.uniform2f(uCanvas, r.width, r.height);
+      gl.uniform2f(uCanvas, fullW, fullH);
     };
 
     const draw = (time: number) => {
+      if (!canvasReadyRef.current && isActive) {
+        canvasReadyRef.current = true;
+        setCanvasReady(true);
+      }
+
       raf = window.requestAnimationFrame(draw);
 
       const dt = lastT ? clamp((time - lastT) / 1000, 0.010, 0.033) : 0.016;
@@ -902,6 +940,7 @@ export default function BookmarkLinkFabric({
     window.addEventListener("resize", onResize);
 
     return () => {
+      isActive = false;
       window.removeEventListener("resize", onResize);
       window.cancelAnimationFrame(raf);
 
@@ -940,7 +979,7 @@ export default function BookmarkLinkFabric({
       aria-label="Back"
       style={{ touchAction: "none" }}
       className={cn(
-        "group fixed top-0 z-50",
+        "group fixed top-0 z-[10010] overflow-visible",
         side === "left" ? "left-6" : "right-6",
         "inline-flex items-start justify-center",
         "h-[92px] w-12",
@@ -948,7 +987,10 @@ export default function BookmarkLinkFabric({
         className
       )}
     >
-      {webglOk ? <canvas ref={canvasRef} className="block h-full w-full pointer-events-none" /> : fallbackBookmark}
-    </a>
+    <div className="relative h-full w-full pointer-events-none">
+      {!webglOk || !canvasReady ? fallbackBookmark : null}
+      {webglOk ? <canvas ref={canvasRef} className="absolute pointer-events-none" /> : null}
+    </div>
+  </a>
   );
 }
