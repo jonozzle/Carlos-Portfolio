@@ -2,7 +2,7 @@
 import Logo from "@/components/logo";
 import MobileNav from "@/components/header/mobile-nav";
 import DesktopNav from "@/components/header/desktop-nav";
-import BookmarkLink from "@/components/header/bookmark-link";
+import BookmarkLink from "@/components/header/bookmark-link-fabric";
 import { ModeToggle } from "@/components/menu-toggle";
 import { fetchSanitySettings, fetchSanityNavigation } from "@/sanity/lib/fetch";
 

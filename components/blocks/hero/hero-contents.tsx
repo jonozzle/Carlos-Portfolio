@@ -13,6 +13,7 @@ import HeroUnderlineLink, {
 } from "@/components/ui/hero-underline-link";
 import { PAGE_QUERYResult } from "@/sanity.types";
 import gsap from "gsap";
+import ScrollTrigger from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
 import { useLoader } from "@/components/loader/loader-context";
 import type { PageDirection, PageTransitionKind } from "@/lib/transitions/state";
@@ -22,6 +23,10 @@ import { lockAppScroll } from "@/lib/scroll-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 import { PortableText } from "@portabletext/react";
 import clsx from "clsx";
+
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(ScrollTrigger);
+}
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
 type Props = Extract<Block, { _type: "hero-contents" }>;
@@ -131,7 +136,6 @@ function preloadImage(url: string): Promise<void> {
 }
 
 function BottomLine() {
-  // matches project-block structure: h-px + faint track + solid line
   return (
     <div className="relative h-px w-full" aria-hidden="true">
       <div className="absolute inset-0 bg-current opacity-10" />
@@ -141,7 +145,6 @@ function BottomLine() {
 }
 
 function InlineArrow() {
-  // Line extends on hover/focus (no bump), head is filled triangle.
   return (
     <span
       className="relative inline-flex items-center w-[34px] h-[12px] -mb-[1px]"
@@ -179,8 +182,6 @@ type StyleCfg = {
 };
 
 function cfgForStyle(styleKey: string, variant: "bio" | "footer"): StyleCfg {
-  // Keep the drop-cap mechanics identical to ImageTextGridTextBlock (same vars/classes),
-  // but tune base sizes for hero contexts.
   const baseNormal =
     variant === "footer"
       ? { className: "text-sm leading-[1.4]", lh: 1.4, capTop: "0.07em", capTrimEm: 0.3 }
@@ -335,11 +336,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const pathname = usePathname();
   const { loaderDone } = useLoader();
 
+  const containerRef = useRef<HTMLElement | null>(null);
+
   // If this component mounted while the loader was still running, skip the
   // right-column "entrance" tween for this mount (loader already handled reveal).
   const loaderWasActiveOnMountRef = useRef<boolean>(!loaderDone);
   useEffect(() => {
-    // Make it sticky: if we ever observe "not done", treat this mount as loader-controlled.
     if (!loaderDone) loaderWasActiveOnMountRef.current = true;
   }, [loaderDone]);
 
@@ -361,10 +363,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     return () => window.removeEventListener("page-enter-skip-initial", onSkip);
   }, []);
 
-  // Only run our entrance if:
-  // - loader is done
-  // - no explicit skip
-  // - AND the loader did NOT control the initial reveal for this mount
   const shouldRunEntrance = loaderDone && !skipInitialEntrance && !loaderWasActiveOnMountRef.current;
 
   const showNumbers = !!(props as any)?.showNumbers;
@@ -421,14 +419,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     return previewables[0]?._key ?? null;
   }, [initialKey, previewByKey, previewables]);
 
-  // Start aligned so we don’t do an immediate transition on mount.
   const initialActiveKey = initialPreviewKey ?? initialKey;
 
   const [activeKey, setActiveKey] = useState<string | null>(initialActiveKey);
   const [displayedPreviewKey, setDisplayedPreviewKey] = useState<string | null>(initialPreviewKey);
   const activeKeyRef = useRef<string | null>(activeKey);
 
-  // Key being revealed over current (during transition)
   const [pendingKey, setPendingKey] = useState<string | null>(null);
 
   const pendingActivationRef = useRef<{ key: string; onActivate?: () => void } | null>(null);
@@ -452,7 +448,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     activeKeyRef.current = activeKey;
   }, [activeKey]);
 
-  // Keep a ref so the transition system isn't relying on stale closure state.
   const displayedPreviewKeyRef = useRef<string | null>(displayedPreviewKey);
   useEffect(() => {
     displayedPreviewKeyRef.current = displayedPreviewKey;
@@ -538,7 +533,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     };
   }, []);
 
-  // Keyboard indexing: 1–9 activates items[0..8], 0 activates item[9]
   useEffect(() => {
     if (!loaderDone) return;
     if (typeof window === "undefined") return;
@@ -570,7 +564,9 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const currentLayerRef = useRef<HTMLDivElement | null>(null);
   const nextLayerRef = useRef<HTMLDivElement | null>(null);
 
-  // Transition locking + queueing (last intent wins)
+  const footerRef = useRef<HTMLDivElement | null>(null);
+  const scrollHintWrapRef = useRef<HTMLDivElement | null>(null);
+
   const isTransitioningRef = useRef(false);
   const queuedKeyRef = useRef<string | null>(null);
   const transitionTlRef = useRef<gsap.core.Timeline | null>(null);
@@ -650,7 +646,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   );
 
   // ---------------------------------------
-  // PAGE TRANSITION (non-hero): fade-out -> theme lock -> push -> PageEnterShell fades in
+  // PAGE TRANSITION (non-hero)
   // ---------------------------------------
   const NAV_DIRECTION: PageDirection = "down";
 
@@ -684,7 +680,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
 
       lockAppScroll();
 
-      // Snapshot BEFORE fade
       const activeHome = pathname === "/" ? getActiveHomeSection() : null;
       if (pathname === "/") saveActiveHomeSectionNow();
       else saveScrollForPath(pathname);
@@ -695,10 +690,8 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         kind = "fadeHero";
       }
 
-      // Fade OUT first (hides any theme locking / hover resets)
       await fadeOutPageRoot({ duration: 0.26 });
 
-      // Theme lock happens while hidden
       afterFade?.();
 
       navigateWithTransition(safeHref, kind, activeHome?.id ?? null, activeHome?.type ?? null);
@@ -719,7 +712,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
 
       const nextItem = previewByKey.get(targetKey);
 
-      // If no previewable (no image), just commit and move on.
       if (!nextItem?.image?.asset?.url) {
         isTransitioningRef.current = true;
         setDisplayedPreviewKey(targetKey);
@@ -835,7 +827,9 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     };
   }, []);
 
-  // Entrance: keep it light (no measurements, no observers)
+  // ---------------------------------------
+  // RIGHT COLUMN ENTRANCE
+  // ---------------------------------------
   useGSAP(
     () => {
       const left = leftRef.current;
@@ -851,7 +845,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       gsap.set(left, { autoAlpha: 1 });
       gsap.set(nextLayer, { autoAlpha: 0, clipPath: CLIP_HIDDEN_TOP });
 
-      // If loader handled reveal (or we must skip), ensure the right is just "there".
       if (!shouldRunEntrance || prefersReduced) {
         gsap.set(right, { autoAlpha: 1, y: 0, clearProps: "willChange" });
         return;
@@ -877,7 +870,173 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     { dependencies: [shouldRunEntrance] }
   );
 
-  // Scroll hint:
+  // ---------------------------------------
+  // FOOTER + SCROLL HINT: ScrollTrigger on/off for this section
+  // ---------------------------------------
+  const footerAnimKey = useMemo(() => {
+    const footerBodyLen = Array.isArray((props as any)?.footerBody) ? (props as any).footerBody.length : 0;
+    const bottomLinksLen = Array.isArray((props as any)?.bottomLinks) ? (props as any).bottomLinks.length : 0;
+    const c = String((props as any)?.copyrightText ?? "");
+    return [
+      "ld",
+      loaderDone ? 1 : 0,
+      "sh",
+      showScrollHint ? 1 : 0,
+      "sfd",
+      showBottomDivider ? 1 : 0,
+      "bl",
+      bottomLayout,
+      "sft",
+      ((props as any)?.showFooterText ? 1 : 0),
+      "fbl",
+      footerBodyLen,
+      "bll",
+      bottomLinksLen,
+      "ct",
+      c.trim() ? 1 : 0,
+    ].join("|");
+  }, [bottomLayout, loaderDone, props, showBottomDivider, showScrollHint]);
+
+  useGSAP(
+    () => {
+      if (typeof window === "undefined") return;
+
+      const root = containerRef.current;
+      if (!root) return;
+
+      const footerEl = footerRef.current;
+      const hintEl = scrollHintWrapRef.current;
+
+      const targets = [footerEl, hintEl].filter(Boolean) as HTMLElement[];
+      if (!targets.length) return;
+
+      const prefersReduced =
+        window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+
+      let raf = 0;
+      let st: ScrollTrigger | null = null;
+      let tl: gsap.core.Timeline | null = null;
+
+      const getHsContainerAnimation = () => {
+        const hs = ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null;
+        return hs?.animation ?? null;
+      };
+
+      const getHsMode = () => {
+        try {
+          return (window as any).__hsMode as string | undefined;
+        } catch {
+          return undefined;
+        }
+      };
+
+      const expectsHs = () => !!root.closest(".hs-rail");
+
+      const kill = () => {
+        try {
+          st?.kill(true);
+        } catch {
+          // ignore
+        }
+        st = null;
+
+        try {
+          tl?.kill();
+        } catch {
+          // ignore
+        }
+        tl = null;
+
+        gsap.set(targets, { clearProps: "willChange" });
+      };
+
+      const build = () => {
+        kill();
+
+        if (prefersReduced) {
+          gsap.set(targets, { clearProps: "opacity,transform,visibility,willChange" });
+          return;
+        }
+
+        // Out animation timeline: play to hide, reverse to show.
+        gsap.set(targets, { autoAlpha: 1, y: 0, force3D: true, willChange: "transform,opacity" });
+
+        tl = gsap.timeline({ paused: true, defaults: { overwrite: "auto" } });
+        tl.to(targets, {
+          autoAlpha: 0,
+          y: 14,
+          duration: 0.45,
+          ease: "power2.out",
+          stagger: 0.04,
+          force3D: true,
+          autoRound: false,
+        });
+
+        const containerAnimation = getHsContainerAnimation();
+        const hsMode = getHsMode();
+        const isHsVertical = hsMode === "vertical";
+        const isInsideHs = expectsHs();
+
+        // If we're inside HS rail but HS isn't ready (and we're not in vertical/mobile HS mode),
+        // wait for hs-ready/hs-rebuilt to rebuild triggers.
+        if (isInsideHs && !containerAnimation && !isHsVertical) return;
+
+        const base: ScrollTrigger.Vars =
+          containerAnimation && !isHsVertical
+            ? {
+              trigger: root,
+              start: "left 20%",
+              end: "right 80%",
+              containerAnimation,
+              invalidateOnRefresh: false,
+            }
+            : {
+              trigger: root,
+              start: "top 80%",
+              end: "bottom 20%",
+              invalidateOnRefresh: false,
+            };
+
+        st = ScrollTrigger.create({
+          ...base,
+          onEnter: () => tl?.reverse(),
+          onEnterBack: () => tl?.reverse(),
+          onLeave: () => tl?.play(),
+          onLeaveBack: () => tl?.play(),
+        });
+
+        // Ensure correct initial state if the page loads mid-scroll.
+        // Show when before/inside the trigger, hide only if we've passed the end.
+        if (st) {
+          st.refresh();
+          if (st.progress >= 1) tl.progress(1);
+          else tl.progress(0);
+        }
+      };
+
+      const scheduleBuild = () => {
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(build);
+      };
+
+      scheduleBuild();
+
+      window.addEventListener("hs-ready", scheduleBuild);
+      window.addEventListener("hs-rebuilt", scheduleBuild);
+
+      return () => {
+        window.removeEventListener("hs-ready", scheduleBuild);
+        window.removeEventListener("hs-rebuilt", scheduleBuild);
+        if (raf) cancelAnimationFrame(raf);
+        kill();
+      };
+    },
+    { scope: containerRef, dependencies: [footerAnimKey] }
+  );
+
+  // ---------------------------------------
+  // SCROLL HINT ARROW LOOP (existing)
+  // ---------------------------------------
   const scrollHintArrowRef = useRef<SVGGElement | null>(null);
   const scrollHintTweenRef = useRef<gsap.core.Tween | gsap.core.Timeline | null>(null);
 
@@ -897,7 +1056,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     gsap.set(arrow, {
       x: 0,
       y: 0,
-      svgOrigin: "27 6", // center of viewBox (0..54, 0..12)
+      svgOrigin: "27 6",
       transformOrigin: "50% 50%",
       willChange: prefersReduced ? "auto" : "transform",
     });
@@ -931,6 +1090,9 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     };
   }, [loaderDone, showScrollHint]);
 
+  // ---------------------------------------
+  // LINKS RENDERERS
+  // ---------------------------------------
   const renderLinksCustom = useCallback(() => {
     return (
       <>
@@ -964,9 +1126,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                 data-cursor="link"
                 data-index={index}
                 onClick={(e) => {
-                  // make it feel “chosen” immediately, but DO NOT run theme lock yet
                   activateHeroLink(it._key, undefined, true);
-
                   handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
                 }}
               >
@@ -1092,7 +1252,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
 
   const shouldShowFeatured = !!(featuredLabel && featuredResolved?.slug && featuredResolved?.title);
 
-  // ---- Bio (body + dropcap + links) from schema ----
+  // ---- Bio ----
   const bio: BioSection = (props as any)?.bio ?? null;
   const bioBody = (bio as any)?.body ?? null;
   const bioDropCap = !!(bio as any)?.dropCap;
@@ -1101,12 +1261,11 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     return raw.filter((l): l is HeroLink => !!l && typeof l === "object");
   }, [bio]);
 
-  // ---- Footer text controls ----
+  // ---- Footer content ----
   const showFooterText: boolean = !!(props as any)?.showFooterText;
   const footerDropCap: boolean = !!(props as any)?.footerDropCap;
   const footerBody: any[] | null = ((props as any)?.footerBody as any[] | null) ?? null;
 
-  // ---- Bottom links (NO FALLBACK) ----
   const bottomLinks: HeroLink[] = useMemo(() => {
     const raw = (((props as any)?.bottomLinks ?? []) as unknown[]).filter(Boolean);
     return raw.filter((l): l is HeroLink => !!l && typeof l === "object");
@@ -1120,7 +1279,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     });
   }, [bottomLinks]);
 
-  // ---- Copyright text (NO DEFAULT) ----
   const copyrightTextRaw: string = (props as any)?.copyrightText ?? "";
   const copyrightText = useMemo(() => {
     const t = String(copyrightTextRaw ?? "").trim();
@@ -1189,34 +1347,27 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const hasBottomRow = !!bottomLinksNode || !!copyrightNode;
   const shouldRenderFooter = !!footerTextNode || hasBottomRow;
 
-  // ---- Arrow config (minimal) ----
-  // Only change this:
+  // ---- Arrow config ----
   const SHAFT_W = 20;
-
-  // Everything else is hard-coded / derived:
   const VIEW_W = 54;
   const SHAFT_Y = 5;
   const SHAFT_H = 1;
   const SHAFT_CY = SHAFT_Y + SHAFT_H / 2;
 
-  // Head shape is your notched polygon, scaled up:
   const HEAD_SCALE = 2;
-  const HEAD_CENTER_Y = 2.03; // from polygon, where it "centers"
-  const HEAD_TIP_X = 4.97; // max x of polygon
+  const HEAD_CENTER_Y = 2.03;
+  const HEAD_TIP_X = 4.97;
   const HEAD_W = HEAD_SCALE * HEAD_TIP_X;
 
-  // Place head so its center aligns to shaft center
   const HEAD_Y = SHAFT_CY - HEAD_CENTER_Y * HEAD_SCALE;
-
-  // Place head immediately after shaft
   const HEAD_X = SHAFT_W;
 
-  // Now center the whole (shaft + head) inside viewBox
   const TOTAL_W = SHAFT_W + HEAD_W;
   const OFFSET_X = (VIEW_W - TOTAL_W) / 2;
 
   return (
     <section
+      ref={containerRef}
       data-fouc
       data-hero-layout={activeLayout}
       data-links-layout={linksLayout}
@@ -1230,6 +1381,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
             <BioBlock body={bioBody} dropCap={bioDropCap} links={bioLinks} />
           </span>
         </div>
+
         <div className="relative w-full h-full px-6 py-6 md:px-0 md:py-0">
           <div className="relative w-full h-full overflow-hidden">
             {/* CURRENT LAYER */}
@@ -1284,7 +1436,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         className="relative h-full px-6 pt-6 pb-2 overflow-hidden flex flex-col"
         style={{ contain: "layout paint" }}
       >
-        {/* HEADER (BioBlock is positioned separately on desktop so it never reflows links) */}
+        {/* HEADER */}
         <div className="relative flex-none mb-0 md:mb-4 min-h-0 md:min-h-[64px]">
           <div className="pr-0 md:pr-[320px]">
             {shouldShowFeatured ? (
@@ -1299,7 +1451,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                   onClick={(e) => {
                     const href = `/projects/${featuredResolved!.slug}`;
 
-                    // If we can map it to a hero item, lock theme after fade.
                     if (featuredMatch) {
                       handleTransitionClick(e, href, () =>
                         runIndexAction(featuredMatch.idx, featuredMatch.item, "click")
@@ -1327,26 +1478,22 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
           </div>
         </div>
 
-        {/* FOOTER (no showFooter boolean; renders only if there’s something to show) */}
+        {/* FOOTER (renders only if there’s something to show) */}
         {shouldRenderFooter ? (
-          <div className="relative flex-none">
+          <div ref={footerRef} className="relative flex-none">
             {footerTextNode}
 
             {showBottomDivider && (footerTextNode || hasBottomRow) ? <BottomLine /> : null}
 
             {hasBottomRow ? (
               bottomLayout === "center" ? (
-                <div className={clsx("mt-4 flex flex-col items-center text-center gap-3")}>
+                <div className="mt-4 flex flex-col items-center text-center gap-3">
                   {bottomLinksNode}
                   {copyrightNode}
                 </div>
               ) : (
                 <div className="mt-2 flex items-end">
-                  {bottomLinksNode ? (
-                    <div className="flex-1">{bottomLinksNode}</div>
-                  ) : (
-                    <div className="flex-1" />
-                  )}
+                  {bottomLinksNode ? <div className="flex-1">{bottomLinksNode}</div> : <div className="flex-1" />}
                   {copyrightNode}
                 </div>
               )
@@ -1357,6 +1504,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         {/* scroll hint (center vertically, right edge) */}
         {showScrollHint && loaderDone ? (
           <div
+            ref={scrollHintWrapRef}
             className="hidden md:block pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 z-20"
             aria-hidden="true"
           >
@@ -1370,7 +1518,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                 className="block opacity-25"
               >
                 <g ref={scrollHintArrowRef}>
-                  {/* Shaft */}
                   <rect
                     x={OFFSET_X}
                     y={SHAFT_Y}
@@ -1380,7 +1527,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                     fill="currentColor"
                   />
 
-                  {/* Head (auto-aligned to shaft center) */}
                   <g transform={`translate(${OFFSET_X + HEAD_X} ${HEAD_Y}) scale(${HEAD_SCALE})`}>
                     <polygon
                       points="4.97 2.03 0 4.06 1.18 2.03 0 0 4.97 2.03"
