@@ -350,6 +350,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
 export default function PageLinkSection(props: Props) {
   const theme = useThemeActions();
   const items = useMemo(() => props.items ?? [], [props.items]);
+  const sectionRef = useRef<HTMLElement | null>(null);
 
   const isHalf = props.width === "half";
 
@@ -410,6 +411,20 @@ export default function PageLinkSection(props: Props) {
     [setDim, theme]
   );
 
+  const isPointerOverSection = useCallback(() => {
+    if (typeof document === "undefined") return false;
+    const sectionEl = sectionRef.current;
+    if (!sectionEl) return false;
+
+    const pos = getLastMouse();
+    if (pos) {
+      const hit = document.elementFromPoint(pos.x, pos.y);
+      return !!(hit && sectionEl.contains(hit));
+    }
+
+    return sectionEl.matches(":hover");
+  }, []);
+
   const activate = useCallback(
     (index: number, t: Theme) => {
       const prev = activeRef.current;
@@ -459,11 +474,14 @@ export default function PageLinkSection(props: Props) {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const onScrollStart = () => clearAll(true);
+    const onScrollStart = () => {
+      if (!isPointerOverSection()) return;
+      clearAll(true);
+    };
     window.addEventListener(APP_EVENTS.SCROLL_START, onScrollStart);
 
     return () => window.removeEventListener(APP_EVENTS.SCROLL_START, onScrollStart as any);
-  }, [clearAll]);
+  }, [clearAll, isPointerOverSection]);
 
   let paddingClass = "";
   const sectionStyle: CSSProperties = { containIntrinsicSize: "100vh 50vw" };
@@ -479,6 +497,7 @@ export default function PageLinkSection(props: Props) {
 
   return (
     <section
+      ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
       className={`${widthClass} h-screen ${paddingClass} gap-2 md:gap-3 grid grid-cols-12 grid-rows-12 relative overflow-hidden will-change-transform`}
       style={sectionStyle}
       onMouseLeave={() => {

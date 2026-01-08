@@ -112,6 +112,11 @@ function isMobileNow() {
     }
 }
 
+function isAppScrolling() {
+    if (typeof window === "undefined") return false;
+    return !!(window as any).__appScrolling;
+}
+
 const ProjectBlockCell = React.memo(function ProjectBlockCell({
     item,
     slot,
@@ -214,28 +219,72 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         gsap.set(el, { scale: 1 });
     }, []);
 
-    const clearHover = useCallback(() => {
+    const clearHover = useCallback((forceAnim?: boolean) => {
         if (navLockedRef.current) return;
-        if (hasTheme) clearPreview();
+        if (hasTheme) {
+            const opts = forceAnim ? { animate: true, force: true } : undefined;
+            clearPreview(opts);
+        }
         setActiveIndex((prev) => (prev === index ? null : prev));
         animateScale(1);
     }, [hasTheme, clearPreview, setActiveIndex, index, animateScale]);
 
-    const handleEnter = useCallback(() => {
+    const applyHover = useCallback((allowIdle?: boolean, skipScale?: boolean) => {
         if (navLockedRef.current) return;
         if (isScrollingRef.current) return;
         if (isHoverLocked()) return;
-        if (hasTheme) previewTheme(theme);
+        const forceAnim = isAppScrolling();
+        const opts = allowIdle || forceAnim ? { allowIdle: !!allowIdle, force: forceAnim } : undefined;
+        if (hasTheme) previewTheme(theme, opts);
         setActiveIndex(index);
-        animateScale(1.1);
+        if (!skipScale) animateScale(1.1);
     }, [hasTheme, previewTheme, theme, setActiveIndex, index, isScrollingRef, animateScale]);
+
+    const handleEnter = useCallback(() => {
+        applyHover();
+    }, [applyHover]);
+
+    const isPointerInside = useCallback(() => {
+        const el = tileRef.current;
+        if (!el) return false;
+
+        const pos = getLastMouse();
+        if (pos) {
+            const hit = document.elementFromPoint(pos.x, pos.y);
+            return !!(hit && el.contains(hit));
+        }
+
+        return el.matches(":hover");
+    }, []);
 
     const handleLeave = useCallback(() => {
         if (navLockedRef.current) return;
-        if (isScrollingRef.current) return;
         if (isHoverLocked()) return;
-        clearHover();
-    }, [clearHover, isScrollingRef]);
+        const appScrolling = isAppScrolling();
+        if ((appScrolling || isScrollingRef.current) && isPointerInside()) return;
+        clearHover(appScrolling);
+    }, [clearHover, isScrollingRef, isPointerInside]);
+
+    const applyHoverUnderPointer = useCallback(
+        (allowIdle?: boolean) => {
+            const el = tileRef.current;
+            if (!el) return;
+
+            if (isPointerInside()) {
+                const scaleEl = imgScaleRef.current;
+                const scaleNow = scaleEl ? gsap.getProperty(scaleEl, "scale") : 1;
+                const scaleNum =
+                    typeof scaleNow === "number"
+                        ? scaleNow
+                        : Number.parseFloat(String(scaleNow));
+                const isScaled = Number.isFinite(scaleNum) ? scaleNum > 1.02 : false;
+
+                if (!isScaled) hardResetScale();
+                requestAnimationFrame(() => applyHover(allowIdle, isScaled));
+            }
+        },
+        [applyHover, hardResetScale, isPointerInside]
+    );
 
     const handleNavLockCapture = useCallback(() => {
         if (!slug) return;
@@ -254,22 +303,24 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         if (typeof window === "undefined") return;
 
         const onUnlocked = () => {
-            const el = tileRef.current;
-            if (!el) return;
-
-            const pos = getLastMouse();
-            if (!pos) return;
-
-            const hit = document.elementFromPoint(pos.x, pos.y);
-            if (hit && el.contains(hit)) {
-                hardResetScale();
-                requestAnimationFrame(() => handleEnter());
-            }
+            if (isAppScrolling()) return;
+            applyHoverUnderPointer(true);
         };
 
         window.addEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked);
         return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
-    }, [handleEnter, hardResetScale]);
+    }, [applyHoverUnderPointer]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const onScrollEnd = () => {
+            applyHoverUnderPointer(true);
+        };
+
+        window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
+        return () => window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
+    }, [applyHoverUnderPointer]);
 
     // Project -> Home: overlay targets this tile
     useLayoutEffect(() => {
@@ -520,6 +571,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             onBlurCapture={handleLeave}
             onPointerDownCapture={handleNavLockCapture}
             onClickCapture={handleNavLockCapture}
+            data-project-block-cell
         >
             <div
                 ref={tileRef}
@@ -594,6 +646,18 @@ export default function ProjectBlock(props: Props) {
 
     const width = props.width || "50vw";
 
+    const isPointerOverCell = useCallback(() => {
+        if (typeof document === "undefined") return false;
+
+        const pos = getLastMouse();
+        if (pos) {
+            const hit = document.elementFromPoint(pos.x, pos.y) as HTMLElement | null;
+            if (hit && hit.closest("[data-project-block-cell]")) return true;
+        }
+
+        return !!document.querySelector("[data-project-block-cell]:hover");
+    }, []);
+
     useEffect(() => {
         if (typeof window === "undefined") return;
 
@@ -602,7 +666,6 @@ export default function ProjectBlock(props: Props) {
         const onScroll = () => {
             if (!isScrollingRef.current) {
                 isScrollingRef.current = true;
-                clearPreview();
                 setActiveIndex(null);
             }
 
@@ -619,7 +682,20 @@ export default function ProjectBlock(props: Props) {
             window.removeEventListener("scroll", onScroll);
             if (timeoutId !== null) window.clearTimeout(timeoutId);
         };
-    }, [clearPreview]);
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const onScrollEnd = () => {
+            if (isPointerOverCell()) return;
+            clearPreview();
+            setActiveIndex(null);
+        };
+
+        window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
+        return () => window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
+    }, [clearPreview, isPointerOverCell]);
 
     useEffect(() => {
         if (typeof document === "undefined") return;

@@ -29,6 +29,7 @@ export type ThemeApplyOptions = {
   animate?: boolean;
   force?: boolean; // ignore app-scrolling gating
   durationMs?: number;
+  allowIdle?: boolean; // bypass pointer-idle gating for hover previews
 };
 
 type ThemeContextValue = {
@@ -148,7 +149,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // - if pointer hasn’t moved recently (content sliding under stationary cursor)
     if (isHoverLocked()) return;
     if (isScrollLocked()) return;
-    if (!hasRecentPointerMove()) return;
+    if (!opts?.allowIdle && !hasRecentPointerMove()) return;
 
     const next = normalizeTheme(t ?? null, lockedRef.current);
     previewRef.current = next;
