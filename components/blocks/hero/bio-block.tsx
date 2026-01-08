@@ -2,20 +2,76 @@
 "use client";
 
 import type React from "react";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
+import { PortableText } from "@portabletext/react";
+import clsx from "clsx";
+import UnderlineLink from "@/components/ui/underline-link";
+
+type HeroLink = {
+  _key?: string;
+  label?: string | null;
+  href?: string | null;
+  newTab?: boolean | null;
+};
 
 type BioBlockProps = {
   name?: string; // e.g. "Carlos Castrosin"
-  text?: string;
+  text?: string; // fallback if no PortableText body is provided
+  body?: any[] | null; // Sanity PortableText
+  dropCap?: boolean | null;
+  links?: HeroLink[] | null; // separate link list under the body
 };
+
+type StyleCfg = {
+  tag: "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "blockquote";
+  className: string;
+  lh: number;
+  capTop: string;
+  capTrimEm: number;
+};
+
+function cfgForStyle(styleKey: string): StyleCfg {
+  switch (styleKey) {
+    case "h1":
+      return { tag: "h1", className: "text-3xl leading-[1.05]", lh: 1.05, capTop: "0.04em", capTrimEm: 0.22 };
+    case "h2":
+      return { tag: "h2", className: "text-2xl leading-[1.08]", lh: 1.08, capTop: "0.045em", capTrimEm: 0.23 };
+    case "h3":
+      return { tag: "h3", className: "text-xl leading-[1.12]", lh: 1.12, capTop: "0.05em", capTrimEm: 0.24 };
+    case "h4":
+      return { tag: "h4", className: "text-lg leading-[1.18]", lh: 1.18, capTop: "0.055em", capTrimEm: 0.26 };
+    case "h5":
+      return { tag: "h5", className: "text-base leading-[1.22]", lh: 1.22, capTop: "0.06em", capTrimEm: 0.27 };
+    case "h6":
+      return { tag: "h6", className: "text-sm leading-[1.26]", lh: 1.26, capTop: "0.065em", capTrimEm: 0.28 };
+    case "blockquote":
+      return { tag: "blockquote", className: "text-sm italic leading-[1.4]", lh: 1.4, capTop: "0.07em", capTrimEm: 0.3 };
+    case "normal":
+    default:
+      return { tag: "p", className: "text-sm leading-snug", lh: 1.35, capTop: "0.07em", capTrimEm: 0.3 };
+  }
+}
+
+function sanitizeHref(href: unknown) {
+  const h = typeof href === "string" ? href.trim() : "";
+  return h || null;
+}
+
+function isLikelyExternal(href: string) {
+  const h = (href ?? "").trim();
+  return h.startsWith("http://") || h.startsWith("https://");
+}
 
 export default function BioBlock({
   name = "Carlos Castrosin",
   text = "Carlos is a photographer driven by curiosity for bold commercial ideas. He blends clean composition with conceptual thinking, creating images that feel sharp and contemporary.",
+  body = null,
+  dropCap = false,
+  links = null,
 }: BioBlockProps) {
-  const rootRef = useRef<HTMLButtonElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const nameRowRef = useRef<HTMLDivElement | null>(null);
@@ -32,6 +88,85 @@ export default function BioBlock({
   const secondC = secondWord.charAt(0) || "C";
   const restSecond = secondWord.slice(1);
 
+  const firstBlockKey = useMemo(() => {
+    if (!dropCap) return null;
+    if (!Array.isArray(body)) return null;
+    const first = body.find((b) => b && b._type === "block" && typeof b._key === "string");
+    return first?._key ?? null;
+  }, [dropCap, body]);
+
+  const ptComponents = useMemo(() => {
+    return {
+      marks: {
+        strong: (p: any) => <strong className="font-bold">{p.children}</strong>,
+        em: (p: any) => <em className="italic">{p.children}</em>,
+        link: (p: any) => {
+          const href = sanitizeHref(p?.value?.href);
+          if (!href) return <>{p.children}</>;
+
+          const external = isLikelyExternal(href);
+          return (
+            <UnderlineLink
+              href={href}
+              target={external ? "_blank" : undefined}
+              rel={external ? "noreferrer" : undefined}
+              hoverUnderline
+              data-cursor="link"
+              className="opacity-90 hover:opacity-100"
+            >
+              {p.children}
+            </UnderlineLink>
+          );
+        },
+      },
+      block: (p: any) => {
+        const styleKey = p?.value?.style || "normal";
+        const isFirst = !!dropCap && !!firstBlockKey && p?.value?._key === firstBlockKey;
+
+        const cfg = cfgForStyle(styleKey);
+        const Tag = cfg.tag as any;
+
+        const className = clsx(
+          "it-pt-block font-sans tracking-tighter max-w-[33ch] text-left",
+          cfg.className,
+          isFirst && "it-dropcap-target"
+        );
+
+        const styleVars = isFirst
+          ? ({
+            ["--lh" as any]: String(cfg.lh),
+            ["--cap-top" as any]: cfg.capTop,
+            ["--cap-trim" as any]: String(cfg.capTrimEm),
+            ["--cap-lines" as any]: "2",
+          } as React.CSSProperties)
+          : undefined;
+
+        return (
+          <Tag className={className} style={styleVars}>
+            {p.children}
+          </Tag>
+        );
+      },
+    };
+  }, [dropCap, firstBlockKey]);
+
+  const safeLinks = useMemo(() => {
+    const raw = (links ?? []) as unknown[];
+    return raw
+      .filter((l): l is HeroLink => !!l && typeof l === "object")
+      .map((l, idx) => {
+        const label = (l.label ?? "").trim();
+        const href = sanitizeHref(l.href);
+        return {
+          key: l._key ?? `${label}-${href ?? ""}-${idx}`,
+          label,
+          href,
+          newTab: !!l.newTab,
+        };
+      })
+      .filter((l) => !!l.label && !!l.href);
+  }, [links]);
+
   useGSAP(
     () => {
       const box = boxRef.current;
@@ -43,16 +178,7 @@ export default function BioBlock({
       const restSecondEl = restSecondRef.current;
       const bio = bioRef.current;
 
-      if (
-        !box ||
-        !inner ||
-        !nameRow ||
-        !bigC ||
-        !smallC ||
-        !restFirstEl ||
-        !restSecondEl ||
-        !bio
-      ) {
+      if (!box || !inner || !nameRow || !bigC || !smallC || !restFirstEl || !restSecondEl || !bio) {
         return;
       }
 
@@ -213,14 +339,19 @@ export default function BioBlock({
   const handleEnter = () => tlRef.current?.play();
   const handleLeave = () => tlRef.current?.reverse();
 
+  const hasBody = Array.isArray(body) && body.length > 0;
+
   return (
-    <button
+    <div
       ref={rootRef}
-      type="button"
+      role="button"
+      tabIndex={0}
       className="inline-block cursor-pointer transform-gpu"
       data-cursor="link"
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
+      onFocus={handleEnter}
+      onBlur={handleLeave}
     >
       <div
         ref={boxRef}
@@ -268,14 +399,44 @@ export default function BioBlock({
 
           {/* Bio copy – revealed once expanded, sits under the 64px title band */}
           <div className="px-3 pb-4 pt-16">
-            <div ref={bioRef}>
-              <p className="text-sm tracking-tighter font-sans max-w-[33ch] leading-snug text-left">
-                {text}
-              </p>
+            <div ref={bioRef} className="pointer-events-auto">
+              {hasBody ? (
+                <div className={clsx("it-pt")}>
+                  <PortableText value={body as any} components={ptComponents as any} />
+                </div>
+              ) : (
+                <p className="text-sm tracking-tighter font-sans max-w-[33ch] leading-snug text-left">
+                  {text}
+                </p>
+              )}
+
+              {safeLinks.length ? (
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  {safeLinks.map((l) => {
+                    const external = isLikelyExternal(l.href!);
+                    const target = l.newTab || external ? "_blank" : undefined;
+                    const rel = target ? "noreferrer" : undefined;
+
+                    return (
+                      <UnderlineLink
+                        key={l.key}
+                        href={l.href!}
+                        target={target}
+                        rel={rel}
+                        hoverUnderline
+                        data-cursor="link"
+                        className="opacity-90 hover:opacity-100"
+                      >
+                        {l.label}
+                      </UnderlineLink>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }

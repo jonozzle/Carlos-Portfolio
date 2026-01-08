@@ -6,6 +6,11 @@ import { usePathname, useRouter } from "next/navigation";
 import SmoothImage from "@/components/ui/smooth-image";
 import BioBlock from "@/components/blocks/hero/bio-block";
 import UnderlineLink from "@/components/ui/underline-link";
+import HeroUnderlineLink, {
+  HERO_LINK_FONT_DURATION,
+  HERO_LINK_UNDERLINE_OUT_DURATION,
+  HERO_LINK_WEIGHT_FADE_DURATION,
+} from "@/components/ui/hero-underline-link";
 import { PAGE_QUERYResult } from "@/sanity.types";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
@@ -15,6 +20,8 @@ import { saveScrollForPath } from "@/lib/scroll-state";
 import { getActiveHomeSection, saveActiveHomeSectionNow } from "@/lib/home-section";
 import { lockAppScroll } from "@/lib/scroll-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
+import { PortableText } from "@portabletext/react";
+import clsx from "clsx";
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
 type Props = Extract<Block, { _type: "hero-contents" }>;
@@ -53,12 +60,28 @@ type FeaturedProject = {
   slug?: string | null;
 } | null;
 
-const BASE_SCALE = 1;
-const ACTIVE_SCALE = 1.06;
+type HeroLink = {
+  _key?: string;
+  label?: string | null;
+  href?: string | null;
+  newTab?: boolean | null;
+};
+
+type BioSection = {
+  body?: any[] | null;
+  dropCap?: boolean | null;
+  links?: HeroLink[] | null;
+} | null;
 
 // Image transition (vertical reveal)
 const CLIP_REVEAL = "inset(0% 0% 0% 0%)";
 const CLIP_HIDDEN_TOP = "inset(0% 0% 100% 0%)";
+const HERO_ACTIVE_SWAP_BUFFER = 0.08;
+const HERO_ACTIVE_SWAP_DELAY =
+  HERO_LINK_UNDERLINE_OUT_DURATION +
+  HERO_LINK_FONT_DURATION +
+  HERO_LINK_WEIGHT_FADE_DURATION +
+  HERO_ACTIVE_SWAP_BUFFER;
 
 function clampPct(n: number | undefined, min = 0, max = 100) {
   return typeof n === "number" ? Math.min(max, Math.max(min, n)) : 50;
@@ -147,6 +170,166 @@ function InlineArrow() {
   );
 }
 
+type StyleCfg = {
+  tag: "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "blockquote";
+  className: string;
+  lh: number;
+  capTop: string;
+  capTrimEm: number;
+};
+
+function cfgForStyle(styleKey: string, variant: "bio" | "footer"): StyleCfg {
+  // Keep the drop-cap mechanics identical to ImageTextGridTextBlock (same vars/classes),
+  // but tune base sizes for hero contexts.
+  const baseNormal =
+    variant === "footer"
+      ? { className: "text-sm leading-[1.4]", lh: 1.4, capTop: "0.07em", capTrimEm: 0.3 }
+      : {
+        className: "text-sm md:text-base leading-[1.45]",
+        lh: 1.45,
+        capTop: "0.07em",
+        capTrimEm: 0.3,
+      };
+
+  switch (styleKey) {
+    case "h1":
+      return {
+        tag: "h1",
+        className: "text-3xl md:text-5xl leading-[1.05]",
+        lh: 1.05,
+        capTop: "0.04em",
+        capTrimEm: 0.22,
+      };
+    case "h2":
+      return {
+        tag: "h2",
+        className: "text-2xl md:text-4xl leading-[1.08]",
+        lh: 1.08,
+        capTop: "0.045em",
+        capTrimEm: 0.23,
+      };
+    case "h3":
+      return {
+        tag: "h3",
+        className: "text-xl md:text-3xl leading-[1.12]",
+        lh: 1.12,
+        capTop: "0.05em",
+        capTrimEm: 0.24,
+      };
+    case "h4":
+      return {
+        tag: "h4",
+        className: "text-lg md:text-2xl leading-[1.18]",
+        lh: 1.18,
+        capTop: "0.055em",
+        capTrimEm: 0.26,
+      };
+    case "h5":
+      return {
+        tag: "h5",
+        className: "text-base md:text-xl leading-[1.22]",
+        lh: 1.22,
+        capTop: "0.06em",
+        capTrimEm: 0.27,
+      };
+    case "h6":
+      return {
+        tag: "h6",
+        className: "text-sm md:text-lg leading-[1.26]",
+        lh: 1.26,
+        capTop: "0.065em",
+        capTrimEm: 0.28,
+      };
+    case "blockquote":
+      return {
+        tag: "blockquote",
+        className: "text-sm md:text-base italic leading-[1.4]",
+        lh: 1.4,
+        capTop: "0.07em",
+        capTrimEm: 0.3,
+      };
+    case "normal":
+    default:
+      return { tag: "p", ...baseNormal };
+  }
+}
+
+function isLikelyExternal(href: string) {
+  const h = (href ?? "").trim();
+  return h.startsWith("http://") || h.startsWith("https://");
+}
+
+function sanitizeHref(href: unknown) {
+  const h = typeof href === "string" ? href.trim() : "";
+  return h || null;
+}
+
+function HeroPortableText({
+  value,
+  dropCap,
+  variant,
+  className,
+  maxWidthClassName,
+}: {
+  value?: any[] | null;
+  dropCap?: boolean | null;
+  variant: "bio" | "footer";
+  className?: string;
+  maxWidthClassName?: string;
+}) {
+  const firstBlockKey = useMemo(() => {
+    if (!dropCap) return null;
+    if (!Array.isArray(value)) return null;
+    const first = value.find((b) => b && b._type === "block" && typeof b._key === "string");
+    return first?._key ?? null;
+  }, [dropCap, value]);
+
+  const components = useMemo(() => {
+    return {
+      marks: {
+        strong: (p: any) => <strong className="font-bold">{p.children}</strong>,
+        em: (p: any) => <em className="italic">{p.children}</em>,
+      },
+      block: (p: any) => {
+        const styleKey = p?.value?.style || "normal";
+        const isFirst = !!dropCap && !!firstBlockKey && p?.value?._key === firstBlockKey;
+
+        const cfg = cfgForStyle(styleKey, variant);
+        const Tag = cfg.tag as any;
+
+        const tagClassName = clsx(
+          "it-pt-block font-serif font-normal tracking-tight",
+          cfg.className,
+          isFirst && "it-dropcap-target"
+        );
+
+        const styleVars = isFirst
+          ? ({
+            ["--lh" as any]: String(cfg.lh),
+            ["--cap-top" as any]: cfg.capTop,
+            ["--cap-trim" as any]: String(cfg.capTrimEm),
+            ["--cap-lines" as any]: "2",
+          } as React.CSSProperties)
+          : undefined;
+
+        return (
+          <Tag className={tagClassName} style={styleVars}>
+            {p.children}
+          </Tag>
+        );
+      },
+    };
+  }, [dropCap, firstBlockKey, variant]);
+
+  if (!value?.length) return null;
+
+  return (
+    <div className={clsx("it-pt", maxWidthClassName, className)}>
+      <PortableText value={value} components={components as any} />
+    </div>
+  );
+}
+
 export default function HeroContents(props: Props & { onIndexAction?: RuntimeIndexAction }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -182,8 +365,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   // - loader is done
   // - no explicit skip
   // - AND the loader did NOT control the initial reveal for this mount
-  const shouldRunEntrance =
-    loaderDone && !skipInitialEntrance && !loaderWasActiveOnMountRef.current;
+  const shouldRunEntrance = loaderDone && !skipInitialEntrance && !loaderWasActiveOnMountRef.current;
 
   const showNumbers = !!(props as any)?.showNumbers;
 
@@ -203,8 +385,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const featuredLabel = useMemo(() => withColon(featuredLabelRaw), [featuredLabelRaw]);
   const featuredProjectFromSanity: FeaturedProject = (props as any)?.featuredProject ?? null;
 
-  const onIndexAction =
-    typeof props.onIndexAction === "function" ? props.onIndexAction : null;
+  const onIndexAction = typeof props.onIndexAction === "function" ? props.onIndexAction : null;
 
   const items: HeroItem[] = useMemo(() => {
     const raw = ((props as any)?.items ?? []) as unknown[];
@@ -215,9 +396,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     () =>
       items.map((it, i) => {
         const fallback =
-          (it.slug as string | undefined) ??
-          (it.title as string | undefined) ??
-          "item";
+          (it.slug as string | undefined) ?? (it.title as string | undefined) ?? "item";
         return { ...it, _key: it._key ?? `${fallback}-${i}` };
       }),
     [items]
@@ -246,12 +425,14 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const initialActiveKey = initialPreviewKey ?? initialKey;
 
   const [activeKey, setActiveKey] = useState<string | null>(initialActiveKey);
-  const [displayedPreviewKey, setDisplayedPreviewKey] = useState<string | null>(
-    initialPreviewKey
-  );
+  const [displayedPreviewKey, setDisplayedPreviewKey] = useState<string | null>(initialPreviewKey);
+  const activeKeyRef = useRef<string | null>(activeKey);
 
   // Key being revealed over current (during transition)
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+
+  const pendingActivationRef = useRef<{ key: string; onActivate?: () => void } | null>(null);
+  const activeSwapTlRef = useRef<gsap.core.Timeline | null>(null);
 
   const prefersNoMotionRef = useRef(false);
   useEffect(() => {
@@ -267,6 +448,10 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     return () => mq.removeEventListener("change", listener);
   }, []);
 
+  useEffect(() => {
+    activeKeyRef.current = activeKey;
+  }, [activeKey]);
+
   // Keep a ref so the transition system isn't relying on stale closure state.
   const displayedPreviewKeyRef = useRef<string | null>(displayedPreviewKey);
   useEffect(() => {
@@ -277,9 +462,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     ? previewByKey.get(displayedPreviewKey) ?? null
     : null;
 
-  const pendingItem: HeroItemWithKey | null = pendingKey
-    ? previewByKey.get(pendingKey) ?? null
-    : null;
+  const pendingItem: HeroItemWithKey | null = pendingKey ? previewByKey.get(pendingKey) ?? null : null;
 
   const activeLayout: HeroLayout = normalizeLayout(displayedPreviewItem?.layout);
 
@@ -290,15 +473,70 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     [onIndexAction]
   );
 
+  const activateHeroLink = useCallback(
+    (nextKey: string, onActivate?: () => void, immediate = false) => {
+      if (!nextKey) return;
+      if (nextKey === activeKeyRef.current && !activeSwapTlRef.current) return;
+
+      if (immediate || prefersNoMotionRef.current) {
+        activeSwapTlRef.current?.kill();
+        activeSwapTlRef.current = null;
+        pendingActivationRef.current = null;
+        setActiveKey(nextKey);
+        onActivate?.();
+        return;
+      }
+
+      pendingActivationRef.current = { key: nextKey, onActivate };
+
+      if (activeSwapTlRef.current) return;
+
+      if (!activeKeyRef.current) {
+        const pending = pendingActivationRef.current;
+        pendingActivationRef.current = null;
+        if (pending) {
+          setActiveKey(pending.key);
+          pending.onActivate?.();
+        }
+        return;
+      }
+
+      setActiveKey(null);
+
+      const tl = gsap.timeline({
+        defaults: { overwrite: "auto" },
+        onComplete: () => {
+          activeSwapTlRef.current = null;
+          const pending = pendingActivationRef.current;
+          pendingActivationRef.current = null;
+          if (pending) {
+            setActiveKey(pending.key);
+            pending.onActivate?.();
+          }
+        },
+      });
+
+      tl.to({}, { duration: HERO_ACTIVE_SWAP_DELAY });
+
+      activeSwapTlRef.current = tl;
+    },
+    []
+  );
+
   const handleActivate = useCallback(
     (it: HeroItemWithKey, index: number, reason: IndexActionReason) => {
       if (!it?._key) return;
-      if (it._key === activeKey) return;
-      setActiveKey(it._key); // underline / active styles update immediately
-      runIndexAction(index, it, reason);
+      activateHeroLink(it._key, () => runIndexAction(index, it, reason));
     },
-    [activeKey, runIndexAction]
+    [activateHeroLink, runIndexAction]
   );
+
+  useEffect(() => {
+    return () => {
+      activeSwapTlRef.current?.kill();
+      activeSwapTlRef.current = null;
+    };
+  }, []);
 
   // Keyboard indexing: 1–9 activates items[0..8], 0 activates item[9]
   useEffect(() => {
@@ -340,11 +578,8 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const displayedImageUrl = displayedPreviewItem?.image?.asset?.url ?? null;
   const pendingImageUrl = pendingItem?.image?.asset?.url ?? null;
 
-  const displayedAlt =
-    displayedPreviewItem?.image?.alt ?? displayedPreviewItem?.title ?? "Featured image";
-
-  const pendingAlt =
-    pendingItem?.image?.alt ?? pendingItem?.title ?? "Next featured image";
+  const displayedAlt = displayedPreviewItem?.image?.alt ?? displayedPreviewItem?.title ?? "Featured image";
+  const pendingAlt = pendingItem?.image?.alt ?? pendingItem?.title ?? "Next featured image";
 
   const finishCommitAsync = useCallback(() => {
     return new Promise<void>((resolve) => {
@@ -375,17 +610,43 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     });
   }, []);
 
+  const renderDropcapTitle = useCallback((title: string) => {
+    return title.split(/(\s+)/).map((part, partIndex) => {
+      if (!part) return null;
+      if (!part.trim()) {
+        return (
+          <span key={`space-${partIndex}`} className="whitespace-pre">
+            {part}
+          </span>
+        );
+      }
+
+      const first = part.slice(0, 1);
+      const rest = part.slice(1);
+
+      return (
+        <span key={`word-${partIndex}`} data-hero-word className="inline-block">
+          <span data-hero-dropcap className="inline-block">
+            {first}
+          </span>
+          {rest ? <span className="inline-block">{rest}</span> : null}
+        </span>
+      );
+    });
+  }, []);
+
   const renderIndexedTitle = useCallback(
     (title: string, index: number) => {
-      if (!showNumbers) return <span className="inline-block">{title}</span>;
+      const words = renderDropcapTitle(title);
+      if (!showNumbers) return <span className="inline-block">{words}</span>;
       return (
         <>
           <span className="mr-2 inline-block tabular-nums opacity-70">{pad2(index + 1)}</span>
-          <span className="inline-block">{title}</span>
+          <span className="inline-block">{words}</span>
         </>
       );
     },
-    [showNumbers]
+    [renderDropcapTitle, showNumbers]
   );
 
   // ---------------------------------------
@@ -585,8 +846,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       if (typeof window === "undefined") return;
 
       const prefersReduced =
-        window.matchMedia &&
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
       gsap.set(left, { autoAlpha: 1 });
       gsap.set(nextLayer, { autoAlpha: 0, clipPath: CLIP_HIDDEN_TOP });
@@ -618,10 +878,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   );
 
   // Scroll hint:
-  // - Arrow stays centered over the word.
-  // - Only knob you touch is SHAFT_W.
-  // - Head auto-aligns to the shaft vertically.
-  // - Subtle bump + elastic return.
   const scrollHintArrowRef = useRef<SVGGElement | null>(null);
   const scrollHintTweenRef = useRef<gsap.core.Tween | gsap.core.Timeline | null>(null);
 
@@ -636,8 +892,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     if (typeof window === "undefined") return;
 
     const prefersReduced =
-      window.matchMedia &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     gsap.set(arrow, {
       x: 0,
@@ -683,8 +938,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
           const left = clampPct(it.x);
           const top = clampPct(it.y);
           const isActive = it._key === activeKey;
-          const scale = isActive ? ACTIVE_SCALE : BASE_SCALE;
-
           const href = it.slug ? `/projects/${it.slug}` : "#";
 
           return (
@@ -696,43 +949,35 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
               onFocus={() => handleActivate(it, index, "focus")}
               data-index={index}
             >
-              <UnderlineLink
+              <HeroUnderlineLink
                 href={href}
                 active={isActive}
                 className={[
                   "py-1 px-2 text-lg md:text-xl font-serif font-normal tracking-tighter",
-                  "transform-gpu origin-center transition-transform duration-200",
+                  "transform-gpu origin-center transition-transform duration-300 ease-out",
                   !isActive && "hover:scale-[1.08]",
                   isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                style={{ transform: `scale(${scale})` }}
                 aria-current={isActive ? "true" : undefined}
                 data-cursor="link"
                 data-index={index}
                 onClick={(e) => {
                   // make it feel “chosen” immediately, but DO NOT run theme lock yet
-                  if (it._key !== activeKey) setActiveKey(it._key);
+                  activateHeroLink(it._key, undefined, true);
 
                   handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
                 }}
               >
                 {renderIndexedTitle(it.title ?? "Untitled", index)}
-              </UnderlineLink>
+              </HeroUnderlineLink>
             </div>
           );
         })}
       </>
     );
-  }, [
-    activeKey,
-    handleActivate,
-    handleTransitionClick,
-    keyed,
-    renderIndexedTitle,
-    runIndexAction,
-  ]);
+  }, [activeKey, activateHeroLink, handleActivate, handleTransitionClick, keyed, renderIndexedTitle, runIndexAction]);
 
   const renderLinksList = useCallback(() => {
     if (linksLayout === "center") {
@@ -744,22 +989,22 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
               const href = it.slug ? `/projects/${it.slug}` : "#";
 
               return (
-                <UnderlineLink
+                <HeroUnderlineLink
                   key={it._key}
                   href={href}
                   active={isActive}
                   className={[
-                    "text-lg md:text-xl font-serif tracking-tighter inline-block px-2 py-1",
+                    "text-lg md:text-xl font-serif font-normal tracking-tighter inline-block px-2 py-1",
                     isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
                     !isActive && "hover:scale-[1.03]",
-                    "transform-gpu origin-center transition-transform duration-200",
+                    "transform-gpu origin-center transition-transform duration-300 ease-out",
                   ]
                     .filter(Boolean)
                     .join(" ")}
                   onMouseEnter={() => handleActivate(it, index, "hover")}
                   onFocus={() => handleActivate(it, index, "focus")}
                   onClick={(e) => {
-                    if (it._key !== activeKey) setActiveKey(it._key);
+                    activateHeroLink(it._key, undefined, true);
                     handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
                   }}
                   aria-current={isActive ? "true" : undefined}
@@ -767,7 +1012,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                   data-index={index}
                 >
                   {renderIndexedTitle(it.title ?? "Untitled", index)}
-                </UnderlineLink>
+                </HeroUnderlineLink>
               );
             })}
           </div>
@@ -783,22 +1028,22 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
             const href = it.slug ? `/projects/${it.slug}` : "#";
 
             return (
-              <UnderlineLink
+              <HeroUnderlineLink
                 key={it._key}
                 href={href}
                 active={isActive}
                 className={[
-                  "text-lg md:text-xl font-serif tracking-tighter inline-block px-2 py-1",
+                  "text-lg md:text-xl font-serif font-normal tracking-tighter inline-block px-2 py-1",
                   isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
                   !isActive && "hover:scale-[1.03]",
-                  "transform-gpu origin-center transition-transform duration-200",
+                  "transform-gpu origin-center transition-transform duration-300 ease-out",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 onMouseEnter={() => handleActivate(it, index, "hover")}
                 onFocus={() => handleActivate(it, index, "focus")}
                 onClick={(e) => {
-                  if (it._key !== activeKey) setActiveKey(it._key);
+                  activateHeroLink(it._key, undefined, true);
                   handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
                 }}
                 aria-current={isActive ? "true" : undefined}
@@ -806,7 +1051,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                 data-index={index}
               >
                 {renderIndexedTitle(it.title ?? "Untitled", index)}
-              </UnderlineLink>
+              </HeroUnderlineLink>
             );
           })}
         </div>
@@ -814,6 +1059,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     );
   }, [
     activeKey,
+    activateHeroLink,
     handleActivate,
     handleTransitionClick,
     keyed,
@@ -845,6 +1091,103 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   }, [featuredResolved?.slug, keyed]);
 
   const shouldShowFeatured = !!(featuredLabel && featuredResolved?.slug && featuredResolved?.title);
+
+  // ---- Bio (body + dropcap + links) from schema ----
+  const bio: BioSection = (props as any)?.bio ?? null;
+  const bioBody = (bio as any)?.body ?? null;
+  const bioDropCap = !!(bio as any)?.dropCap;
+  const bioLinks: HeroLink[] = useMemo(() => {
+    const raw = ((bio as any)?.links ?? []) as unknown[];
+    return raw.filter((l): l is HeroLink => !!l && typeof l === "object");
+  }, [bio]);
+
+  // ---- Footer text controls ----
+  const showFooterText: boolean = !!(props as any)?.showFooterText;
+  const footerDropCap: boolean = !!(props as any)?.footerDropCap;
+  const footerBody: any[] | null = ((props as any)?.footerBody as any[] | null) ?? null;
+
+  // ---- Bottom links (NO FALLBACK) ----
+  const bottomLinks: HeroLink[] = useMemo(() => {
+    const raw = (((props as any)?.bottomLinks ?? []) as unknown[]).filter(Boolean);
+    return raw.filter((l): l is HeroLink => !!l && typeof l === "object");
+  }, [props]);
+
+  const bottomLinksRenderable: HeroLink[] = useMemo(() => {
+    return bottomLinks.filter((l) => {
+      const label = (l?.label ?? "").trim();
+      const href = sanitizeHref(l?.href);
+      return !!label && !!href;
+    });
+  }, [bottomLinks]);
+
+  // ---- Copyright text (NO DEFAULT) ----
+  const copyrightTextRaw: string = (props as any)?.copyrightText ?? "";
+  const copyrightText = useMemo(() => {
+    const t = String(copyrightTextRaw ?? "").trim();
+    return t || "";
+  }, [copyrightTextRaw]);
+
+  const footerTextNode = useMemo(() => {
+    if (!showFooterText) return null;
+    if (!footerBody?.length) return null;
+
+    return (
+      <HeroPortableText
+        value={footerBody}
+        dropCap={footerDropCap}
+        variant="footer"
+        className="tracking-tighter"
+        maxWidthClassName="max-w-[33ch]"
+      />
+    );
+  }, [footerBody, footerDropCap, showFooterText]);
+
+  const renderBottomLinks = useCallback(() => {
+    if (!bottomLinksRenderable.length) return null;
+
+    return (
+      <div className="flex gap-4 text-sm pointer-events-auto">
+        {bottomLinksRenderable.map((l, idx) => {
+          const label = (l?.label ?? "").trim();
+          const href = sanitizeHref(l?.href);
+          if (!label || !href) return null;
+
+          const forceNewTab = !!l?.newTab;
+          const external = isLikelyExternal(href);
+          const target = forceNewTab || external ? "_blank" : undefined;
+          const rel = target ? "noreferrer" : undefined;
+
+          return (
+            <UnderlineLink
+              key={l?._key ?? `${label}-${idx}`}
+              href={href}
+              target={target}
+              rel={rel}
+              hoverUnderline
+              data-cursor="link"
+              className="opacity-90 hover:opacity-100"
+            >
+              {label}
+            </UnderlineLink>
+          );
+        })}
+      </div>
+    );
+  }, [bottomLinksRenderable]);
+
+  const bottomLinksNode = useMemo(() => renderBottomLinks(), [renderBottomLinks]);
+
+  const copyrightNode = useMemo(() => {
+    if (!copyrightText) return null;
+    return (
+      <h2 className="text-xl md:text-base uppercase font-medium tracking-tighter opacity-50">
+        {copyrightText}
+      </h2>
+    );
+  }, [copyrightText]);
+
+  const hasBottomRow = !!bottomLinksNode || !!copyrightNode;
+  const shouldRenderFooter = !!footerTextNode || hasBottomRow;
 
   // ---- Arrow config (minimal) ----
   // Only change this:
@@ -884,7 +1227,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       <div ref={leftRef} className="relative h-[60vh] md:h-full overflow-hidden">
         <div className="absolute right-3 top-3 z-30 md:hidden">
           <span data-hero-main-title className="block">
-            <BioBlock />
+            <BioBlock body={bioBody} dropCap={bioDropCap} links={bioLinks} />
           </span>
         </div>
         <div className="relative w-full h-full px-6 py-6 md:px-0 md:py-0">
@@ -941,7 +1284,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         className="relative h-full px-6 pt-6 pb-2 overflow-hidden flex flex-col"
         style={{ contain: "layout paint" }}
       >
-        {/* HEADER (BioBlock is absolute on desktop so it never reflows links) */}
+        {/* HEADER (BioBlock is positioned separately on desktop so it never reflows links) */}
         <div className="relative flex-none mb-0 md:mb-4 min-h-0 md:min-h-[64px]">
           <div className="pr-0 md:pr-[320px]">
             {shouldShowFeatured ? (
@@ -975,12 +1318,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
               </div>
             ) : null}
           </div>
-
-          <div className="absolute right-0 top-0 z-30 hidden md:block">
-            <span data-hero-main-title className="block">
-              <BioBlock />
-            </span>
-          </div>
         </div>
 
         {/* LINKS FIELD */}
@@ -990,70 +1327,32 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
           </div>
         </div>
 
-        {/* FOOTER */}
-        <div className="relative flex-none">
-          <h4 className="text-sm tracking-tighter font-sans max-w-[33ch] mb-4">
-            Carlos is a photographer driven by curiosity for bold commercial ideas. He blends
-            clean composition with conceptual thinking, creating images that feel sharp and
-            contemporary.
-          </h4>
+        {/* FOOTER (no showFooter boolean; renders only if there’s something to show) */}
+        {shouldRenderFooter ? (
+          <div className="relative flex-none">
+            {footerTextNode}
 
-          {showBottomDivider ? <BottomLine /> : null}
+            {showBottomDivider && (footerTextNode || hasBottomRow) ? <BottomLine /> : null}
 
-          {bottomLayout === "center" ? (
-            <div className="mt-4 flex flex-col items-center text-center gap-3">
-              <div className="flex items-center justify-center gap-6 text-sm pointer-events-auto">
-                <UnderlineLink
-                  href="mailto:hello@example.com"
-                  hoverUnderline
-                  data-cursor="link"
-                  className="opacity-90 hover:opacity-100"
-                >
-                  Email Me
-                </UnderlineLink>
-
-                <UnderlineLink
-                  href="https://instagram.com/"
-                  target="_blank"
-                  rel="noreferrer"
-                  hoverUnderline
-                  data-cursor="link"
-                  className="opacity-90 hover:opacity-100"
-                >
-                  Instagram
-                </UnderlineLink>
-              </div>
-
-              <h2 className="text-base uppercase font-medium tracking-tighter opacity-90">© 2025</h2>
-            </div>
-          ) : (
-            <div className="mt-2 flex justify-between items-end">
-              <div className="flex gap-4 text-sm pointer-events-auto">
-                <UnderlineLink
-                  href="mailto:hello@example.com"
-                  hoverUnderline
-                  data-cursor="link"
-                  className="opacity-90 hover:opacity-100"
-                >
-                  Email Me
-                </UnderlineLink>
-
-                <UnderlineLink
-                  href="https://instagram.com/"
-                  target="_blank"
-                  rel="noreferrer"
-                  hoverUnderline
-                  data-cursor="link"
-                  className="opacity-90 hover:opacity-100"
-                >
-                  Instagram
-                </UnderlineLink>
-              </div>
-
-              <h2 className="text-xl md:text-base uppercase font-medium tracking-tighter">© 2025</h2>
-            </div>
-          )}
-        </div>
+            {hasBottomRow ? (
+              bottomLayout === "center" ? (
+                <div className={clsx("mt-4 flex flex-col items-center text-center gap-3")}>
+                  {bottomLinksNode}
+                  {copyrightNode}
+                </div>
+              ) : (
+                <div className="mt-2 flex items-end">
+                  {bottomLinksNode ? (
+                    <div className="flex-1">{bottomLinksNode}</div>
+                  ) : (
+                    <div className="flex-1" />
+                  )}
+                  {copyrightNode}
+                </div>
+              )
+            ) : null}
+          </div>
+        ) : null}
 
         {/* scroll hint (center vertically, right edge) */}
         {showScrollHint && loaderDone ? (
@@ -1091,12 +1390,16 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                 </g>
               </svg>
 
-              <div className="text-[10px] uppercase tracking-tight opacity-25 font-serif">
-                scroll
-              </div>
+              <div className="text-[10px] uppercase tracking-tight opacity-25 font-serif">scroll</div>
             </div>
           </div>
         ) : null}
+      </div>
+
+      <div className="absolute right-6 top-6 z-30 hidden md:block">
+        <span data-hero-main-title className="block">
+          <BioBlock body={bioBody} dropCap={bioDropCap} links={bioLinks} />
+        </span>
       </div>
     </section>
   );

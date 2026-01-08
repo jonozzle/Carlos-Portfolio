@@ -1,12 +1,22 @@
-// sanity/schemas/objects/hero-contents.ts
+// sanity/schemas/blocks/hero/hero-contents.ts
 import { defineType, defineField } from "sanity";
-import { LayoutTemplate, Image as ImageIcon, Link as LinkIcon } from "lucide-react";
+import {
+  LayoutTemplate,
+  Image as ImageIcon,
+  Link as LinkIcon,
+  Type as TypeIcon,
+} from "lucide-react";
 
 export default defineType({
   name: "hero-contents",
   title: "Hero Contents",
   type: "object",
   icon: LayoutTemplate,
+  fieldsets: [
+    { name: "bio", title: "Bio" },
+    { name: "footer", title: "Footer Text" },
+    { name: "bottom", title: "Bottom" },
+  ],
   fields: [
     defineField({
       name: "title",
@@ -57,6 +67,112 @@ export default defineType({
         "Default is Custom placement. Choose Center or Two-column to ignore X/Y and render a list layout instead.",
     }),
 
+    // -----------------------
+    // BIO (body only + drop cap + links)
+    // -----------------------
+    defineField({
+      name: "bio",
+      title: "Bio",
+      type: "object",
+      fieldset: "bio",
+      icon: TypeIcon,
+      fields: [
+        defineField({
+          name: "body",
+          title: "Body",
+          type: "array",
+          of: [{ type: "block" }],
+          description: "Editable bio body text (title is intentionally not editable here).",
+        }),
+        defineField({
+          name: "dropCap",
+          title: "Drop cap",
+          type: "boolean",
+          initialValue: false,
+          description: "Applies a drop cap to the first text block.",
+        }),
+        defineField({
+          name: "links",
+          title: "Bio links",
+          type: "array",
+          of: [
+            {
+              type: "object",
+              name: "heroBioLink",
+              title: "Link",
+              icon: LinkIcon,
+              fields: [
+                defineField({
+                  name: "label",
+                  title: "Label",
+                  type: "string",
+                  validation: (r) => r.required(),
+                }),
+                defineField({
+                  name: "href",
+                  title: "URL / mailto / tel",
+                  type: "url",
+                  description: "Examples: https://…, mailto:hello@…, tel:+41…, /projects/slug",
+                  validation: (r) =>
+                    r.required().uri({
+                      allowRelative: true,
+                      scheme: ["http", "https", "mailto", "tel"],
+                    }),
+                }),
+                defineField({
+                  name: "newTab",
+                  title: "Open in new tab",
+                  type: "boolean",
+                  initialValue: false,
+                }),
+              ],
+              preview: {
+                select: { title: "label", subtitle: "href" },
+              },
+            },
+          ],
+        }),
+      ],
+      preview: {
+        select: { body: "body" },
+        prepare({ body }) {
+          const hasBody = Array.isArray(body) && body.length > 0;
+          return { title: "Bio", subtitle: hasBody ? "Custom body" : "No body" };
+        },
+      },
+    }),
+
+    // -----------------------
+    // FOOTER TEXT (toggle + drop cap)
+    // -----------------------
+    defineField({
+      name: "showFooterText",
+      title: "Show footer text",
+      type: "boolean",
+      fieldset: "footer",
+      initialValue: true,
+      description: "Toggles the text block above the bottom divider/links.",
+    }),
+    defineField({
+      name: "footerBody",
+      title: "Footer body",
+      type: "array",
+      fieldset: "footer",
+      of: [{ type: "block" }],
+      description: "Footer text content shown in the right column. If empty, nothing is rendered.",
+    }),
+    defineField({
+      name: "footerDropCap",
+      title: "Footer drop cap",
+      type: "boolean",
+      fieldset: "footer",
+      initialValue: false,
+      description: "Applies a drop cap to the first footer text block.",
+    }),
+
+    // -----------------------
+    // BOTTOM
+    // -----------------------
     defineField({
       name: "showBottomDivider",
       title: "Show bottom divider line",
@@ -69,6 +185,7 @@ export default defineType({
       name: "bottomLayout",
       title: "Bottom layout",
       type: "string",
+      fieldset: "bottom",
       initialValue: "justified",
       options: {
         list: [
@@ -78,6 +195,59 @@ export default defineType({
         layout: "radio",
       },
       description: "Controls layout of the footer actions/copyright area.",
+    }),
+
+    defineField({
+      name: "bottomLinks",
+      title: "Bottom links",
+      type: "array",
+      fieldset: "bottom",
+      description: "Links shown at the bottom (e.g. Email, Instagram). If empty, nothing is rendered.",
+      of: [
+        {
+          type: "object",
+          name: "heroBottomLink",
+          title: "Link",
+          icon: LinkIcon,
+          fields: [
+            defineField({
+              name: "label",
+              title: "Label",
+              type: "string",
+              validation: (r) => r.required(),
+            }),
+            defineField({
+              name: "href",
+              title: "URL / mailto / tel",
+              type: "url",
+              description: "Examples: https://…, mailto:hello@…, tel:+41…, /projects/slug",
+              validation: (r) =>
+                r.required().uri({
+                  allowRelative: true,
+                  scheme: ["http", "https", "mailto", "tel"],
+                }),
+            }),
+            defineField({
+              name: "newTab",
+              title: "Open in new tab",
+              type: "boolean",
+              initialValue: false,
+            }),
+          ],
+          preview: {
+            select: { title: "label", subtitle: "href" },
+          },
+        },
+      ],
+      initialValue: [],
+    }),
+
+    defineField({
+      name: "copyrightText",
+      title: "Copyright text",
+      type: "string",
+      fieldset: "bottom",
+      description: "If empty, nothing is rendered (no default year/©).",
     }),
 
     defineField({

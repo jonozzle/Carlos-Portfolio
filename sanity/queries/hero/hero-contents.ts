@@ -24,6 +24,33 @@ export const heroContentsQuery = groq`
       null
     ),
 
+    "bio": select(
+      defined(bio) => {
+        "body": bio.body,
+        "dropCap": coalesce(bio.dropCap, false),
+        "links": coalesce(bio.links, [])[]{
+          _key,
+          "label": coalesce(label, ""),
+          "href": coalesce(href, ""),
+          "newTab": coalesce(newTab, false)
+        }
+      },
+      null
+    ),
+
+    "showFooterText": coalesce(showFooterText, true),
+    "footerBody": footerBody,
+    "footerDropCap": coalesce(footerDropCap, false),
+
+    "bottomLinks": coalesce(bottomLinks, [])[]{
+      _key,
+      "label": coalesce(label, ""),
+      "href": coalesce(href, ""),
+      "newTab": coalesce(newTab, false)
+    },
+
+    "copyrightText": coalesce(copyrightText, ""),
+
     "items": items[]{
       "title": coalesce(project->title, "Untitled"),
       "slug": project->slug.current,

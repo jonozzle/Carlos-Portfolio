@@ -20,22 +20,37 @@ type Props = React.ComponentPropsWithoutRef<"a"> & {
   hoverUnderline?: boolean;
 
   underlineClassName?: string;
+
+  /**
+   * Customize underline draw timings/easing.
+   */
+  underlineInDuration?: number;
+  underlineOutDuration?: number;
+  underlineInEase?: string;
+  underlineOutEase?: string;
 };
 
 const CLAMP = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 
-export default function UnderlineLink({
-  active = false,
-  hoverUnderline = false,
-  className,
-  underlineClassName,
-  onMouseEnter,
-  onMouseLeave,
-  onFocus,
-  onBlur,
-  children,
-  ...rest
-}: Props) {
+const UnderlineLink = React.forwardRef<HTMLAnchorElement, Props>(function UnderlineLink(
+  {
+    active = false,
+    hoverUnderline = false,
+    className,
+    underlineClassName,
+    underlineInDuration = 0.38,
+    underlineOutDuration = 0.32,
+    underlineInEase = "power2.out",
+    underlineOutEase = "power2.inOut",
+    onMouseEnter,
+    onMouseLeave,
+    onFocus,
+    onBlur,
+    children,
+    ...rest
+  },
+  ref
+) {
   const underlineRef = React.useRef<HTMLSpanElement | null>(null);
   const prefersNoMotionRef = React.useRef(false);
 
@@ -95,8 +110,8 @@ export default function UnderlineLink({
       gsap.set(el, { scaleX: 0, transformOrigin: "0% 50%" });
       gsap.to(el, {
         scaleX: 1,
-        duration: 0.38,
-        ease: "power2.out",
+        duration: underlineInDuration,
+        ease: underlineInEase,
         overwrite: "auto",
       });
     } else {
@@ -104,18 +119,19 @@ export default function UnderlineLink({
       gsap.set(el, { transformOrigin: "100% 50%" });
       gsap.to(el, {
         scaleX: 0,
-        duration: 0.32,
-        ease: "power2.inOut",
+        duration: underlineOutDuration,
+        ease: underlineOutEase,
         overwrite: "auto",
       });
     }
 
     prevShowRef.current = show;
-  }, [show]);
+  }, [show, underlineInDuration, underlineInEase, underlineOutDuration, underlineOutEase]);
 
   return (
     <a
       {...rest}
+      ref={ref}
       className={cn("inline-block", className)}
       onMouseEnter={(e) => {
         if (hoverUnderline) setHovered(true);
@@ -148,4 +164,8 @@ export default function UnderlineLink({
       </span>
     </a>
   );
-}
+});
+
+UnderlineLink.displayName = "UnderlineLink";
+
+export default UnderlineLink;

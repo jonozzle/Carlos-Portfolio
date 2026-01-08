@@ -51,13 +51,51 @@ function getNavigationType():
     | PerformanceNavigationTiming
     | undefined;
 
-  if (nav?.type) return nav.type;
+  if (nav?.type) {
+    if (nav.type === "navigate") {
+      const ref = typeof document !== "undefined" ? document.referrer : "";
+      if (ref) {
+        try {
+          const refUrl = new URL(ref);
+          const curUrl = new URL(window.location.href);
+          if (
+            refUrl.origin === curUrl.origin &&
+            refUrl.pathname === curUrl.pathname &&
+            refUrl.search === curUrl.search
+          ) {
+            return "reload";
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return nav.type;
+  }
 
   // legacy fallback
   // @ts-ignore
   const legacyType = performance.navigation?.type;
   if (legacyType === 1) return "reload";
   if (legacyType === 2) return "back_forward";
+  if (legacyType === 0) {
+    const ref = typeof document !== "undefined" ? document.referrer : "";
+    if (ref) {
+      try {
+        const refUrl = new URL(ref);
+        const curUrl = new URL(window.location.href);
+        if (
+          refUrl.origin === curUrl.origin &&
+          refUrl.pathname === curUrl.pathname &&
+          refUrl.search === curUrl.search
+        ) {
+          return "reload";
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
   return "unknown";
 }
 
@@ -72,11 +110,17 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
   const restFirstRef = useRef<HTMLSpanElement | null>(null);
   const restSecondRef = useRef<HTMLSpanElement | null>(null);
 
+  const playingRef = useRef(false);
+
   const [done, setDone] = useState(false);
   const [allowed, setAllowed] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    if (playingRef.current && pathname === "/") {
+      return;
+    }
 
     // Record the first path the TAB loaded on.
     if (!(window as any)[GLOBAL_INITIAL_PATH]) {
@@ -84,6 +128,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
     }
 
     if (!enable || positionOnly) {
+      playingRef.current = false;
       setAllowed(false);
       setDone(true);
       setLoaderDone(true);
@@ -93,6 +138,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
 
     const isHome = pathname === "/";
     if (!isHome) {
+      playingRef.current = false;
       setAllowed(false);
       setDone(true);
       setLoaderDone(true);
@@ -103,6 +149,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
     // Never run loader when returning from project (intent set on click).
     const intent = consumeNavIntent();
     if (intent.kind === "project-to-home") {
+      playingRef.current = false;
       setAllowed(false);
       setDone(true);
       setLoaderDone(true);
@@ -118,6 +165,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
     const shouldPlay = navType === "reload" && initialPath === "/" && !alreadyPlayed;
 
     if (!shouldPlay) {
+      playingRef.current = false;
       setAllowed(false);
       setDone(true);
       setLoaderDone(true);
@@ -127,6 +175,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
 
     // Mark immediately so SPA navigations back to "/" don’t re-trigger.
     (window as any)[GLOBAL_PLAYED_FLAG] = true;
+    playingRef.current = true;
 
     // IMPORTANT: if loader plays, home MUST start at top (ignore saved section)
     (window as any).__forceHomeTopOnce = true;
@@ -159,13 +208,13 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
 
       if (!root || !nameRow || !bigC || !smallC || !restFirst || !restSecond) return;
 
-      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const isMobile = window.matchMedia("(max-width: 767px)").matches;
 
       const markDone = () => {
         setDone(true);
         setAllowed(false);
         setLoaderDone(true);
+        playingRef.current = false;
 
         // once loader finishes and page is in its final position,
         // force a scheduled refresh so all ScrollTriggers measure correctly.
@@ -206,13 +255,6 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
 
       // Allow the app to paint once we’ve established initial states.
       openFoucGateNow();
-
-      if (reduced) {
-        if (pageRoot) gsap.set(pageRoot, { xPercent: 0, yPercent: 0, clearProps: "transform,willChange" });
-        gsap.set(root, { autoAlpha: 0 });
-        markDone();
-        return;
-      }
 
       // Split for opacity-stagger reveal only.
       const splitFirst = new SplitText(restFirst, { type: "chars" });
