@@ -160,6 +160,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       if (!root || !nameRow || !bigC || !smallC || !restFirst || !restSecond) return;
 
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const isMobile = window.matchMedia("(max-width: 767px)").matches;
 
       const markDone = () => {
         setDone(true);
@@ -191,18 +192,23 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         // ignore
       }
 
-      gsap.set(root, { autoAlpha: 1, xPercent: 0 });
+      gsap.set(root, { autoAlpha: 1, xPercent: 0, yPercent: 0 });
 
       // Put page off-canvas, then loader will slide it in.
       if (pageRoot) {
-        gsap.set(pageRoot, { xPercent: 100, opacity: 1, willChange: "transform" });
+        gsap.set(pageRoot, {
+          xPercent: isMobile ? 0 : 100,
+          yPercent: isMobile ? 100 : 0,
+          opacity: 1,
+          willChange: "transform",
+        });
       }
 
       // Allow the app to paint once we’ve established initial states.
       openFoucGateNow();
 
       if (reduced) {
-        if (pageRoot) gsap.set(pageRoot, { xPercent: 0, clearProps: "transform,willChange" });
+        if (pageRoot) gsap.set(pageRoot, { xPercent: 0, yPercent: 0, clearProps: "transform,willChange" });
         gsap.set(root, { autoAlpha: 0 });
         markDone();
         return;
@@ -303,13 +309,23 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       tl.addLabel("transition", `reveal+=${REVEAL_DUR + AFTER_REVEAL_DELAY}`);
 
       // Swipe loader out as the page swipes in.
-      tl.to(root, { xPercent: -100, duration: TRANSITION_DUR, ease: "power3.inOut" }, "transition");
+      tl.to(
+        root,
+        {
+          xPercent: isMobile ? 0 : -100,
+          yPercent: isMobile ? -100 : 0,
+          duration: TRANSITION_DUR,
+          ease: "power3.inOut",
+        },
+        "transition"
+      );
 
       if (pageRoot) {
         tl.to(
           pageRoot,
           {
             xPercent: 0,
+            yPercent: 0,
             duration: TRANSITION_DUR,
             ease: "power3.inOut",
             clearProps: "transform,willChange",
