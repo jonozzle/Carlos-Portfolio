@@ -94,6 +94,14 @@ export default function HomeFooter({ footer }: Props) {
                 return hs?.animation ?? null;
             };
 
+            const getHsMode = () => {
+                try {
+                    return (window as any).__hsMode as string | undefined;
+                } catch {
+                    return undefined;
+                }
+            };
+
             const expectsHs = () => !!root.closest(".hs-rail");
 
             // Marquee tween (pure transform loop; no rerenders; paused until footer is in-view)
@@ -119,13 +127,17 @@ export default function HomeFooter({ footer }: Props) {
                 killScrollBits();
 
                 const containerAnimation = getHsContainerAnimation();
+                const hsMode = getHsMode();
+                const isHsVertical = hsMode === "vertical";
+                const isInsideHs = expectsHs();
 
-                // If we’re inside the HS rail, do not create “normal” vertical triggers.
-                // Wait until HS is ready so the title + marquee can go on/off correctly.
-                if (expectsHs() && !containerAnimation) return;
+                // If we’re inside the HS rail, do not create “normal” vertical triggers
+                // until HS is ready (unless we’re in mobile/vertical mode).
+                if (isInsideHs && !containerAnimation && !isHsVertical) return;
 
                 // Base trigger settings (HS-aware when available)
-                const base: ScrollTrigger.Vars = containerAnimation
+                const base: ScrollTrigger.Vars =
+                    containerAnimation && !isHsVertical
                     ? {
                         trigger: root,
                         start: "left 80%",
@@ -246,7 +258,7 @@ export default function HomeFooter({ footer }: Props) {
             </div>
 
             {/* RIGHT SIDE */}
-            <div className="col-span-12 md:col-span-6 h-full overflow-hidden relative transform-gpu">
+            <div className="col-span-12 md:col-span-6 h-[70svh] md:h-full overflow-hidden relative transform-gpu">
                 {hasImages ? (
                     <div className="relative h-full w-full overflow-hidden">
                         <div
