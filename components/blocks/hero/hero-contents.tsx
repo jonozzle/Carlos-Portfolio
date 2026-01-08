@@ -877,11 +877,16 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       data-fouc
       data-hero-layout={activeLayout}
       data-links-layout={linksLayout}
-      className="relative flex-none w-screen h-screen grid grid-cols-1 md:grid-cols-2"
+      className="relative flex-none w-screen h-auto md:h-screen grid grid-cols-1 md:grid-cols-2"
       style={{ contain: "layout paint" }}
     >
       {/* LEFT – image */}
-      <div ref={leftRef} className="relative h-[50vh] md:h-full overflow-hidden">
+      <div ref={leftRef} className="relative h-[60vh] md:h-full overflow-hidden">
+        <div className="absolute right-3 top-3 z-30 md:hidden">
+          <span data-hero-main-title className="block">
+            <BioBlock />
+          </span>
+        </div>
         <div className="relative w-full h-full px-6 py-6 md:px-0 md:py-0">
           <div className="relative w-full h-full overflow-hidden">
             {/* CURRENT LAYER */}
@@ -936,9 +941,9 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         className="relative h-full px-6 pt-6 pb-2 overflow-hidden flex flex-col"
         style={{ contain: "layout paint" }}
       >
-        {/* HEADER (BioBlock is absolute so it never reflows links) */}
-        <div className="relative flex-none mb-4 min-h-[64px]">
-          <div className="pr-[180px] md:pr-[320px]">
+        {/* HEADER (BioBlock is absolute on desktop so it never reflows links) */}
+        <div className="relative flex-none mb-0 md:mb-4 min-h-0 md:min-h-[64px]">
+          <div className="pr-0 md:pr-[320px]">
             {shouldShowFeatured ? (
               <div className="text-base tracking-tighter flex flex-wrap items-baseline gap-x-2 gap-y-1">
                 <span className="font-bold uppercase">{featuredLabel}</span>
@@ -971,7 +976,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
             ) : null}
           </div>
 
-          <div className="absolute right-0 top-0 z-30">
+          <div className="absolute right-0 top-0 z-30 hidden md:block">
             <span data-hero-main-title className="block">
               <BioBlock />
             </span>
