@@ -14,7 +14,7 @@ export default function ProjectDetails({ details }: { details?: Detail[] | null 
             {details.map((d, i) => (
                 <div key={i} className="grid grid-cols-2 gap-1">
                     <div className="text-sm md:text-sm leading-tight">{d?.left}</div>
-                    <div className="text-sm md:text-sm leading-tight italic">{d?.right}</div>
+                    <div className="text-sm md:text-sm leading-tight ">{d?.right}</div>
                 </div>
             ))}
         </div>

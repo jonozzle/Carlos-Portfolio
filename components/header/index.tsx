@@ -2,7 +2,7 @@
 import Logo from "@/components/logo";
 import MobileNav from "@/components/header/mobile-nav";
 import DesktopNav from "@/components/header/desktop-nav";
-import BookmarkLink from "@/components/header/bookmark-link-fabric";
+import HomeBookmarkNav from "@/components/header/home-bookmark-nav";
 import { ModeToggle } from "@/components/menu-toggle";
 import { fetchSanitySettings, fetchSanityNavigation } from "@/sanity/lib/fetch";
 
@@ -11,10 +11,8 @@ export default async function Header() {
   const navigation = await fetchSanityNavigation();
 
   return (
-    <>
-      {/* Default: left side, drops 20px on hover */}
-      <BookmarkLink href="/" side="left" />
-
-    </>
+    <nav aria-label="Primary">
+      <HomeBookmarkNav />
+    </nav>
   );
 }

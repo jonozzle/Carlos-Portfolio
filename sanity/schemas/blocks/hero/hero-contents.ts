@@ -51,20 +51,28 @@ export default defineType({
     }),
 
     defineField({
+      name: "showProjectDetails",
+      title: "Show project details",
+      type: "boolean",
+      initialValue: false,
+      description: "Shows the project year under the title, then the client under the year.",
+    }),
+
+    defineField({
       name: "linksLayout",
       title: "Links layout",
       type: "string",
-      initialValue: "custom",
+      initialValue: "grid",
       options: {
         list: [
-          { title: "Custom placement (use X/Y per item)", value: "custom" },
+          { title: "Grid placement (28×28)", value: "grid" },
           { title: "Centered list", value: "center" },
           { title: "Two-column list", value: "two-column" },
         ],
         layout: "radio",
       },
       description:
-        "Default is Custom placement. Choose Center or Two-column to ignore X/Y and render a list layout instead.",
+        "Grid placement uses Row/Col per item (28×28). Center/Two-column ignore grid coords and render a list layout instead.",
     }),
 
     // -----------------------
@@ -131,6 +139,7 @@ export default defineType({
               },
             },
           ],
+          initialValue: [],
         }),
       ],
       preview: {
@@ -151,7 +160,7 @@ export default defineType({
       type: "boolean",
       fieldset: "footer",
       initialValue: true,
-      description: "Toggles the text block above the bottom divider/links.",
+      description: "Toggles the footer text block (the ‘footer bio’).",
     }),
     defineField({
       name: "footerBody",
@@ -159,7 +168,7 @@ export default defineType({
       type: "array",
       fieldset: "footer",
       of: [{ type: "block" }],
-      description: "Footer text content shown in the right column. If empty, nothing is rendered.",
+      description: "Footer text content. If empty, nothing is rendered.",
     }),
     defineField({
       name: "footerDropCap",
@@ -174,35 +183,11 @@ export default defineType({
     // BOTTOM
     // -----------------------
     defineField({
-      name: "showBottomDivider",
-      title: "Show bottom divider line",
-      type: "boolean",
-      initialValue: true,
-      description: "Toggles the horizontal divider above the bottom actions/copyright.",
-    }),
-
-    defineField({
-      name: "bottomLayout",
-      title: "Bottom layout",
-      type: "string",
-      fieldset: "bottom",
-      initialValue: "justified",
-      options: {
-        list: [
-          { title: "Justified (links left, copyright right)", value: "justified" },
-          { title: "Center (links centered, copyright below)", value: "center" },
-        ],
-        layout: "radio",
-      },
-      description: "Controls layout of the footer actions/copyright area.",
-    }),
-
-    defineField({
       name: "bottomLinks",
       title: "Bottom links",
       type: "array",
       fieldset: "bottom",
-      description: "Links shown at the bottom (e.g. Email, Instagram). If empty, nothing is rendered.",
+      description: "Links shown in the bottom-right (e.g. Email, Instagram).",
       of: [
         {
           type: "object",
@@ -247,7 +232,7 @@ export default defineType({
       title: "Copyright text",
       type: "string",
       fieldset: "bottom",
-      description: "If empty, nothing is rendered (no default year/©).",
+      description: "Shown under the bottom links on the bottom-right. If empty, nothing renders.",
     }),
 
     defineField({
@@ -255,9 +240,12 @@ export default defineType({
       title: "Show scroll hint",
       type: "boolean",
       initialValue: false,
-      description: "Shows a subtle right-edge scroll indicator (animated line extension).",
+      description: "Shows a subtle right-edge scroll indicator.",
     }),
 
+    // -----------------------
+    // ITEMS
+    // -----------------------
     defineField({
       name: "items",
       title: "Hero Projects",
@@ -298,25 +286,36 @@ export default defineType({
               initialValue: "feature-left",
               description: "Controls layout/animation for this project when active.",
             }),
+
+            // GRID placement (28×28)
             defineField({
-              name: "x",
-              title: "X position (%)",
+              name: "col",
+              title: "Grid column (1–28)",
               type: "number",
-              validation: (r) => r.min(0).max(100),
-              description: "0–100. Used only in Custom placement.",
+              initialValue: 14,
+              validation: (r) => r.required().integer().min(1).max(28),
+              description: "Column index in the 28×28 grid (used in Grid placement).",
             }),
             defineField({
-              name: "y",
-              title: "Y position (%)",
+              name: "row",
+              title: "Grid row (1–28)",
               type: "number",
-              validation: (r) => r.min(0).max(100),
-              description: "0–100. Used only in Custom placement.",
+              initialValue: 14,
+              validation: (r) => r.required().integer().min(1).max(28),
+              description: "Row index in the 28×28 grid (used in Grid placement).",
             }),
           ],
           preview: {
-            select: { title: "project.title", media: "image" },
-            prepare({ title, media }) {
-              return { title: title || "Untitled", media, subtitle: "Hero item" };
+            select: { title: "project.title", media: "image", col: "col", row: "row" },
+            prepare({ title, media, col, row }) {
+              return {
+                title: title || "Untitled",
+                media,
+                subtitle:
+                  typeof col === "number" && typeof row === "number"
+                    ? `Grid: c${col} r${row}`
+                    : "Hero item",
+              };
             },
           },
         }),

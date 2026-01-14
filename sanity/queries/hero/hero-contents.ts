@@ -9,10 +9,9 @@ export const heroContentsQuery = groq`
     title,
 
     "showNumbers": coalesce(showNumbers, false),
-    "linksLayout": coalesce(linksLayout, "custom"),
+    "showProjectDetails": coalesce(showProjectDetails, false),
+    "linksLayout": coalesce(linksLayout, "grid"),
 
-    "showBottomDivider": coalesce(showBottomDivider, true),
-    "bottomLayout": coalesce(bottomLayout, "justified"),
     "showScrollHint": coalesce(showScrollHint, false),
 
     "featuredLabel": coalesce(featuredLabel, ""),
@@ -55,6 +54,7 @@ export const heroContentsQuery = groq`
       "title": coalesce(project->title, "Untitled"),
       "slug": project->slug.current,
       "year": project->year,
+      "client": coalesce(project->client, ""),
       "image": select(
         defined(image) => {
           "asset": {"url": image.asset->url},
@@ -66,8 +66,15 @@ export const heroContentsQuery = groq`
         },
         null
       ),
+
+      // new grid coords
+      "col": col,
+      "row": row,
+
+      // legacy fallback (optional)
       "x": x,
       "y": y,
+
       "layout": coalesce(layout, "feature-left"),
       _key
     }

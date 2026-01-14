@@ -1,6 +1,6 @@
 // sanity/schemas/footer.ts
 import { defineType, defineField } from "sanity";
-import { LayoutTemplate } from "lucide-react";
+import { LayoutTemplate, Link as LinkIcon, Type as TypeIcon } from "lucide-react";
 
 export default defineType({
   name: "footer",
@@ -15,6 +15,7 @@ export default defineType({
       description: "Main footer title shown on the left.",
       validation: (r) => r.required(),
     }),
+
     defineField({
       name: "links",
       title: "Links",
@@ -23,6 +24,7 @@ export default defineType({
         defineField({
           name: "link",
           type: "object",
+          icon: LinkIcon,
           fields: [
             defineField({
               name: "label",
@@ -32,9 +34,20 @@ export default defineType({
             }),
             defineField({
               name: "href",
-              title: "URL",
+              title: "URL / mailto / tel",
               type: "url",
-              validation: (r) => r.required(),
+              description: "Examples: https://…, mailto:hello@…, tel:+41…, /projects/slug",
+              validation: (r) =>
+                r.required().uri({
+                  allowRelative: true,
+                  scheme: ["http", "https", "mailto", "tel"],
+                }),
+            }),
+            defineField({
+              name: "newTab",
+              title: "Open in new tab",
+              type: "boolean",
+              initialValue: false,
             }),
           ],
           preview: {
@@ -42,13 +55,25 @@ export default defineType({
           },
         }),
       ],
+      initialValue: [],
     }),
+
+    defineField({
+      name: "rightBody",
+      title: "Bottom right text",
+      type: "array",
+      icon: TypeIcon,
+      of: [{ type: "block" }],
+      description: "Portable text shown in the bottom-right of the left column.",
+    }),
+
     defineField({
       name: "copyright",
       title: "Copyright line",
       type: "string",
       description: "e.g. © 2025 Carlos Ferreira. All rights reserved.",
     }),
+
     defineField({
       name: "images",
       title: "Right column images",

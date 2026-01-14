@@ -16,20 +16,73 @@ import { lockHover } from "@/lib/hover-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 import type { PageTransitionKind } from "@/lib/transitions/state";
 
+/**
+ * Toggle fabric grab/drag interactivity.
+ * - true: press-and-hold, then drag the cloth (top stays pinned)
+ * - false: no grabbing; click behaviors remain
+ */
+const ENABLE_FABRIC_DRAG = true;
+
 type BookmarkLinkFabricProps = {
   href?: string;
   side?: "left" | "right";
   className?: string;
   slug?: string;
   heroImgUrl?: string;
+  onHomeToggle?: () => void;
+  homeLabel?: string;
+  ariaControls?: string;
+  ariaExpanded?: boolean;
+  homeFollowRef?: React.RefObject<HTMLElement | null>;
+  homeFollow?: boolean;
 };
 
 const TOP_THRESHOLD = 24;
 const TUG_COOLDOWN_MS = 1000;
-const CANVAS_BLEED = 16;
+
+const BOOKMARK_TALL_VH = 0.5;
+
+const BASE_RECT_HEIGHT = 24;
+const TAIL_HEIGHT = 40;
+const BASE_SHAPE_HEIGHT = BASE_RECT_HEIGHT + TAIL_HEIGHT;
+
+const HOME_ANCHOR_HEIGHT = 92;
+
+// Visual “drop” for the UI element (separate from drawer-follow y)
+const DROP_INNER_Y = -42;
+
+// Intro “fabric fall”
+const REVEAL_LIFT_PX = -64; // start cloth lifted so gravity settles it
+const REVEAL_KICK_PULL = 17000; // initial settle impulse
+const INTRO_FLUTTER_MS = 1200; // decaying flutter window
+const INTRO_FLUTTER_SCALE = 0.7; // reduce intro fall turbulence
+
+// “fabric-ness” during size/visibility animations
+const ANIM_WIND_MS = 600;
+
+// Grab behavior
+const GRAB_HOLD_MS = 90;
+const GRAB_MOVE_PX = 2;
+
+// Viewport clamp padding (lets you pull slightly off-screen)
+const VIEWPORT_PAD = 80;
 
 // Target brand red
 const RED_500 = { r: 251 / 255, g: 44 / 255, b: 54 / 255 };
+
+type StoredSize = { height: number; extra: number };
+
+function getStoredSize(): StoredSize | null {
+  if (typeof window === "undefined") return null;
+  const v = (window as any).__bookmarkLastSize as StoredSize | undefined;
+  if (!v || typeof v.height !== "number") return null;
+  return { height: v.height, extra: typeof v.extra === "number" ? v.extra : 0 };
+}
+
+function setStoredSize(next: StoredSize) {
+  if (typeof window === "undefined") return;
+  (window as any).__bookmarkLastSize = next;
+}
 
 function setHomeHold(on: boolean) {
   if (typeof document === "undefined") return;
@@ -141,29 +194,66 @@ export default function BookmarkLinkFabric({
   className,
   slug: slugProp,
   heroImgUrl: heroImgUrlProp,
+  onHomeToggle,
+  homeLabel,
+  ariaControls,
+  ariaExpanded,
+  homeFollowRef,
+  homeFollow,
 }: BookmarkLinkFabricProps) {
   const { loaderDone } = useLoader();
   const router = useRouter();
   const pathname = usePathname();
+  const isHome = pathname === "/";
 
   const linkRef = useRef<HTMLAnchorElement | null>(null);
+  const innerWrapRef = useRef<HTMLDivElement | null>(null); // UI drop animation (not drawer-follow y)
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const clothHostRef = useRef<HTMLDivElement | null>(null);
 
   const shownRef = useRef(false);
+
+  const stored0 = getStoredSize();
+  const sizeProxyRef = useRef({
+    height: stored0?.height ?? 0,
+    extra: stored0?.extra ?? 0,
+  });
+  const sizeTweenRef = useRef<gsap.core.Tween | null>(null);
+
+  // tracks “how much motion” size changes are producing (drives extra wind)
+  const sizeMotionRef = useRef({
+    lastH: stored0?.height ?? 0,
+    vel: 0, // smoothed px/frame-ish
+  });
+
   const [webglOk, setWebglOk] = useState(true);
   const [canvasReady, setCanvasReady] = useState(false);
   const canvasReadyRef = useRef(false);
 
-  const pull = useRef({ v: 0 }); // 0..1
+  const pull = useRef({ v: 0 }); // click tug 0..1
   const lastTugAtRef = useRef(0);
+
+  // intro reveal blending
+  const reveal = useRef({ v: 0 });
+  const introRef = useRef<{ t0: number; active: boolean }>({ t0: 0, active: false });
+
+  // wind used specifically during show/size tweens so they don’t look “uniform”
+  const animWind = useRef({ v: 0 });
+  const animWindTweenRef = useRef<gsap.core.Animation | null>(null);
+
+  const simApiRef = useRef<{ reset: (liftPx: number) => void } | null>(null);
+  const pendingResetLiftRef = useRef<number | null>(null);
 
   // drag/click suppression
   const dragRef = useRef({
     down: false,
+    grabbing: false,
     moved: false,
     startX: 0,
     startY: 0,
+    downAt: 0,
     suppressClick: false,
+    pointerId: -1,
     dragIndex: -1,
     targetX: 0,
     targetY: 0,
@@ -180,30 +270,172 @@ export default function BookmarkLinkFabric({
     lastT: 0,
   });
 
-  const hide = useCallback(() => {
+  const kickAnimWind = useCallback((amp = 1) => {
+    animWindTweenRef.current?.kill();
+    animWind.current.v = Math.max(animWind.current.v, 0);
+
+    animWindTweenRef.current = gsap
+      .timeline({ defaults: { overwrite: "auto" } })
+      .to(animWind.current, { v: Math.max(0.35, amp), duration: 0.12, ease: "power2.out" })
+      .to(animWind.current, { v: 0, duration: ANIM_WIND_MS / 1000, ease: "power2.out" });
+  }, []);
+
+  const applySize = useCallback((height: number, extra: number) => {
     const el = linkRef.current;
     if (!el) return;
+
+    sizeProxyRef.current.height = height;
+    sizeProxyRef.current.extra = extra;
+
+    const lastH = sizeMotionRef.current.lastH;
+    const dh = height - lastH;
+    sizeMotionRef.current.lastH = height;
+    sizeMotionRef.current.vel = sizeMotionRef.current.vel * 0.75 + dh * 0.25;
+
+    gsap.set(el, { height });
+    el.style.setProperty("--bookmark-total", `${height}px`);
+    el.style.setProperty("--bookmark-extra", `${extra}px`);
+
+    setStoredSize({ height, extra });
+  }, []);
+
+  const computeTargetSize = useCallback(() => {
+    if (typeof window === "undefined") {
+      const h = HOME_ANCHOR_HEIGHT;
+      return { height: h, extra: Math.max(0, h - BASE_SHAPE_HEIGHT) };
+    }
+    const targetHeight = isHome ? HOME_ANCHOR_HEIGHT : window.innerHeight * BOOKMARK_TALL_VH;
+    const targetExtra = Math.max(0, targetHeight - BASE_SHAPE_HEIGHT);
+    return { height: targetHeight, extra: targetExtra };
+  }, [isHome]);
+
+  const updateSize = useCallback(
+    (immediate?: boolean) => {
+      const { height: targetHeight, extra: targetExtra } = computeTargetSize();
+
+      sizeTweenRef.current?.kill();
+
+      if (immediate) {
+        applySize(targetHeight, targetExtra);
+        return;
+      }
+
+      kickAnimWind(0.7);
+
+      const proxy = sizeProxyRef.current;
+      sizeTweenRef.current = gsap.to(proxy, {
+        height: targetHeight,
+        extra: targetExtra,
+        duration: 0.6,
+        ease: "power3.out",
+        overwrite: "auto",
+        onUpdate: () => applySize(proxy.height, proxy.extra),
+      });
+    },
+    [applySize, computeTargetSize, kickAnimWind]
+  );
+
+  useEffect(() => {
+    if (!shownRef.current) return;
+    updateSize(false);
+  }, [isHome, updateSize]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onResize = () => updateSize(true);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [updateSize]);
+
+  const kickReveal = useCallback(() => {
+    introRef.current = { t0: performance.now(), active: true };
+
+    gsap.killTweensOf(reveal.current);
+    reveal.current.v = 0;
+
+    gsap
+      .timeline({ defaults: { overwrite: "auto" } })
+      .to(reveal.current, { v: 1, duration: 0.14, ease: "power2.out" })
+      .to(reveal.current, { v: 0, duration: 0.55, ease: "power2.out" });
+  }, []);
+
+  const hide = useCallback((immediate?: boolean) => {
+    const el = linkRef.current;
+    if (!el) return;
+
     shownRef.current = false;
 
-    gsap.killTweensOf(el);
+    gsap.killTweensOf(el, "autoAlpha");
     gsap.set(el, { pointerEvents: "none" });
-    gsap.to(el, { autoAlpha: 0, y: -24, duration: 0.2, ease: "power2.in", overwrite: "auto" });
+
+    if (innerWrapRef.current) gsap.killTweensOf(innerWrapRef.current, "y");
+
+    if (immediate) {
+      gsap.set(el, { autoAlpha: 0 });
+      return;
+    }
+
+    gsap.to(el, { autoAlpha: 0, duration: 0.15, ease: "power2.out", overwrite: "auto" });
   }, []);
 
   const show = useCallback(() => {
     const el = linkRef.current;
-    if (!el) return;
+    const inner = innerWrapRef.current;
+    if (!el || !inner) return;
+
+    const wasShown = shownRef.current;
     shownRef.current = true;
 
-    gsap.killTweensOf(el);
+    updateSize(false);
+
+    gsap.killTweensOf(el, "autoAlpha");
     gsap.set(el, { pointerEvents: "auto" });
-    gsap.set(el, { autoAlpha: 1 });
-    gsap.fromTo(
-      el,
-      { y: -42 },
-      { y: 0, duration: 0.7, ease: "bounce.out", overwrite: "auto" }
-    );
-  }, []);
+    gsap.to(el, { autoAlpha: 1, duration: 0.15, ease: "power2.out", overwrite: "auto" });
+
+    if (!wasShown) {
+      gsap.killTweensOf(inner, "y");
+      gsap.set(inner, { y: DROP_INNER_Y });
+      gsap.to(inner, { y: 0, duration: 0.65, ease: "power3.out", overwrite: "auto" });
+
+      if (simApiRef.current) simApiRef.current.reset(REVEAL_LIFT_PX);
+      else pendingResetLiftRef.current = REVEAL_LIFT_PX;
+
+      kickReveal();
+      kickAnimWind(1);
+    }
+  }, [kickAnimWind, kickReveal, updateSize]);
+
+  const followActive = !!(isHome && homeFollow && homeFollowRef?.current);
+
+  useEffect(() => {
+    const el = linkRef.current;
+    if (!el) return;
+
+    let raf = 0;
+    const setY = gsap.quickSetter(el, "y", "px") as (v: number) => void;
+
+    if (followActive) {
+      gsap.killTweensOf(el, "y");
+
+      const tick = () => {
+        const target = homeFollowRef?.current;
+        if (target) {
+          const rect = target.getBoundingClientRect();
+          setY(rect.bottom);
+        }
+        raf = window.requestAnimationFrame(tick);
+      };
+
+      tick();
+      return () => window.cancelAnimationFrame(raf);
+    }
+
+    window.cancelAnimationFrame(raf);
+    gsap.killTweensOf(el, "y");
+    gsap.to(el, { y: 0, duration: 0.35, ease: "power2.out", overwrite: "auto" });
+
+    return () => window.cancelAnimationFrame(raf);
+  }, [followActive, homeFollowRef]);
 
   const doNavigate = useCallback(async () => {
     const rawY = getRawScrollY();
@@ -213,8 +445,7 @@ export default function BookmarkLinkFabric({
     const enteredKind =
       ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
 
-    const isHeroBackType =
-      saved?.type === "project-block" || saved?.type === "page-link-section";
+    const isHeroBackType = saved?.type === "project-block" || saved?.type === "page-link-section";
 
     const shouldHeroBack =
       href === "/" &&
@@ -251,7 +482,6 @@ export default function BookmarkLinkFabric({
       return;
     }
 
-    // Hero-back
     setHomeHold(false);
     (window as any).__deferHomeThemeReset = true;
 
@@ -265,7 +495,10 @@ export default function BookmarkLinkFabric({
       document.querySelector<HTMLElement>(`[data-hero-target="project"]`);
 
     const resolvedSlug =
-      slugProp || sourceEl?.getAttribute("data-hero-slug") || (sourceEl as any)?.dataset?.heroSlug || "";
+      slugProp ||
+      sourceEl?.getAttribute("data-hero-slug") ||
+      (sourceEl as any)?.dataset?.heroSlug ||
+      "";
 
     const resolvedImgUrl = heroImgUrlProp || resolveHeroImgUrl(sourceEl);
 
@@ -291,13 +524,14 @@ export default function BookmarkLinkFabric({
 
   const onClick = useCallback(
     async (e: React.MouseEvent<HTMLAnchorElement>) => {
-      if (pathname === "/") {
+      if (dragRef.current.suppressClick) {
         e.preventDefault();
         return;
       }
 
-      if (dragRef.current.suppressClick) {
+      if (isHome) {
         e.preventDefault();
+        onHomeToggle?.();
         return;
       }
 
@@ -318,7 +552,7 @@ export default function BookmarkLinkFabric({
           await new Promise<void>((resolve) => {
             gsap
               .timeline({ defaults: { overwrite: "auto" }, onComplete: resolve })
-              .to(pull.current, { v: 1, duration: 0.10, ease: "power2.out" })
+              .to(pull.current, { v: 1, duration: 0.1, ease: "power2.out" })
               .to(pull.current, { v: 0, duration: 0.18, ease: "power2.in" });
           });
         }
@@ -328,15 +562,29 @@ export default function BookmarkLinkFabric({
         clickLock.current = false;
       }
     },
-    [doNavigate, pathname]
+    [doNavigate, isHome, onHomeToggle]
   );
 
-  // Show/hide hook-up
   useEffect(() => {
     const el = linkRef.current;
-    if (!el) return;
+    const inner = innerWrapRef.current;
+    if (!el || !inner) return;
 
-    gsap.set(el, { autoAlpha: 0, y: -24, pointerEvents: "none", willChange: "transform,opacity" });
+    gsap.set(el, {
+      autoAlpha: 0,
+      pointerEvents: "none",
+      willChange: "transform,opacity,height",
+      y: 0,
+    });
+
+    gsap.set(inner, { y: 0, willChange: "transform" });
+
+    const stored = getStoredSize();
+    if (stored) applySize(stored.height, stored.extra);
+    else {
+      const { height, extra } = computeTargetSize();
+      applySize(height, extra);
+    }
 
     const onShow = () => show();
     const onHide = () => hide();
@@ -345,28 +593,20 @@ export default function BookmarkLinkFabric({
     window.addEventListener(APP_EVENTS.UI_BOOKMARK_HIDE, onHide);
 
     if (loaderDone) show();
-    else hide();
+    else hide(true);
 
     return () => {
       window.removeEventListener(APP_EVENTS.UI_BOOKMARK_SHOW, onShow);
       window.removeEventListener(APP_EVENTS.UI_BOOKMARK_HIDE, onHide);
     };
-  }, [hide, show, loaderDone]);
+  }, [applySize, computeTargetSize, hide, show, loaderDone]);
 
-  useEffect(() => {
-    if (!linkRef.current) return;
-    if (loaderDone) show();
-    else hide();
-  }, [loaderDone, show, hide]);
-
-  // Pointer -> local coords in anchor
+  /**
+   * Pointer in VIEWPORT coords (canvas is full-viewport now).
+   */
   const updatePointer = useCallback((clientX: number, clientY: number) => {
-    const a = linkRef.current;
-    if (!a) return;
-    const r = a.getBoundingClientRect();
-
-    const x = clamp(clientX - r.left, 0, r.width);
-    const y = clamp(clientY - r.top, 0, r.height);
+    const x = clientX;
+    const y = clientY;
 
     const now = performance.now();
     const p = pointerRef.current;
@@ -390,6 +630,13 @@ export default function BookmarkLinkFabric({
     }
   }, []);
 
+  const pointInAnchor = useCallback((clientX: number, clientY: number) => {
+    const el = linkRef.current;
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+  }, []);
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLAnchorElement>) => {
       if (e.button !== 0) return;
@@ -397,14 +644,21 @@ export default function BookmarkLinkFabric({
       const a = linkRef.current;
       if (!a) return;
 
-      dragRef.current.down = true;
-      dragRef.current.moved = false;
+      pointerRef.current.active = true;
+      updatePointer(e.clientX, e.clientY);
+
       dragRef.current.suppressClick = false;
+
+      if (!ENABLE_FABRIC_DRAG) return;
+
+      dragRef.current.down = true;
+      dragRef.current.grabbing = false;
+      dragRef.current.moved = false;
+      dragRef.current.dragIndex = -1;
       dragRef.current.startX = e.clientX;
       dragRef.current.startY = e.clientY;
-
-      updatePointer(e.clientX, e.clientY);
-      pointerRef.current.active = true;
+      dragRef.current.downAt = performance.now();
+      dragRef.current.pointerId = e.pointerId;
 
       try {
         a.setPointerCapture(e.pointerId);
@@ -419,11 +673,22 @@ export default function BookmarkLinkFabric({
     (e: React.PointerEvent<HTMLAnchorElement>) => {
       updatePointer(e.clientX, e.clientY);
 
-      if (dragRef.current.down) {
-        const dx = e.clientX - dragRef.current.startX;
-        const dy = e.clientY - dragRef.current.startY;
-        if (!dragRef.current.moved && Math.hypot(dx, dy) > 5) {
-          dragRef.current.moved = true;
+      if (!ENABLE_FABRIC_DRAG) return;
+      if (!dragRef.current.down) return;
+
+      const now = performance.now();
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      const dist = Math.hypot(dx, dy);
+
+      if (!dragRef.current.moved && dist > GRAB_MOVE_PX) {
+        dragRef.current.moved = true;
+      }
+
+      if (!dragRef.current.grabbing) {
+        const heldLongEnough = now - dragRef.current.downAt >= GRAB_HOLD_MS;
+        if (heldLongEnough && dragRef.current.moved) {
+          dragRef.current.grabbing = true;
           dragRef.current.suppressClick = true;
         }
       }
@@ -431,22 +696,49 @@ export default function BookmarkLinkFabric({
     [updatePointer]
   );
 
-  const onPointerUp = useCallback((e: React.PointerEvent<HTMLAnchorElement>) => {
-    dragRef.current.down = false;
-    dragRef.current.dragIndex = -1;
+  const endPointer = useCallback(
+    (e: React.PointerEvent<HTMLAnchorElement>) => {
+      const wasDown = dragRef.current.down;
 
-    if (dragRef.current.suppressClick) {
-      window.setTimeout(() => {
-        dragRef.current.suppressClick = false;
-      }, 0);
-    }
+      dragRef.current.down = false;
+      dragRef.current.grabbing = false;
+      dragRef.current.dragIndex = -1;
+      dragRef.current.pointerId = -1;
 
-    try {
-      linkRef.current?.releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
-  }, []);
+      if (wasDown && !pointInAnchor(e.clientX, e.clientY)) {
+        pointerRef.current.active = false;
+        pointerRef.current.vx *= 0.25;
+        pointerRef.current.vy *= 0.25;
+      }
+
+      if (dragRef.current.suppressClick) {
+        window.setTimeout(() => {
+          dragRef.current.suppressClick = false;
+        }, 0);
+      }
+
+      try {
+        linkRef.current?.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+    },
+    [pointInAnchor]
+  );
+
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLAnchorElement>) => {
+      endPointer(e);
+    },
+    [endPointer]
+  );
+
+  const onPointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLAnchorElement>) => {
+      endPointer(e);
+    },
+    [endPointer]
+  );
 
   const onPointerEnter = useCallback(
     (e: React.PointerEvent<HTMLAnchorElement>) => {
@@ -457,24 +749,26 @@ export default function BookmarkLinkFabric({
   );
 
   const onPointerLeave = useCallback(() => {
+    if (dragRef.current.down) return;
+
     pointerRef.current.active = false;
     pointerRef.current.vx *= 0.25;
     pointerRef.current.vy *= 0.25;
-    dragRef.current.down = false;
-    dragRef.current.dragIndex = -1;
   }, []);
 
-  // WebGL cloth (NO prefers-reduced-motion gating)
+  // WebGL cloth
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const canvas = canvasRef.current;
-    const host = linkRef.current;
+    const host = clothHostRef.current;
     if (!canvas || !host) return;
 
     let isActive = true;
     canvasReadyRef.current = false;
     setCanvasReady(false);
+
+    simApiRef.current = null;
 
     const gl =
       canvas.getContext("webgl", {
@@ -489,7 +783,6 @@ export default function BookmarkLinkFabric({
       return;
     }
 
-    // Enable derivatives if available (fixes fwidth)
     const deriv = gl.getExtension("OES_standard_derivatives");
     const hasDeriv = !!deriv;
 
@@ -524,12 +817,14 @@ export default function BookmarkLinkFabric({
       varying vec2 v_uv;
 
       uniform vec3 u_color;
+      uniform float u_totalH;
+      uniform float u_topH;
+      uniform float u_tailH;
 
       float aaWidth(float v) {
       #if HAS_DERIV
         return fwidth(v) * 1.25 + 0.0005;
       #else
-        // fallback AA in UV units (good enough, but less perfect)
         return 0.02;
       #endif
       }
@@ -537,28 +832,24 @@ export default function BookmarkLinkFabric({
       float sat(float x) { return clamp(x, 0.0, 1.0); }
 
       void main() {
-        // Shape in UV: 24px top + 40px tail = 64px total
-        float totalH = 64.0;
-        float topH = 24.0;
-        float tailH = 40.0;
+        float totalH = max(u_totalH, 1.0);
+        float topH = max(u_topH, 1.0);
+        float tailH = max(u_tailH, 1.0);
 
-        // V apex at 72% of tail (matches your original clip-path)
         float apexV = (topH + 0.72 * tailH) / totalH;
 
         float u = v_uv.x - 0.5;
         float v = v_uv.y;
 
-        // Side edges (keep solid; just a touch of AA)
         float sideEdge = abs(u) - 0.5;
         float sideAA = aaWidth(sideEdge);
         float side = 1.0 - smoothstep(0.0, sideAA, sideEdge);
 
-        // Notch cut (triangle)
         float notch = 1.0;
         if (v >= apexV) {
           float t = (v - apexV) / (1.0 - apexV);
           float cutHalf = 0.5 * t;
-          float edge = cutHalf - abs(u);     // >0 inside the cut triangle
+          float edge = cutHalf - abs(u);
           float nAA = aaWidth(edge);
           notch = 1.0 - smoothstep(0.0, nAA, edge);
         }
@@ -582,17 +873,19 @@ export default function BookmarkLinkFabric({
     const aUv = gl.getAttribLocation(prog, "a_uv");
     const uCanvas = gl.getUniformLocation(prog, "u_canvas");
     const uColor = gl.getUniformLocation(prog, "u_color");
+    const uTotalH = gl.getUniformLocation(prog, "u_totalH");
+    const uTopH = gl.getUniformLocation(prog, "u_topH");
+    const uTailH = gl.getUniformLocation(prog, "u_tailH");
 
     const posBuf = gl.createBuffer();
     const uvBuf = gl.createBuffer();
     const idxBuf = gl.createBuffer();
-    if (!posBuf || !uvBuf || !idxBuf || !uCanvas || !uColor) {
+    if (!posBuf || !uvBuf || !idxBuf || !uCanvas || !uColor || !uTotalH || !uTopH || !uTailH) {
       setWebglOk(false);
       gl.deleteProgram(prog);
       return;
     }
 
-    // Cloth mesh
     const COLS = 6;
     const ROWS = 22;
     const COUNT = COLS * ROWS;
@@ -601,31 +894,43 @@ export default function BookmarkLinkFabric({
     const prev = new Float32Array(COUNT * 3);
     const rest = new Float32Array(COUNT * 3);
     const uv = new Float32Array(COUNT * 2);
+    const yNorm = new Float32Array(COUNT);
 
     type C = { a: number; b: number; rest: number };
     const constraints: C[] = [];
 
-    // Draw region: 16px strip centered inside 48px host, height 64px (matches original)
     const STRIP_W = 16;
-    const STRIP_H = 64;
-    const baseRect = host.getBoundingClientRect();
-    const baseW = Math.max(1, Math.round(baseRect.width || 48));
-    const baseH = Math.max(1, Math.round(baseRect.height || 92));
-    const canvasW = baseW + CANVAS_BLEED * 2;
-    const canvasH = baseH + CANVAS_BLEED * 2;
-    const centerX = canvasW / 2;
-    const startX = centerX - STRIP_W / 2;
-    const startY = CANVAS_BLEED;
+    let stripHeight = Math.max(BASE_SHAPE_HEIGHT, sizeProxyRef.current.height || BASE_SHAPE_HEIGHT);
+
+    // Anchor (viewport space)
+    let startX = 0;
+    let startY = 0;
+
+    const readAnchor = () => {
+      const r = host.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      return {
+        x: cx - STRIP_W / 2,
+        y: r.top,
+      };
+    };
+
+    // Seed anchor
+    {
+      const a = readAnchor();
+      startX = a.x;
+      startY = a.y;
+    }
 
     const stepX = STRIP_W / (COLS - 1);
-    const stepY = STRIP_H / (ROWS - 1);
     const idx = (cx: number, ry: number) => ry * COLS + cx;
 
     for (let ry = 0; ry < ROWS; ry++) {
       for (let cx = 0; cx < COLS; cx++) {
         const i = idx(cx, ry);
         const x = startX + cx * stepX;
-        const y = startY + ry * stepY;
+        const n = ry / (ROWS - 1);
+        const y = startY + n * stripHeight;
         const z = 0;
 
         pos[i * 3 + 0] = x;
@@ -641,7 +946,8 @@ export default function BookmarkLinkFabric({
         rest[i * 3 + 2] = z;
 
         uv[i * 2 + 0] = cx / (COLS - 1);
-        uv[i * 2 + 1] = ry / (ROWS - 1);
+        uv[i * 2 + 1] = n;
+        yNorm[i] = n;
       }
     }
 
@@ -660,19 +966,49 @@ export default function BookmarkLinkFabric({
       for (let cx = 0; cx < COLS; cx++) {
         const i = idx(cx, ry);
 
-        // structural
         if (cx + 1 < COLS) addConstraint(i, idx(cx + 1, ry));
         if (ry + 1 < ROWS) addConstraint(i, idx(cx, ry + 1));
 
-        // shear
         if (cx + 1 < COLS && ry + 1 < ROWS) addConstraint(i, idx(cx + 1, ry + 1));
         if (cx - 1 >= 0 && ry + 1 < ROWS) addConstraint(i, idx(cx - 1, ry + 1));
 
-        // bend (skip-one)
         if (cx + 2 < COLS) addConstraint(i, idx(cx + 2, ry));
         if (ry + 2 < ROWS) addConstraint(i, idx(cx, ry + 2));
       }
     }
+
+    const updateConstraintRest = () => {
+      for (let c = 0; c < constraints.length; c++) {
+        const { a, b } = constraints[c];
+        const ax = rest[a * 3 + 0];
+        const ay = rest[a * 3 + 1];
+        const az = rest[a * 3 + 2];
+        const bx = rest[b * 3 + 0];
+        const by = rest[b * 3 + 1];
+        const bz = rest[b * 3 + 2];
+        constraints[c].rest = Math.hypot(bx - ax, by - ay, bz - az);
+      }
+    };
+
+    const updateStripHeight = (nextHeight: number) => {
+      const safeNext = Math.max(BASE_SHAPE_HEIGHT, nextHeight);
+      if (Math.abs(safeNext - stripHeight) < 0.5) return;
+
+      const scaleY = safeNext / stripHeight;
+
+      for (let i = 0; i < COUNT; i++) {
+        const py = pos[i * 3 + 1];
+        const ppy = prev[i * 3 + 1];
+
+        pos[i * 3 + 1] = startY + (py - startY) * scaleY;
+        prev[i * 3 + 1] = startY + (ppy - startY) * scaleY;
+
+        rest[i * 3 + 1] = startY + yNorm[i] * safeNext;
+      }
+
+      updateConstraintRest();
+      stripHeight = safeNext;
+    };
 
     const triCount = (COLS - 1) * (ROWS - 1) * 2;
     const indices = new Uint16Array(triCount * 3);
@@ -712,10 +1048,43 @@ export default function BookmarkLinkFabric({
 
     const pinned = (i: number) => Math.floor(i / COLS) === 0;
 
-    const pickNearestVertex = (x: number, y: number) => {
+    const resetCloth = (liftPx: number) => {
+      for (let i = 0; i < COUNT; i++) {
+        const x = rest[i * 3 + 0];
+        const y = rest[i * 3 + 1];
+        const z = rest[i * 3 + 2];
+
+        pos[i * 3 + 0] = x;
+        pos[i * 3 + 2] = z;
+
+        prev[i * 3 + 0] = x;
+        prev[i * 3 + 2] = z;
+
+        if (pinned(i)) {
+          pos[i * 3 + 1] = y;
+          prev[i * 3 + 1] = y;
+        } else {
+          const lift = liftPx * yNorm[i];
+          pos[i * 3 + 1] = y + lift;
+          prev[i * 3 + 1] = y + lift;
+
+          pos[i * 3 + 2] = (Math.random() - 0.5) * 2.5;
+          prev[i * 3 + 2] = pos[i * 3 + 2];
+        }
+      }
+    };
+
+    simApiRef.current = { reset: resetCloth };
+
+    if (pendingResetLiftRef.current != null) {
+      resetCloth(pendingResetLiftRef.current);
+      pendingResetLiftRef.current = null;
+    }
+
+    const pickNearestVertexUnpinned = (x: number, y: number) => {
       let best = -1;
       let bestD = 1e9;
-      for (let i = 0; i < COUNT; i++) {
+      for (let i = COLS; i < COUNT; i++) {
         const px = pos[i * 3 + 0];
         const py = pos[i * 3 + 1];
         const d = (px - x) * (px - x) + (py - y) * (py - y);
@@ -730,28 +1099,80 @@ export default function BookmarkLinkFabric({
     let raf = 0;
     let lastT = 0;
 
-    const resize = () => {
-      const r = host.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Viewport-sized canvas
+    let fullW = Math.max(1, window.innerWidth);
+    let fullH = Math.max(1, window.innerHeight);
 
-      const fullW = Math.max(1, r.width + CANVAS_BLEED * 2);
-      const fullH = Math.max(1, r.height + CANVAS_BLEED * 2);
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      fullW = Math.max(1, window.innerWidth);
+      fullH = Math.max(1, window.innerHeight);
+
       const w = Math.max(1, Math.round(fullW * dpr));
       const h = Math.max(1, Math.round(fullH * dpr));
 
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
+        // IMPORTANT: set styles inline so reload doesn’t flash a white 300x150 canvas
         canvas.style.width = `${fullW}px`;
         canvas.style.height = `${fullH}px`;
-        canvas.style.left = `${-CANVAS_BLEED}px`;
-        canvas.style.top = `${-CANVAS_BLEED}px`;
+        canvas.style.left = "0px";
+        canvas.style.top = "0px";
         gl.viewport(0, 0, w, h);
       }
 
       gl.useProgram(prog);
       gl.uniform2f(uCanvas, fullW, fullH);
     };
+
+    const clearOnce = () => {
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    };
+
+    // Move cloth when the bookmark anchor moves (drawer-follow, etc.)
+    const updateAnchor = () => {
+      const a = readAnchor();
+      const dx = a.x - startX;
+      const dy = a.y - startY;
+      if (Math.abs(dx) + Math.abs(dy) < 0.01) return;
+
+      for (let i = 0; i < COUNT; i++) {
+        pos[i * 3 + 0] += dx;
+        pos[i * 3 + 1] += dy;
+
+        prev[i * 3 + 0] += dx;
+        prev[i * 3 + 1] += dy;
+
+        rest[i * 3 + 0] += dx;
+        rest[i * 3 + 1] += dy;
+      }
+
+      startX = a.x;
+      startY = a.y;
+    };
+
+    const enforceGrab = () => {
+      const drag = dragRef.current;
+      if (!ENABLE_FABRIC_DRAG) return;
+      if (!drag.grabbing) return;
+      if (drag.dragIndex < 0) return;
+
+      const i = drag.dragIndex;
+
+      pos[i * 3 + 0] = drag.targetX;
+      pos[i * 3 + 1] = drag.targetY;
+      pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
+
+      prev[i * 3 + 0] = drag.targetX;
+      prev[i * 3 + 1] = drag.targetY;
+      prev[i * 3 + 2] = pos[i * 3 + 2];
+    };
+
+    // Initial size/clear to prevent reload flash
+    resize();
+    clearOnce();
 
     const draw = (time: number) => {
       if (!canvasReadyRef.current && isActive) {
@@ -761,28 +1182,45 @@ export default function BookmarkLinkFabric({
 
       raf = window.requestAnimationFrame(draw);
 
-      const dt = lastT ? clamp((time - lastT) / 1000, 0.010, 0.033) : 0.016;
+      const dt = lastT ? clamp((time - lastT) / 1000, 0.01, 0.033) : 0.016;
       lastT = time;
 
       resize();
+      updateAnchor();
+      updateStripHeight(sizeProxyRef.current.height || BASE_SHAPE_HEIGHT);
+
+      const extra = Math.max(0, stripHeight - BASE_SHAPE_HEIGHT);
+      const topH = BASE_RECT_HEIGHT + extra;
 
       // Physics
       const damping = 0.985;
-      const gravity = 1400; // px/s^2
-      const tether = 22;
-      const zTether = 28;
+      const gravity = 1400;
 
-      // Response
+      // IMPORTANT: during dragging, reduce “snap-back to rest” so the cloth can travel far
+      const drag = dragRef.current;
+      const tether = drag.grabbing ? 8 : 22;
+      const zTether = drag.grabbing ? 10 : 28;
+
       const windStrength = 1800;
       const liftStrength = 140;
-      const dragStrength = 85;
 
       const p = pointerRef.current;
-      const drag = dragRef.current;
 
-      if (drag.down && drag.dragIndex < 0) {
-        drag.dragIndex = pickNearestVertex(p.x, p.y);
+      if (ENABLE_FABRIC_DRAG && drag.grabbing && drag.dragIndex < 0) {
+        drag.dragIndex = pickNearestVertexUnpinned(p.x, p.y);
       }
+
+      // intro flutter (decays to 0)
+      let flutter = 0;
+      if (introRef.current.active) {
+        const age = time - introRef.current.t0;
+        flutter = clamp(1 - age / INTRO_FLUTTER_MS, 0, 1);
+        if (flutter <= 0.0001) introRef.current.active = false;
+      }
+
+      // wind during show/size animations
+      const anim = clamp(animWind.current.v, 0, 1);
+      const velNorm = clamp(Math.abs(sizeMotionRef.current.vel) / 6, 0, 1);
 
       for (let i = 0; i < COUNT; i++) {
         if (pinned(i)) {
@@ -793,6 +1231,18 @@ export default function BookmarkLinkFabric({
           prev[i * 3 + 0] = rest[i * 3 + 0];
           prev[i * 3 + 1] = rest[i * 3 + 1];
           prev[i * 3 + 2] = rest[i * 3 + 2];
+          continue;
+        }
+
+        // If grabbed, hard-pin to cursor
+        if (ENABLE_FABRIC_DRAG && drag.grabbing && drag.dragIndex === i) {
+          pos[i * 3 + 0] = drag.targetX;
+          pos[i * 3 + 1] = drag.targetY;
+          pos[i * 3 + 2] = -10;
+
+          prev[i * 3 + 0] = drag.targetX;
+          prev[i * 3 + 1] = drag.targetY;
+          prev[i * 3 + 2] = pos[i * 3 + 2];
           continue;
         }
 
@@ -812,19 +1262,19 @@ export default function BookmarkLinkFabric({
         let ay = gravity;
         let az = 0;
 
-        // keep silhouette controlled
+        // gentle return-to-shape
         ax += (rest[i * 3 + 0] - x) * tether;
         ay += (rest[i * 3 + 1] - y) * tether;
         az += (rest[i * 3 + 2] - z) * zTether;
+
+        const ry = Math.floor(i / COLS);
+        const tRow = ry / (ROWS - 1);
 
         if (p.active) {
           const dx = x - p.x;
           const dy = y - p.y;
           const r2 = dx * dx + dy * dy;
           const fall = 1 / (1 + r2 / (28 * 28));
-
-          const ry = Math.floor(i / COLS);
-          const tRow = ry / (ROWS - 1);
 
           ax += p.vx * windStrength * fall * (0.25 + 0.75 * tRow);
           ay += p.vy * windStrength * fall * (0.25 + 0.75 * tRow);
@@ -833,16 +1283,28 @@ export default function BookmarkLinkFabric({
 
         const tug = pull.current.v;
         if (tug > 0.0001) {
-          const ry = Math.floor(i / COLS);
-          const tRow = ry / (ROWS - 1);
           ay += tug * 9000 * tRow;
           az += -tug * 260 * tRow;
         }
 
-        if (drag.down && drag.dragIndex === i) {
-          ax += (drag.targetX - x) * dragStrength;
-          ay += (drag.targetY - y) * dragStrength;
-          az += -120;
+        const rev = reveal.current.v;
+        if (rev > 0.0001) {
+          ay += rev * REVEAL_KICK_PULL * tRow;
+          az += -rev * 340 * tRow;
+        }
+
+        if (flutter > 0.0001) {
+          const w = flutter * INTRO_FLUTTER_SCALE * (0.2 + 0.8 * tRow);
+          ax += Math.sin(time * 0.01 + yNorm[i] * 5.5) * 2400 * w;
+          az += Math.cos(time * 0.013 + yNorm[i] * 4.2) * 55 * w;
+        }
+
+        const motion = Math.max(anim, velNorm * 0.9);
+        if (motion > 0.0001) {
+          const w = motion * (0.25 + 0.75 * tRow);
+          ax += Math.sin(time * 0.012 + yNorm[i] * 6.0) * 1650 * w;
+          az += Math.cos(time * 0.015 + yNorm[i] * 4.7) * 42 * w;
+          ay += Math.sin(time * 0.009 + yNorm[i] * 3.3) * 620 * w;
         }
 
         prev[i * 3 + 0] = x;
@@ -854,7 +1316,6 @@ export default function BookmarkLinkFabric({
         pos[i * 3 + 2] = z + vz + az * dt * dt;
       }
 
-      // Constraints
       const ITER = 7;
       for (let it = 0; it < ITER; it++) {
         for (let c = 0; c < constraints.length; c++) {
@@ -897,29 +1358,44 @@ export default function BookmarkLinkFabric({
           }
         }
 
-        // repin top row
         for (let cx = 0; cx < COLS; cx++) {
           const i = idx(cx, 0);
           pos[i * 3 + 0] = rest[i * 3 + 0];
           pos[i * 3 + 1] = rest[i * 3 + 1];
           pos[i * 3 + 2] = rest[i * 3 + 2];
         }
+
+        enforceGrab();
       }
 
-      // safety clamps
-      for (let i = 0; i < COUNT; i++) {
-        if (pinned(i)) continue;
-        pos[i * 3 + 0] = clamp(pos[i * 3 + 0], startX - 10, startX + STRIP_W + 10);
-        pos[i * 3 + 1] = clamp(pos[i * 3 + 1], -8, 92 + 14);
-        pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
+      // Clamp: when grabbing, allow the whole cloth to range across the viewport
+      if (ENABLE_FABRIC_DRAG && drag.grabbing) {
+        for (let i = 0; i < COUNT; i++) {
+          if (pinned(i)) continue;
+          pos[i * 3 + 0] = clamp(pos[i * 3 + 0], -VIEWPORT_PAD, fullW + VIEWPORT_PAD);
+          pos[i * 3 + 1] = clamp(pos[i * 3 + 1], -VIEWPORT_PAD, fullH + VIEWPORT_PAD);
+          pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
+        }
+      } else {
+        // otherwise keep it around the strip so it doesn’t wander
+        for (let i = 0; i < COUNT; i++) {
+          if (pinned(i)) continue;
+          pos[i * 3 + 0] = clamp(pos[i * 3 + 0], startX - 10, startX + STRIP_W + 10);
+          pos[i * 3 + 1] = clamp(pos[i * 3 + 1], startY - 8, startY + stripHeight + 14);
+          pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
+        }
       }
 
-      // draw
+      enforceGrab();
+
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
       gl.useProgram(prog);
       gl.uniform3f(uColor, RED_500.r, RED_500.g, RED_500.b);
+      gl.uniform1f(uTotalH, stripHeight);
+      gl.uniform1f(uTopH, topH);
+      gl.uniform1f(uTailH, TAIL_HEIGHT);
 
       gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, pos);
@@ -944,6 +1420,8 @@ export default function BookmarkLinkFabric({
       window.removeEventListener("resize", onResize);
       window.cancelAnimationFrame(raf);
 
+      simApiRef.current = null;
+
       gl.deleteBuffer(posBuf);
       gl.deleteBuffer(uvBuf);
       gl.deleteBuffer(idxBuf);
@@ -952,11 +1430,16 @@ export default function BookmarkLinkFabric({
   }, []);
 
   const fallbackBookmark = useMemo(() => {
-    // exact original DOM bookmark
     return (
-      <div className="relative flex h-full w-full items-start justify-center pointer-events-none">
+      <div
+        className="relative flex w-12 items-start justify-center pointer-events-none"
+        style={{ height: `calc(${BASE_SHAPE_HEIGHT}px + var(--bookmark-extra, 0px))` }}
+      >
         <div className="flex flex-col items-center">
-          <span className="block w-4 bg-red-500 h-[24px] transition-[height] duration-300 ease-out group-hover:h-[50px]" />
+          <span
+            className="block w-4 bg-red-500 transition-[height] duration-300 ease-out"
+            style={{ height: `calc(${BASE_RECT_HEIGHT}px + var(--bookmark-extra, 0px))` }}
+          />
           <span
             aria-hidden
             className="block w-4 h-[40px] bg-red-500 [clip-path:polygon(0_0,100%_0,100%_100%,50%_72%,0_100%)]"
@@ -966,31 +1449,75 @@ export default function BookmarkLinkFabric({
     );
   }, []);
 
+  const ariaLabel = isHome ? homeLabel ?? "Project index" : "Back";
+  const fallbackVisible = !webglOk || !canvasReady;
+  const canvasVisible = webglOk && canvasReady;
+
   return (
     <a
       ref={linkRef}
       href={href}
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
       onClick={onClick}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      aria-label="Back"
+      onPointerCancel={onPointerCancel}
+      aria-label={ariaLabel}
+      aria-controls={isHome ? ariaControls : undefined}
+      aria-expanded={isHome ? ariaExpanded : undefined}
       style={{ touchAction: "none" }}
       className={cn(
-        "group fixed top-0 z-[10010] overflow-visible",
+        "group fixed top-0 z-[10010] overflow-visible origin-top",
         side === "left" ? "left-6" : "right-6",
         "inline-flex items-start justify-center",
         "h-[92px] w-12",
         "opacity-0",
+        "select-none [-webkit-user-drag:none]",
+        ENABLE_FABRIC_DRAG ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
         className
       )}
     >
-    <div className="relative h-full w-full pointer-events-none">
-      {!webglOk || !canvasReady ? fallbackBookmark : null}
-      {webglOk ? <canvas ref={canvasRef} className="absolute pointer-events-none" /> : null}
-    </div>
-  </a>
+      {/* Full-viewport canvas (fixed). Inline styles prevent reload flash before CSS loads. */}
+      {webglOk ? (
+        <canvas
+          ref={canvasRef}
+          aria-hidden
+          className={cn(
+            "fixed inset-0 pointer-events-none transition-opacity duration-150",
+            canvasVisible ? "opacity-100" : "opacity-0"
+          )}
+          style={{
+            position: "fixed",
+            inset: 0,
+            pointerEvents: "none",
+            background: "transparent",
+            opacity: canvasVisible ? 1 : 0,
+            zIndex: 10009, // just under the anchor itself
+          }}
+        />
+      ) : null}
+
+      {/* inner wrapper so we can “drop” without touching the anchor’s y (used for drawer-follow) */}
+      <div ref={innerWrapRef} className="relative h-full w-full pointer-events-none">
+        <div
+          ref={clothHostRef}
+          className="absolute left-1/2 top-0 w-12 -translate-x-1/2 pointer-events-none"
+          style={{ height: "var(--bookmark-total, 64px)" }}
+        >
+          <div
+            className={cn(
+              "absolute inset-0 transition-opacity duration-150",
+              fallbackVisible ? "opacity-100" : "opacity-0"
+            )}
+          >
+            {fallbackBookmark}
+          </div>
+        </div>
+      </div>
+    </a>
   );
 }

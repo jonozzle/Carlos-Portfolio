@@ -5,6 +5,7 @@ import { useMemo, useRef } from "react";
 import gsap from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
+import { PortableText } from "next-sanity";
 import { StylizedLabel } from "@/components/ui/stylised-label";
 import UnderlineLink from "@/components/ui/underline-link";
 import SmoothImage from "@/components/ui/smooth-image";
@@ -31,12 +32,63 @@ export default function HomeFooter({ footer }: Props) {
     const images = (footer.images ?? []) as FooterImage[];
     const copyright = footer.copyright ?? "";
 
+    // new: portable text on bottom-right
+    const rightBody = ((footer as any).rightBody ?? []) as any[];
+
     const hasImages = images.length > 0;
 
     // Double the array for an infinite loop (track is exactly 200% of content height)
     const scrollingImages = useMemo(
         () => (hasImages ? [...images, ...images] : []),
         [hasImages, images]
+    );
+
+    const rightBodyComponents = useMemo(
+        () => ({
+            block: {
+                normal: ({ children }: any) => (
+                    <p className="text-xs md:text-sm leading-relaxed opacity-70 text-right">
+                        {children}
+                    </p>
+                ),
+            },
+            list: {
+                bullet: ({ children }: any) => (
+                    <ul className="list-disc list-inside space-y-1 text-xs md:text-sm opacity-70 text-right">
+                        {children}
+                    </ul>
+                ),
+                number: ({ children }: any) => (
+                    <ol className="list-decimal list-inside space-y-1 text-xs md:text-sm opacity-70 text-right">
+                        {children}
+                    </ol>
+                ),
+            },
+            listItem: {
+                bullet: ({ children }: any) => <li>{children}</li>,
+                number: ({ children }: any) => <li>{children}</li>,
+            },
+            marks: {
+                link: ({ children, value }: any) => {
+                    const href = value?.href as string | undefined;
+                    const blank = !!value?.blank;
+                    if (!href) return <>{children}</>;
+
+                    return (
+                        <UnderlineLink
+                            href={href}
+                            hoverUnderline
+                            target={blank ? "_blank" : undefined}
+                            rel={blank ? "noreferrer noopener" : undefined}
+                            className="hover:opacity-70 transition-opacity"
+                        >
+                            {children}
+                        </UnderlineLink>
+                    );
+                },
+            },
+        }),
+        []
     );
 
     useGSAP(
@@ -139,19 +191,19 @@ export default function HomeFooter({ footer }: Props) {
                 // Base trigger settings (HS-aware when available)
                 const base: ScrollTrigger.Vars =
                     containerAnimation && !isHsVertical
-                    ? {
-                        trigger: root,
-                        start: "left 80%",
-                        end: "right 20%",
-                        containerAnimation,
-                        invalidateOnRefresh: false,
-                    }
-                    : {
-                        trigger: root,
-                        start: "top 80%",
-                        end: "bottom 20%",
-                        invalidateOnRefresh: false,
-                    };
+                        ? {
+                            trigger: root,
+                            start: "left 80%",
+                            end: "right 20%",
+                            containerAnimation,
+                            invalidateOnRefresh: false,
+                        }
+                        : {
+                            trigger: root,
+                            start: "top 80%",
+                            end: "bottom 20%",
+                            invalidateOnRefresh: false,
+                        };
 
                 // Title on/off (enter + leave in both directions)
                 if (titleEl) {
@@ -223,39 +275,57 @@ export default function HomeFooter({ footer }: Props) {
             style={{ contain: "layout paint style" }}
         >
             {/* LEFT SIDE */}
-            <div className="col-span-12 md:col-span-6 h-full flex px-4 py-6 md:px-8 md:py-10">
-                <div className="flex flex-col items-start justify-center gap-6 w-full">
-                    {title ? (
-                        <h2
-                            ref={titleRef}
-                            className="text-3xl md:text-5xl font-serif tracking-tight leading-none will-change-transform"
-                        >
-                            {/* Keep StylizedLabel purely presentational; scroll on/off handled here */}
-                            <StylizedLabel text={title} />
-                        </h2>
-                    ) : null}
+            <div className="col-span-12 md:col-span-6 h-full px-4 py-6 md:p-6">
+                <div className="h-full w-full grid grid-rows-[1fr_auto] gap-6">
+                    {/* centered title */}
+                    <div className="flex items-center justify-center">
+                        {title ? (
+                            <h2
+                                ref={titleRef}
+                                className="text-3xl md:text-5xl font-serif tracking-tight leading-none text-center will-change-transform"
+                            >
+                                <StylizedLabel text={title} />
+                            </h2>
+                        ) : null}
+                    </div>
 
-                    {links.length > 0 && (
-                        <div className="flex flex-wrap gap-3 md:gap-4 text-xs md:text-sm">
-                            {links.map((link) => {
-                                if (!link?.href || !link?.label) return null;
-                                return (
-                                    <UnderlineLink
-                                        key={link._key}
-                                        href={link.href}
-                                        hoverUnderline
-                                        className="hover:opacity-70 transition-opacity"
-                                    >
-                                        {link.label}
-                                    </UnderlineLink>
-                                );
-                            })}
+                    {/* bottom row: links bottom-left + portable text bottom-right */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 items-end">
+                        <div className="flex flex-col gap-3 items-start">
+                            {links.length > 0 ? (
+                                <div className="flex flex-wrap gap-3 md:gap-4 text-xs md:text-sm">
+                                    {links.map((link) => {
+                                        const href = (link as any)?.href as string | undefined;
+                                        const label = (link as any)?.label as string | undefined;
+                                        const newTab = !!(link as any)?.newTab;
+
+                                        if (!href || !label) return null;
+
+                                        return (
+                                            <UnderlineLink
+                                                key={(link as any)?._key ?? href}
+                                                href={href}
+                                                hoverUnderline
+                                                target={newTab ? "_blank" : undefined}
+                                                rel={newTab ? "noreferrer noopener" : undefined}
+                                                className="hover:opacity-70 transition-opacity"
+                                            >
+                                                {label}
+                                            </UnderlineLink>
+                                        );
+                                    })}
+                                </div>
+                            ) : null}
+
+
                         </div>
-                    )}
 
-                    {copyright ? (
-                        <p className="text-xs md:text-sm opacity-60">{copyright}</p>
-                    ) : null}
+                        <div className="space-y-2 text-right">
+                            {Array.isArray(rightBody) && rightBody.length > 0 ? (
+                                <PortableText value={rightBody} components={rightBodyComponents as any} />
+                            ) : null}
+                        </div>
+                    </div>
                 </div>
             </div>
 

@@ -6,70 +6,132 @@ import gsap from "gsap";
 import UnderlineLink from "@/components/ui/underline-link";
 import { cn } from "@/lib/utils";
 
-export const HERO_LINK_FONT_DURATION = 1;
-export const HERO_LINK_UNDERLINE_IN_DURATION = 0.5;
-export const HERO_LINK_UNDERLINE_OUT_DURATION = 0.42;
-export const HERO_LINK_WEIGHT_FADE_DURATION = 0.2;
-const HERO_LINK_ACTIVE_FONT_SIZE_PX = 48;
-const HERO_LINK_DROP_CAP_SCALE = 1.2;
+// Kept exports so existing imports don’t break.
+export const HERO_LINK_FONT_DURATION = 0.22; // now used for scale tween duration
+export const HERO_LINK_UNDERLINE_IN_DURATION = 0.22;
+export const HERO_LINK_UNDERLINE_OUT_DURATION = 0.22;
+export const HERO_LINK_WEIGHT_FADE_DURATION = 0.12;
+
+const HERO_LINK_ACTIVE_SCALE = 1.25;
 
 type Props = React.ComponentPropsWithoutRef<typeof UnderlineLink> & {
   /**
-   * Applied when `active` is true.
-   * Defaults to a slightly heavier weight.
+   * Applied when `active` is true (and also used as the "bold" layer class).
    */
   activeTextClassName?: string;
 
   /**
    * Applied when `active` is true.
-   * Defaults match your request: underline thickness 2px.
    */
   activeUnderlineClassName?: string;
 
   /**
-   * Target font size for the active state (in px).
-   */
-  activeFontSizePx?: number;
-
-  /**
-   * Active dropcap size multiplier relative to the active font size.
-   */
-  activeDropcapScale?: number;
-
-  /**
-   * Duration for font-size tweens (in seconds).
+   * Duration for the active scale tween (in seconds).
+   * (Name kept for backwards compatibility.)
    */
   fontSizeDuration?: number;
+
+  /**
+   * Active scale factor (transform). Keep small to avoid overlap.
+   */
+  activeScale?: number;
+
+  /**
+   * Where to place the underline relative to the TITLE line.
+   * (This no longer tracks the full anchor height, so details can sit below.)
+   */
+  underlineClassName?: string;
+
+  /**
+   * Force the title to render bold at all times (no weight swap),
+   * while still allowing scale/underline to respond to active/hover/focus.
+   */
+  alwaysBold?: boolean;
 };
+
+type ColumnWrapperProps = {
+  className?: string;
+  children?: React.ReactNode;
+};
+
+function isColumnWrapper(el: React.ReactElement<ColumnWrapperProps>) {
+  const cls = el.props.className;
+  return typeof cls === "string" && cls.includes("flex-col");
+}
+
+type SplitTitleResult = {
+  wrapper: React.ReactElement<ColumnWrapperProps> | null;
+  title: React.ReactNode;
+  details: React.ReactNode[] | null;
+};
+
+function splitTitleAndDetails(children: React.ReactNode): SplitTitleResult {
+  // Default: everything is "title"
+  const fallback = {
+    wrapper: null,
+    title: children,
+    details: null as React.ReactNode[] | null,
+  };
+
+  // Only split when the top-level child is a single wrapper element that stacks children vertically.
+  if (!React.isValidElement(children)) return fallback;
+
+  const wrapper = children as React.ReactElement<ColumnWrapperProps>;
+  if (!isColumnWrapper(wrapper)) return fallback;
+
+  const parts = React.Children.toArray(wrapper.props?.children).filter(
+    (n) => n !== null && n !== undefined
+  );
+
+  if (parts.length < 2) return fallback;
+
+  return {
+    wrapper,
+    title: parts[0] ?? null,
+    details: parts.slice(1),
+  };
+}
 
 export default function HeroUnderlineLink({
   active = false,
   className,
-  underlineClassName = "bottom-[1em]",
+
+  // Underline should sit under the title line (not under any details below).
+  underlineClassName = "bottom-[2px]",
+
   activeTextClassName = "font-semibold",
-  activeUnderlineClassName = "h-[2px]",
-  activeFontSizePx = HERO_LINK_ACTIVE_FONT_SIZE_PX,
-  activeDropcapScale = HERO_LINK_DROP_CAP_SCALE,
+  activeUnderlineClassName = "h-[1px]",
+
   fontSizeDuration = HERO_LINK_FONT_DURATION,
+  activeScale = HERO_LINK_ACTIVE_SCALE,
+
+  alwaysBold = false,
+
   children,
   ...rest
 }: Props) {
   const linkRef = React.useRef<HTMLAnchorElement | null>(null);
-  const textRef = React.useRef<HTMLSpanElement | null>(null);
+
   const normalWeightRef = React.useRef<HTMLSpanElement | null>(null);
   const boldWeightRef = React.useRef<HTMLSpanElement | null>(null);
-  const baseFontSizeRef = React.useRef<number | null>(null);
+  const underlineRef = React.useRef<HTMLSpanElement | null>(null);
+
   const prefersReducedRef = React.useRef(false);
   const didMountRef = React.useRef(false);
-  const sequenceRef = React.useRef<gsap.core.Tween | gsap.core.Timeline | null>(null);
 
-  const [fontActive, setFontActive] = React.useState(active);
-  const [underlineActive, setUnderlineActive] = React.useState(active);
+  const hoverRef = React.useRef(false);
+  const focusRef = React.useRef(false);
 
-  const setWeightOpacity = React.useCallback((toBold: boolean) => {
+  const setWeightOpacity = React.useCallback((toBold: boolean, immediate = false) => {
     const normal = normalWeightRef.current;
     const bold = boldWeightRef.current;
     if (!normal || !bold) return;
+
+    if (immediate) {
+      gsap.set(normal, { opacity: toBold ? 0 : 1 });
+      gsap.set(bold, { opacity: toBold ? 1 : 0 });
+      return;
+    }
 
     gsap.to(normal, {
       opacity: toBold ? 0 : 1,
@@ -85,6 +147,31 @@ export default function HeroUnderlineLink({
     });
   }, []);
 
+  const syncUnderline = React.useCallback(
+    (immediate = false) => {
+      const u = underlineRef.current;
+      if (!u) return;
+
+      const on = !!active || hoverRef.current || focusRef.current;
+
+      gsap.killTweensOf(u);
+      gsap.set(u, { transformOrigin: "0% 50%" });
+
+      if (immediate || prefersReducedRef.current) {
+        gsap.set(u, { scaleX: on ? 1 : 0 });
+        return;
+      }
+
+      gsap.to(u, {
+        scaleX: on ? 1 : 0,
+        duration: on ? HERO_LINK_UNDERLINE_IN_DURATION : HERO_LINK_UNDERLINE_OUT_DURATION,
+        ease: on ? "power3.out" : "power2.out",
+        overwrite: "auto",
+      });
+    },
+    [active]
+  );
+
   React.useEffect(() => {
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -96,157 +183,140 @@ export default function HeroUnderlineLink({
     return () => mq.removeEventListener("change", update);
   }, []);
 
+  // Scale + weight swap
   React.useEffect(() => {
-    if (typeof window === "undefined") return;
+    const a = linkRef.current;
+    if (!a || typeof window === "undefined") return;
+
+    gsap.killTweensOf(a);
+
+    // scale the ANCHOR, not the inner text wrapper.
+    const targetScale = active ? activeScale : 1;
+
+    const boldOn = alwaysBold || active;
 
     if (!didMountRef.current) {
       didMountRef.current = true;
-      setFontActive(active);
-      setUnderlineActive(active);
-      const normal = normalWeightRef.current;
-      const bold = boldWeightRef.current;
-      if (normal && bold) {
-        gsap.set(normal, { opacity: active ? 0 : 1 });
-        gsap.set(bold, { opacity: active ? 1 : 0 });
-      }
+      gsap.set(a, { scale: targetScale, transformOrigin: "50% 50%" });
+      setWeightOpacity(boldOn, true);
+      syncUnderline(true);
       return;
     }
-
-    sequenceRef.current?.kill();
-    sequenceRef.current = null;
 
     if (prefersReducedRef.current) {
-      setFontActive(active);
-      setUnderlineActive(active);
-      const normal = normalWeightRef.current;
-      const bold = boldWeightRef.current;
-      if (normal && bold) {
-        gsap.set(normal, { opacity: active ? 0 : 1 });
-        gsap.set(bold, { opacity: active ? 1 : 0 });
-      }
+      gsap.set(a, { scale: targetScale, transformOrigin: "50% 50%" });
+      setWeightOpacity(boldOn, true);
+      syncUnderline(true);
       return;
     }
 
-    if (active) {
-      setUnderlineActive(false);
-      setWeightOpacity(true);
-      sequenceRef.current = gsap.timeline({ defaults: { overwrite: "auto" } });
-      sequenceRef.current.to({}, { duration: HERO_LINK_WEIGHT_FADE_DURATION });
-      sequenceRef.current.add(() => setFontActive(true));
-      sequenceRef.current.to({}, { duration: fontSizeDuration });
-      sequenceRef.current.add(() => setUnderlineActive(true));
-      return;
-    }
-
-    setUnderlineActive(false);
-    sequenceRef.current = gsap.timeline({ defaults: { overwrite: "auto" } });
-    sequenceRef.current.to({}, { duration: HERO_LINK_UNDERLINE_OUT_DURATION });
-    sequenceRef.current.add(() => setFontActive(false));
-    sequenceRef.current.to({}, { duration: fontSizeDuration });
-    sequenceRef.current.add(() => setWeightOpacity(false));
-  }, [active, fontSizeDuration, setWeightOpacity]);
-
-  React.useLayoutEffect(() => {
-    const el = textRef.current ?? linkRef.current;
-    if (!el || typeof window === "undefined") return;
-
-    const baseSize = Number.parseFloat(window.getComputedStyle(el).fontSize);
-    if (!Number.isNaN(baseSize)) baseFontSizeRef.current = baseSize;
-  }, []);
-
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleResize = () => {
-      if (active) return;
-      const el = textRef.current ?? linkRef.current;
-      if (!el) return;
-      const baseSize = Number.parseFloat(window.getComputedStyle(el).fontSize);
-      if (!Number.isNaN(baseSize)) baseFontSizeRef.current = baseSize;
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [active]);
-
-  React.useEffect(() => {
-    const el = textRef.current ?? linkRef.current;
-    if (!el || typeof window === "undefined") return;
-
-    const baseSize =
-      baseFontSizeRef.current ?? Number.parseFloat(window.getComputedStyle(el).fontSize);
-    if (Number.isNaN(baseSize)) return;
-    baseFontSizeRef.current = baseSize;
-
-    const dropcaps = Array.from(el.querySelectorAll<HTMLElement>("[data-hero-dropcap]"));
-    const targetFontSize = fontActive ? activeFontSizePx : baseSize;
-    const targetDropcapSize = fontActive ? targetFontSize * activeDropcapScale : baseSize;
-
-    gsap.killTweensOf([el, ...dropcaps]);
-
-    if (prefersReducedRef.current) {
-      if (fontActive) {
-        gsap.set(el, { fontSize: targetFontSize, overwrite: "auto" });
-        gsap.set(dropcaps, { fontSize: targetDropcapSize, overwrite: "auto" });
-      } else {
-        gsap.set(el, { clearProps: "fontSize" });
-        gsap.set(dropcaps, { clearProps: "fontSize" });
-      }
-      return;
-    }
-
-    const tl = gsap.timeline({
-      defaults: {
-        duration: fontSizeDuration,
-        ease: fontActive ? "expo.out" : "power3.inOut",
-        overwrite: "auto",
-      },
+    gsap.to(a, {
+      scale: targetScale,
+      duration: fontSizeDuration,
+      ease: active ? "power3.out" : "power2.out",
+      overwrite: "auto",
+      transformOrigin: "50% 50%",
     });
 
-    tl.to(el, { fontSize: targetFontSize }, 0);
-    if (dropcaps.length) {
-      tl.to(dropcaps, { fontSize: targetDropcapSize }, 0);
-    }
+    // If alwaysBold is on, this keeps it bold regardless of active state.
+    setWeightOpacity(boldOn, false);
 
-    if (!fontActive) {
-      tl.add(() => {
-        gsap.set(el, { clearProps: "fontSize" });
-        if (dropcaps.length) gsap.set(dropcaps, { clearProps: "fontSize" });
-      });
-    }
+    // underline follows active/hover/focus
+    syncUnderline(false);
+  }, [active, activeScale, fontSizeDuration, setWeightOpacity, syncUnderline, alwaysBold]);
 
-    return () => {
-      tl.kill();
-    };
-  }, [fontActive, activeDropcapScale, activeFontSizePx, fontSizeDuration]);
+  // If active changes while hovered/focused, keep underline correct.
+  React.useEffect(() => {
+    syncUnderline(prefersReducedRef.current);
+  }, [active, syncUnderline]);
+
+  const { wrapper, title, details } = React.useMemo(() => splitTitleAndDetails(children), [children]);
+
+  const titleNode = title ?? children;
+
+  const titleWithUnderline = (
+    <span className="relative inline-block whitespace-nowrap">
+      {/* Reserve the *max* width (bold) so underline reaches the end consistently. */}
+      <span className={cn("invisible inline-block", activeTextClassName)} aria-hidden="true">
+        {titleNode}
+      </span>
+
+      <span
+        ref={normalWeightRef}
+        data-hero-weight="normal"
+        className="absolute left-0 top-0 inline-block"
+      >
+        {titleNode}
+      </span>
+
+      <span
+        ref={boldWeightRef}
+        data-hero-weight="bold"
+        className={cn("absolute left-0 top-0 inline-block", activeTextClassName)}
+        aria-hidden="true"
+      >
+        {titleNode}
+      </span>
+
+      {/* Custom underline that is anchored to the TITLE line only */}
+      <span
+        ref={underlineRef}
+        aria-hidden="true"
+        className={cn(
+          "absolute left-0 right-0 bg-current",
+          "scale-x-0",
+          underlineClassName,
+          activeUnderlineClassName
+        )}
+        style={{ height: 1 }}
+      />
+    </span>
+  );
+
+  const content = React.useMemo(() => {
+    if (!wrapper) return titleWithUnderline;
+
+    // Rebuild the original wrapper (keeps layout classes like inline-flex flex-col items-start)
+    // but replace its first child (title) with our title+underline, and append the details under it.
+    return React.cloneElement(wrapper, wrapper.props, [titleWithUnderline, ...(details ?? [])]);
+  }, [details, titleWithUnderline, wrapper]);
+
+  const { onMouseEnter, onMouseLeave, onFocus, onBlur, ...linkProps } = rest as any;
 
   return (
     <UnderlineLink
-      {...rest}
+      {...linkProps}
       ref={linkRef}
-      active={underlineActive}
-      className={className}
-      underlineClassName={cn(underlineClassName, underlineActive && activeUnderlineClassName)}
+      active={active}
+      className={cn("inline-block transform-gpu", className)}
+      // disable UnderlineLink’s own underline; we render a title-only underline ourselves
+      underlineClassName="hidden"
       underlineInDuration={HERO_LINK_UNDERLINE_IN_DURATION}
       underlineOutDuration={HERO_LINK_UNDERLINE_OUT_DURATION}
-      underlineInEase="expo.out"
-      underlineOutEase="power3.inOut"
+      underlineInEase="power3.out"
+      underlineOutEase="power2.out"
+      onMouseEnter={(e: any) => {
+        onMouseEnter?.(e);
+        hoverRef.current = true;
+        syncUnderline(false);
+      }}
+      onMouseLeave={(e: any) => {
+        onMouseLeave?.(e);
+        hoverRef.current = false;
+        syncUnderline(false);
+      }}
+      onFocus={(e: any) => {
+        onFocus?.(e);
+        focusRef.current = true;
+        syncUnderline(false);
+      }}
+      onBlur={(e: any) => {
+        onBlur?.(e);
+        focusRef.current = false;
+        syncUnderline(false);
+      }}
     >
-      <span ref={textRef} data-hero-text className="relative inline-grid whitespace-nowrap">
-        <span
-          ref={normalWeightRef}
-          data-hero-weight="normal"
-          className="col-start-1 row-start-1 inline-block"
-        >
-          {children}
-        </span>
-        <span
-          ref={boldWeightRef}
-          data-hero-weight="bold"
-          className={cn("col-start-1 row-start-1 inline-block", activeTextClassName)}
-          aria-hidden="true"
-        >
-          {children}
-        </span>
-      </span>
+      {content}
     </UnderlineLink>
   );
 }

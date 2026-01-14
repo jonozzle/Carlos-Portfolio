@@ -186,7 +186,7 @@ export default function BioBlock({
       const EXPANDED_WIDTH = SQUARE_SIZE + 220;
       const EXPANDED_MIN_HEIGHT = SQUARE_SIZE + 110;
 
-      const SMALL_C_SCALE = 0.92;
+      const SMALL_C_SCALE = 0.72;
 
       // CLOSED small-c manual offsets
       const SMALL_C_OFFSET_X = -6; // tweak as needed
@@ -417,7 +417,7 @@ export default function BioBlock({
                   <PortableText value={body as any} components={ptComponents as any} />
                 </div>
               ) : (
-                <p className="text-sm tracking-tighter font-sans max-w-[33ch] leading-snug text-left">
+                <p className="text-sm tracking-normal mb-3 font-sans max-w-[33ch] leading-snug text-left">
                   {text}
                 </p>
               )}

@@ -6,18 +6,15 @@ import { usePathname, useRouter } from "next/navigation";
 import SmoothImage from "@/components/ui/smooth-image";
 import BioBlock from "@/components/blocks/hero/bio-block";
 import UnderlineLink from "@/components/ui/underline-link";
-import HeroUnderlineLink, {
-  HERO_LINK_FONT_DURATION,
-  HERO_LINK_UNDERLINE_OUT_DURATION,
-  HERO_LINK_WEIGHT_FADE_DURATION,
-} from "@/components/ui/hero-underline-link";
+import HeroUnderlineLink from "@/components/ui/hero-underline-link";
 import { PAGE_QUERYResult } from "@/sanity.types";
 import gsap from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
+import ScrollSmoother from "gsap/ScrollSmoother";
 import { useGSAP } from "@gsap/react";
 import { useLoader } from "@/components/loader/loader-context";
 import type { PageDirection, PageTransitionKind } from "@/lib/transitions/state";
-import { saveScrollForPath } from "@/lib/scroll-state";
+import { getCurrentScrollY, saveScrollForPath } from "@/lib/scroll-state";
 import { getActiveHomeSection, saveActiveHomeSectionNow } from "@/lib/home-section";
 import { lockAppScroll } from "@/lib/scroll-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
@@ -25,15 +22,14 @@ import { PortableText } from "@portabletext/react";
 import clsx from "clsx";
 
 if (typeof window !== "undefined") {
-  gsap.registerPlugin(ScrollTrigger);
+  gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
 }
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
 type Props = Extract<Block, { _type: "hero-contents" }>;
 
 type HeroLayout = "feature-left" | "feature-right" | "center-overlay";
-type LinksLayoutMode = "custom" | "center" | "two-column";
-type BottomLayoutMode = "justified" | "center";
+type LinksLayoutMode = "grid" | "center" | "two-column";
 type IndexActionReason = "hover" | "focus" | "click" | "key";
 
 type HeroImage = {
@@ -46,8 +42,9 @@ type HeroItem = {
   slug?: string | null;
   title?: string | null;
   year?: number | string | null;
-  x?: number;
-  y?: number;
+  client?: string | null;
+  col?: number; // 1–28
+  row?: number; // 1–28
   layout?: HeroLayout | null;
   image?: HeroImage;
 };
@@ -81,16 +78,13 @@ type BioSection = {
 // Image transition (vertical reveal)
 const CLIP_REVEAL = "inset(0% 0% 0% 0%)";
 const CLIP_HIDDEN_TOP = "inset(0% 0% 100% 0%)";
-const HERO_ACTIVE_SWAP_BUFFER = 0.08;
-const HERO_ACTIVE_SWAP_DELAY =
-  HERO_LINK_UNDERLINE_OUT_DURATION +
-  HERO_LINK_FONT_DURATION +
-  HERO_LINK_WEIGHT_FADE_DURATION +
-  HERO_ACTIVE_SWAP_BUFFER;
 
-function clampPct(n: number | undefined, min = 0, max = 100) {
-  return typeof n === "number" ? Math.min(max, Math.max(min, n)) : 50;
-}
+// Grid layout (28×28)
+const HERO_GRID_COLS = 28;
+const HERO_GRID_ROWS = 28;
+
+// CHANGE THIS to control how wide each project link is in grid mode (in grid columns).
+const HERO_GRID_ITEM_COL_SPAN = 6;
 
 function normalizeLayout(layout: HeroItem["layout"]): HeroLayout {
   if (layout === "feature-right" || layout === "center-overlay") return layout;
@@ -98,13 +92,8 @@ function normalizeLayout(layout: HeroItem["layout"]): HeroLayout {
 }
 
 function normalizeLinksLayout(mode: unknown): LinksLayoutMode {
-  if (mode === "center" || mode === "two-column" || mode === "custom") return mode;
-  return "custom";
-}
-
-function normalizeBottomLayout(mode: unknown): BottomLayoutMode {
-  if (mode === "center" || mode === "justified") return mode;
-  return "justified";
+  if (mode === "center" || mode === "two-column" || mode === "grid") return mode;
+  return "grid";
 }
 
 function pad2(n: number) {
@@ -115,6 +104,11 @@ function withColon(label: string) {
   const t = (label ?? "").trim();
   if (!t) return "";
   return t.endsWith(":") ? t : `${t}:`;
+}
+
+function clampInt(n: unknown, min: number, max: number, fallback: number) {
+  const v = typeof n === "number" && Number.isFinite(n) ? Math.round(n) : fallback;
+  return Math.min(max, Math.max(min, v));
 }
 
 function preloadImage(url: string): Promise<void> {
@@ -133,15 +127,6 @@ function preloadImage(url: string): Promise<void> {
       img.onerror = done;
     }
   });
-}
-
-function BottomLine() {
-  return (
-    <div className="relative h-px w-full" aria-hidden="true">
-      <div className="absolute inset-0 bg-current opacity-10" />
-      <div className="absolute inset-0 bg-current opacity-70" />
-    </div>
-  );
 }
 
 function InlineArrow() {
@@ -366,17 +351,17 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const shouldRunEntrance = loaderDone && !skipInitialEntrance && !loaderWasActiveOnMountRef.current;
 
   const showNumbers = !!(props as any)?.showNumbers;
+  const showProjectDetails = !!(props as any)?.showProjectDetails;
+
+  // When details are on, project links should be bold always.
+  const heroLinkAlwaysBold = showProjectDetails;
+  const heroLinkActiveTextClassName = heroLinkAlwaysBold ? "font-bold" : "font-semibold";
 
   const linksLayout: LinksLayoutMode = useMemo(
     () => normalizeLinksLayout((props as any)?.linksLayout),
     [props]
   );
 
-  const showBottomDivider: boolean = !!(props as any)?.showBottomDivider;
-  const bottomLayout: BottomLayoutMode = useMemo(
-    () => normalizeBottomLayout((props as any)?.bottomLayout),
-    [props]
-  );
   const showScrollHint: boolean = !!(props as any)?.showScrollHint;
 
   const featuredLabelRaw: string = (props as any)?.featuredLabel ?? "";
@@ -427,9 +412,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
 
   const [pendingKey, setPendingKey] = useState<string | null>(null);
 
-  const pendingActivationRef = useRef<{ key: string; onActivate?: () => void } | null>(null);
-  const activeSwapTlRef = useRef<gsap.core.Timeline | null>(null);
-
   const prefersNoMotionRef = useRef(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -457,7 +439,9 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     ? previewByKey.get(displayedPreviewKey) ?? null
     : null;
 
-  const pendingItem: HeroItemWithKey | null = pendingKey ? previewByKey.get(pendingKey) ?? null : null;
+  const pendingItem: HeroItemWithKey | null = pendingKey
+    ? previewByKey.get(pendingKey) ?? null
+    : null;
 
   const activeLayout: HeroLayout = normalizeLayout(displayedPreviewItem?.layout);
 
@@ -468,55 +452,13 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     [onIndexAction]
   );
 
-  const activateHeroLink = useCallback(
-    (nextKey: string, onActivate?: () => void, immediate = false) => {
-      if (!nextKey) return;
-      if (nextKey === activeKeyRef.current && !activeSwapTlRef.current) return;
-
-      if (immediate || prefersNoMotionRef.current) {
-        activeSwapTlRef.current?.kill();
-        activeSwapTlRef.current = null;
-        pendingActivationRef.current = null;
-        setActiveKey(nextKey);
-        onActivate?.();
-        return;
-      }
-
-      pendingActivationRef.current = { key: nextKey, onActivate };
-
-      if (activeSwapTlRef.current) return;
-
-      if (!activeKeyRef.current) {
-        const pending = pendingActivationRef.current;
-        pendingActivationRef.current = null;
-        if (pending) {
-          setActiveKey(pending.key);
-          pending.onActivate?.();
-        }
-        return;
-      }
-
-      setActiveKey(null);
-
-      const tl = gsap.timeline({
-        defaults: { overwrite: "auto" },
-        onComplete: () => {
-          activeSwapTlRef.current = null;
-          const pending = pendingActivationRef.current;
-          pendingActivationRef.current = null;
-          if (pending) {
-            setActiveKey(pending.key);
-            pending.onActivate?.();
-          }
-        },
-      });
-
-      tl.to({}, { duration: HERO_ACTIVE_SWAP_DELAY });
-
-      activeSwapTlRef.current = tl;
-    },
-    []
-  );
+  // Immediate swap: allows "out" and "in" to happen together; image change begins with "in".
+  const activateHeroLink = useCallback((nextKey: string, onActivate?: () => void) => {
+    if (!nextKey) return;
+    if (nextKey === activeKeyRef.current) return;
+    setActiveKey(nextKey);
+    onActivate?.();
+  }, []);
 
   const handleActivate = useCallback(
     (it: HeroItemWithKey, index: number, reason: IndexActionReason) => {
@@ -525,13 +467,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     },
     [activateHeroLink, runIndexAction]
   );
-
-  useEffect(() => {
-    return () => {
-      activeSwapTlRef.current?.kill();
-      activeSwapTlRef.current = null;
-    };
-  }, []);
 
   useEffect(() => {
     if (!loaderDone) return;
@@ -567,6 +502,83 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const footerRef = useRef<HTMLDivElement | null>(null);
   const scrollHintWrapRef = useRef<HTMLDivElement | null>(null);
 
+  const getNextSectionEl = useCallback(() => {
+    const root = containerRef.current;
+    if (!root) return null;
+
+    const currentSection = root.closest<HTMLElement>("[data-section-index]");
+    const track = currentSection?.parentElement ?? null;
+    if (!track) return null;
+
+    const sections = Array.from(track.querySelectorAll<HTMLElement>("[data-section-index]"));
+    if (!sections.length) return null;
+
+    if (!currentSection) return sections[0];
+
+    const currentIndex = sections.indexOf(currentSection);
+    if (currentIndex === -1) return sections[0];
+
+    return sections[currentIndex + 1] ?? null;
+  }, []);
+
+  const scrollToSection = useCallback((sectionEl: HTMLElement) => {
+    if (typeof window === "undefined") return;
+
+    const smooth = !prefersNoMotionRef.current;
+    const smoother = ScrollSmoother.get();
+
+    const scrollToY = (y: number) => {
+      const targetY = Number.isFinite(y) ? Math.max(0, y) : 0;
+      if (smoother) {
+        smoother.scrollTo(targetY, smooth);
+        return;
+      }
+
+      if (smooth) {
+        window.scrollTo({ top: targetY, behavior: "smooth" });
+      } else {
+        window.scrollTo(0, targetY);
+      }
+    };
+
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      const r = sectionEl.getBoundingClientRect();
+      const vh = window.innerHeight || 1;
+      const currY = getCurrentScrollY();
+      const elCenterY = currY + r.top + r.height / 2;
+      const targetY = Math.max(0, elCenterY - vh / 2);
+
+      scrollToY(targetY);
+      return;
+    }
+
+    const st = (ScrollTrigger.getById("hs-horizontal") as ScrollTrigger) ?? null;
+    if (!st) {
+      sectionEl.scrollIntoView({
+        behavior: smooth ? "smooth" : "auto",
+        block: "center",
+        inline: "center",
+      });
+      return;
+    }
+
+    const amountToScroll = Math.max(0, (st.end ?? 0) - (st.start ?? 0));
+    if (!Number.isFinite(amountToScroll) || amountToScroll <= 0) return;
+
+    const vw = window.innerWidth || 1;
+    const targetX = sectionEl.offsetLeft + sectionEl.offsetWidth / 2 - vw / 2;
+    const clampedX = Math.max(0, Math.min(amountToScroll, targetX));
+    const y = (st.start ?? 0) + clampedX;
+
+    scrollToY(y);
+  }, []);
+
+  const handleScrollHintClick = useCallback(() => {
+    const next = getNextSectionEl();
+    if (!next) return;
+    scrollToSection(next);
+  }, [getNextSectionEl, scrollToSection]);
+
   const isTransitioningRef = useRef(false);
   const queuedKeyRef = useRef<string | null>(null);
   const transitionTlRef = useRef<gsap.core.Timeline | null>(null);
@@ -574,7 +586,8 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const displayedImageUrl = displayedPreviewItem?.image?.asset?.url ?? null;
   const pendingImageUrl = pendingItem?.image?.asset?.url ?? null;
 
-  const displayedAlt = displayedPreviewItem?.image?.alt ?? displayedPreviewItem?.title ?? "Featured image";
+  const displayedAlt =
+    displayedPreviewItem?.image?.alt ?? displayedPreviewItem?.title ?? "Featured image";
   const pendingAlt = pendingItem?.image?.alt ?? pendingItem?.title ?? "Next featured image";
 
   const finishCommitAsync = useCallback(() => {
@@ -645,13 +658,54 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     [renderDropcapTitle, showNumbers]
   );
 
+  const renderProjectDetails = useCallback(
+    (it: HeroItemWithKey) => {
+      if (!showProjectDetails) return null;
+
+      const yearRaw = it.year;
+      const year = yearRaw == null ? "" : String(yearRaw).trim();
+
+      const clientRaw = it.client;
+      const client = clientRaw == null ? "" : String(clientRaw).trim();
+
+      if (!year && !client) return null;
+
+      return (
+        <span className="mt-1 flex flex-col gap-0 text-xs md:text-sm leading-tight tracking-tighter opacity-60">
+          {year ? <span className="tabular-nums">{year}</span> : null}
+          {client ? <span>{client}</span> : null}
+        </span>
+      );
+    },
+    [showProjectDetails]
+  );
+
+  const renderLinkContent = useCallback(
+    (it: HeroItemWithKey, index: number) => {
+      return (
+        <span className="inline-flex flex-col items-start">
+          <span className="inline-flex items-baseline">
+            {renderIndexedTitle(it.title ?? "Untitled", index)}
+          </span>
+          {renderProjectDetails(it)}
+        </span>
+      );
+    },
+    [renderIndexedTitle, renderProjectDetails]
+  );
+
   // ---------------------------------------
   // PAGE TRANSITION (non-hero)
   // ---------------------------------------
   const NAV_DIRECTION: PageDirection = "down";
 
   const navigateWithTransition = useCallback(
-    (href: string, kind: PageTransitionKind, homeSectionId?: string | null, homeSectionType?: string | null) => {
+    (
+      href: string,
+      kind: PageTransitionKind,
+      homeSectionId?: string | null,
+      homeSectionType?: string | null
+    ) => {
       (window as any).__pageTransitionPending = {
         direction: NAV_DIRECTION,
         fromPath: pathname,
@@ -882,12 +936,8 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       loaderDone ? 1 : 0,
       "sh",
       showScrollHint ? 1 : 0,
-      "sfd",
-      showBottomDivider ? 1 : 0,
-      "bl",
-      bottomLayout,
       "sft",
-      ((props as any)?.showFooterText ? 1 : 0),
+      (props as any)?.showFooterText ? 1 : 0,
       "fbl",
       footerBodyLen,
       "bll",
@@ -895,7 +945,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       "ct",
       c.trim() ? 1 : 0,
     ].join("|");
-  }, [bottomLayout, loaderDone, props, showBottomDivider, showScrollHint]);
+  }, [loaderDone, props, showScrollHint]);
 
   useGSAP(
     () => {
@@ -935,16 +985,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       const kill = () => {
         try {
           st?.kill(true);
-        } catch {
-          // ignore
-        }
+        } catch { }
         st = null;
 
         try {
           tl?.kill();
-        } catch {
-          // ignore
-        }
+        } catch { }
         tl = null;
 
         gsap.set(targets, { clearProps: "willChange" });
@@ -958,7 +1004,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
           return;
         }
 
-        // Out animation timeline: play to hide, reverse to show.
         gsap.set(targets, { autoAlpha: 1, y: 0, force3D: true, willChange: "transform,opacity" });
 
         tl = gsap.timeline({ paused: true, defaults: { overwrite: "auto" } });
@@ -977,8 +1022,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         const isHsVertical = hsMode === "vertical";
         const isInsideHs = expectsHs();
 
-        // If we're inside HS rail but HS isn't ready (and we're not in vertical/mobile HS mode),
-        // wait for hs-ready/hs-rebuilt to rebuild triggers.
         if (isInsideHs && !containerAnimation && !isHsVertical) return;
 
         const base: ScrollTrigger.Vars =
@@ -1005,8 +1048,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
           onLeaveBack: () => tl?.play(),
         });
 
-        // Ensure correct initial state if the page loads mid-scroll.
-        // Show when before/inside the trigger, hide only if we've passed the end.
         if (st) {
           st.refresh();
           if (st.progress >= 1) tl.progress(1);
@@ -1035,7 +1076,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   );
 
   // ---------------------------------------
-  // SCROLL HINT ARROW LOOP (existing)
+  // SCROLL HINT ARROW LOOP
   // ---------------------------------------
   const scrollHintArrowRef = useRef<SVGGElement | null>(null);
   const scrollHintTweenRef = useRef<gsap.core.Tween | gsap.core.Timeline | null>(null);
@@ -1093,20 +1134,36 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   // ---------------------------------------
   // LINKS RENDERERS
   // ---------------------------------------
-  const renderLinksCustom = useCallback(() => {
+  const renderLinksGrid = useCallback(() => {
     return (
-      <>
+      <div
+        className="w-full h-full"
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${HERO_GRID_COLS}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${HERO_GRID_ROWS}, minmax(0, 1fr))`,
+          alignItems: "center",
+          justifyItems: "start",
+        }}
+      >
         {keyed.map((it, index) => {
-          const left = clampPct(it.x);
-          const top = clampPct(it.y);
           const isActive = it._key === activeKey;
           const href = it.slug ? `/projects/${it.slug}` : "#";
+
+          let colStart = clampInt(it.col, 1, HERO_GRID_COLS, 14);
+          const rowStart = clampInt(it.row, 1, HERO_GRID_ROWS, 14);
+
+          colStart = Math.min(HERO_GRID_COLS - HERO_GRID_ITEM_COL_SPAN + 1, colStart);
 
           return (
             <div
               key={it._key}
-              className="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${left}%`, top: `${top}%` }}
+              className="pointer-events-auto"
+              style={{
+                gridColumn: `${colStart} / span ${HERO_GRID_ITEM_COL_SPAN}`,
+                gridRowStart: rowStart,
+                zIndex: isActive ? 2 : 1,
+              }}
               onMouseEnter={() => handleActivate(it, index, "hover")}
               onFocus={() => handleActivate(it, index, "focus")}
               data-index={index}
@@ -1114,10 +1171,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
               <HeroUnderlineLink
                 href={href}
                 active={isActive}
+                alwaysBold={heroLinkAlwaysBold}
+                activeTextClassName={heroLinkActiveTextClassName}
                 className={[
-                  "py-1 px-2 text-lg md:text-xl font-serif font-normal tracking-tighter",
-                  "transform-gpu origin-center transition-transform duration-300 ease-out",
-                  !isActive && "hover:scale-[1.08]",
+                  "py-1 px-2",
+                  "text-lg md:text-xl font-serif font-normal tracking-tighter",
+                  "inline-flex flex-col items-start",
                   isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
                 ]
                   .filter(Boolean)
@@ -1126,18 +1185,28 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                 data-cursor="link"
                 data-index={index}
                 onClick={(e) => {
-                  activateHeroLink(it._key, undefined, true);
+                  activateHeroLink(it._key, () => { });
                   handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
                 }}
               >
-                {renderIndexedTitle(it.title ?? "Untitled", index)}
+                {renderLinkContent(it, index)}
               </HeroUnderlineLink>
             </div>
           );
         })}
-      </>
+      </div>
     );
-  }, [activeKey, activateHeroLink, handleActivate, handleTransitionClick, keyed, renderIndexedTitle, runIndexAction]);
+  }, [
+    activeKey,
+    activateHeroLink,
+    handleActivate,
+    handleTransitionClick,
+    keyed,
+    renderLinkContent,
+    runIndexAction,
+    heroLinkAlwaysBold,
+    heroLinkActiveTextClassName,
+  ]);
 
   const renderLinksList = useCallback(() => {
     if (linksLayout === "center") {
@@ -1153,25 +1222,24 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                   key={it._key}
                   href={href}
                   active={isActive}
+                  alwaysBold={heroLinkAlwaysBold}
+                  activeTextClassName={heroLinkActiveTextClassName}
                   className={[
-                    "text-lg md:text-xl font-serif font-normal tracking-tighter inline-block px-2 py-1",
+                    "text-lg md:text-xl font-serif font-normal tracking-tighter",
+                    "px-2 py-1",
+                    "inline-flex flex-col items-start",
                     isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
-                    !isActive && "hover:scale-[1.03]",
-                    "transform-gpu origin-center transition-transform duration-300 ease-out",
                   ]
                     .filter(Boolean)
                     .join(" ")}
                   onMouseEnter={() => handleActivate(it, index, "hover")}
                   onFocus={() => handleActivate(it, index, "focus")}
-                  onClick={(e) => {
-                    activateHeroLink(it._key, undefined, true);
-                    handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
-                  }}
+                  onClick={(e) => handleTransitionClick(e, href, () => runIndexAction(index, it, "click"))}
                   aria-current={isActive ? "true" : undefined}
                   data-cursor="link"
                   data-index={index}
                 >
-                  {renderIndexedTitle(it.title ?? "Untitled", index)}
+                  {renderLinkContent(it, index)}
                 </HeroUnderlineLink>
               );
             })}
@@ -1180,6 +1248,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       );
     }
 
+    // two-column
     return (
       <div className="w-full h-full grid place-items-center pointer-events-auto">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-1 place-content-center">
@@ -1192,25 +1261,24 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                 key={it._key}
                 href={href}
                 active={isActive}
+                alwaysBold={heroLinkAlwaysBold}
+                activeTextClassName={heroLinkActiveTextClassName}
                 className={[
-                  "text-lg md:text-xl font-serif font-normal tracking-tighter inline-block px-2 py-1",
+                  "text-lg md:text-xl font-serif font-normal tracking-tighter",
+                  "px-2 py-1",
+                  "inline-flex flex-col items-start",
                   isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
-                  !isActive && "hover:scale-[1.03]",
-                  "transform-gpu origin-center transition-transform duration-300 ease-out",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 onMouseEnter={() => handleActivate(it, index, "hover")}
                 onFocus={() => handleActivate(it, index, "focus")}
-                onClick={(e) => {
-                  activateHeroLink(it._key, undefined, true);
-                  handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
-                }}
+                onClick={(e) => handleTransitionClick(e, href, () => runIndexAction(index, it, "click"))}
                 aria-current={isActive ? "true" : undefined}
                 data-cursor="link"
                 data-index={index}
               >
-                {renderIndexedTitle(it.title ?? "Untitled", index)}
+                {renderLinkContent(it, index)}
               </HeroUnderlineLink>
             );
           })}
@@ -1219,13 +1287,14 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     );
   }, [
     activeKey,
-    activateHeroLink,
     handleActivate,
     handleTransitionClick,
     keyed,
     linksLayout,
-    renderIndexedTitle,
+    renderLinkContent,
     runIndexAction,
+    heroLinkAlwaysBold,
+    heroLinkActiveTextClassName,
   ]);
 
   // Featured project fallback: if no explicit featured project, use first hero item.
@@ -1239,7 +1308,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     return null;
   }, [featuredProjectFromSanity, keyed]);
 
-  // If featured slug matches a hero item, use it for click theme lock.
   const featuredMatch = useMemo(() => {
     const slug = featuredResolved?.slug ?? null;
     if (!slug) return null;
@@ -1252,7 +1320,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
 
   const shouldShowFeatured = !!(featuredLabel && featuredResolved?.slug && featuredResolved?.title);
 
-  // ---- Bio ----
+  // ---- Bio (RED BLOCK overlay; stays where it is) ----
   const bio: BioSection = (props as any)?.bio ?? null;
   const bioBody = (bio as any)?.body ?? null;
   const bioDropCap = !!(bio as any)?.dropCap;
@@ -1261,29 +1329,10 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     return raw.filter((l): l is HeroLink => !!l && typeof l === "object");
   }, [bio]);
 
-  // ---- Footer content ----
+  // ---- Footer text (“footer bio”) bottom-left ----
   const showFooterText: boolean = !!(props as any)?.showFooterText;
   const footerDropCap: boolean = !!(props as any)?.footerDropCap;
   const footerBody: any[] | null = ((props as any)?.footerBody as any[] | null) ?? null;
-
-  const bottomLinks: HeroLink[] = useMemo(() => {
-    const raw = (((props as any)?.bottomLinks ?? []) as unknown[]).filter(Boolean);
-    return raw.filter((l): l is HeroLink => !!l && typeof l === "object");
-  }, [props]);
-
-  const bottomLinksRenderable: HeroLink[] = useMemo(() => {
-    return bottomLinks.filter((l) => {
-      const label = (l?.label ?? "").trim();
-      const href = sanitizeHref(l?.href);
-      return !!label && !!href;
-    });
-  }, [bottomLinks]);
-
-  const copyrightTextRaw: string = (props as any)?.copyrightText ?? "";
-  const copyrightText = useMemo(() => {
-    const t = String(copyrightTextRaw ?? "").trim();
-    return t || "";
-  }, [copyrightTextRaw]);
 
   const footerTextNode = useMemo(() => {
     if (!showFooterText) return null;
@@ -1300,11 +1349,25 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     );
   }, [footerBody, footerDropCap, showFooterText]);
 
+  // ---- Bottom links bottom-right ----
+  const bottomLinks: HeroLink[] = useMemo(() => {
+    const raw = (((props as any)?.bottomLinks ?? []) as unknown[]).filter(Boolean);
+    return raw.filter((l): l is HeroLink => !!l && typeof l === "object");
+  }, [props]);
+
+  const bottomLinksRenderable: HeroLink[] = useMemo(() => {
+    return bottomLinks.filter((l) => {
+      const label = (l?.label ?? "").trim();
+      const href = sanitizeHref(l?.href);
+      return !!label && !!href;
+    });
+  }, [bottomLinks]);
+
   const renderBottomLinks = useCallback(() => {
     if (!bottomLinksRenderable.length) return null;
 
     return (
-      <div className="flex gap-4 text-sm pointer-events-auto">
+      <div className="flex gap-4 text-sm pointer-events-auto justify-end">
         {bottomLinksRenderable.map((l, idx) => {
           const label = (l?.label ?? "").trim();
           const href = sanitizeHref(l?.href);
@@ -1323,7 +1386,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
               rel={rel}
               hoverUnderline
               data-cursor="link"
-              className="opacity-90 hover:opacity-100"
+              className="opacity-50 hover:opacity-100"
             >
               {label}
             </UnderlineLink>
@@ -1335,17 +1398,22 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
 
   const bottomLinksNode = useMemo(() => renderBottomLinks(), [renderBottomLinks]);
 
+  const copyrightTextRaw: string = (props as any)?.copyrightText ?? "";
+  const copyrightText = useMemo(() => {
+    const t = String(copyrightTextRaw ?? "").trim();
+    return t || "";
+  }, [copyrightTextRaw]);
+
   const copyrightNode = useMemo(() => {
     if (!copyrightText) return null;
     return (
-      <h2 className="text-xl md:text-base uppercase font-medium tracking-tighter opacity-50">
+      <h2 className="text-xl md:text-base uppercase font-medium tracking-tighter opacity-50 text-right">
         {copyrightText}
       </h2>
     );
   }, [copyrightText]);
 
-  const hasBottomRow = !!bottomLinksNode || !!copyrightNode;
-  const shouldRenderFooter = !!footerTextNode || hasBottomRow;
+  const shouldRenderFooter = !!footerTextNode || !!bottomLinksNode || !!copyrightNode;
 
   // ---- Arrow config ----
   const SHAFT_W = 20;
@@ -1376,6 +1444,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     >
       {/* LEFT – image */}
       <div ref={leftRef} className="relative h-[60vh] md:h-full overflow-hidden">
+        {/* Mobile BioBlock overlay (stays) */}
         <div className="absolute right-3 top-3 z-30 md:hidden">
           <span data-hero-main-title className="block">
             <BioBlock body={bioBody} dropCap={bioDropCap} links={bioLinks} />
@@ -1433,7 +1502,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       {/* RIGHT – content */}
       <div
         ref={rightRef}
-        className="relative h-full px-6 pt-6 pb-5 overflow-hidden flex flex-col"
+        className="relative h-full min-h-0 px-6 pt-6 pb-5 overflow-hidden flex flex-col"
         style={{ contain: "layout paint" }}
       >
         {/* HEADER */}
@@ -1472,32 +1541,20 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         </div>
 
         {/* LINKS FIELD */}
-        <div className="relative flex-1 pointer-events-none">
-          <div className="relative w-full h-full">
-            {linksLayout === "custom" ? renderLinksCustom() : renderLinksList()}
+        <div className="relative flex-1 min-h-0 pointer-events-none">
+          <div className="absolute inset-0 pointer-events-auto">
+            {linksLayout === "grid" ? renderLinksGrid() : renderLinksList()}
           </div>
         </div>
 
-        {/* FOOTER (renders only if there’s something to show) */}
+        {/* FOOTER: footerBody bottom-left, links bottom-right */}
         {shouldRenderFooter ? (
           <div ref={footerRef} className="relative flex-none">
-            {footerTextNode}
+            <div className="mt-2 flex items-end gap-6">
+              <div className="flex-1">{footerTextNode}</div>
 
-            {showBottomDivider && (footerTextNode || hasBottomRow) ? <BottomLine /> : null}
-
-            {hasBottomRow ? (
-              bottomLayout === "center" ? (
-                <div className="mt-4 flex flex-col items-center text-center gap-3">
-                  {bottomLinksNode}
-                  {copyrightNode}
-                </div>
-              ) : (
-                <div className="mt-2 flex items-end">
-                  {bottomLinksNode ? <div className="flex-1">{bottomLinksNode}</div> : <div className="flex-1" />}
-                  {copyrightNode}
-                </div>
-              )
-            ) : null}
+              <div className="flex flex-col items-end gap-2">{bottomLinksNode}</div>
+            </div>
           </div>
         ) : null}
 
@@ -1505,10 +1562,15 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         {showScrollHint && loaderDone ? (
           <div
             ref={scrollHintWrapRef}
-            className="hidden md:block pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 z-20"
-            aria-hidden="true"
+            className="hidden md:block absolute right-4 top-1/2 -translate-y-1/2 z-20"
           >
-            <div className="flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={handleScrollHintClick}
+              className="flex flex-col items-center gap-2 text-current"
+              aria-label="Scroll to the next section"
+              data-cursor="link"
+            >
               <svg
                 width="54"
                 height="12"
@@ -1516,6 +1578,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
                 className="block opacity-25"
+                aria-hidden="true"
               >
                 <g ref={scrollHintArrowRef}>
                   <rect
@@ -1536,12 +1599,18 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                 </g>
               </svg>
 
-              <div className="text-[10px] uppercase tracking-tight opacity-25 font-serif">scroll</div>
-            </div>
+              <span
+                className="text-[10px] uppercase tracking-tight opacity-25 font-serif"
+                aria-hidden="true"
+              >
+                scroll
+              </span>
+            </button>
           </div>
         ) : null}
       </div>
 
+      {/* Desktop BioBlock overlay (stays) */}
       <div className="absolute right-6 top-6 z-30 hidden md:block">
         <span data-hero-main-title className="block">
           <BioBlock body={bioBody} dropCap={bioDropCap} links={bioLinks} />

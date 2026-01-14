@@ -618,16 +618,16 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             >
                 <PageTransitionButton {...buttonCommonProps} className={infoButtonClass}>
                     <h3
-                        className="text-4xl md:text-4xl font-serif font-bold leading-tight tracking-tighter"
+                        className="text-4xl md:text-4xl font-serif font-bold leading-tight tracking-tight"
                         data-speed-x="0.96"
                     >
                         {item?.title ?? "Untitled"}
                     </h3>
 
-                    <div className={metaRowClass} data-speed-x="0.95">
+                    <div className={metaRowClass} data-speed-x="0.96">
                         <span>{item?.year ? String(item.year) : "\u00A0"}</span>
                         <span className="mr-1">,</span>
-                        <span className="italic">{item?.client ?? "\u00A0"}</span>
+                        <span className="">{item?.client ?? "\u00A0"}</span>
                     </div>
                 </PageTransitionButton>
             </div>
