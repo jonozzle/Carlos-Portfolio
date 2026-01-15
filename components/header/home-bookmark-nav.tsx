@@ -5,6 +5,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import BookmarkLink from "@/components/header/bookmark-link-fabric";
 import ProjectIndexDrawer from "@/components/header/project-index-drawer";
+import BioBlock from "@/components/blocks/hero/bio-block";
+import { useHeroBioData } from "@/lib/hero-bio-store";
 
 const DRAWER_ID = "home-project-index";
 const BOOKMARK_FOLLOWS_DRAWER = true;
@@ -15,6 +17,7 @@ export default function HomeBookmarkNav() {
   const isHome = pathname === "/";
   const [open, setOpen] = useState(false);
   const [follow, setFollow] = useState(false);
+  const bio = useHeroBioData();
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
 
@@ -70,6 +73,11 @@ export default function HomeBookmarkNav() {
         homeFollow={follow}
       />
       {isHome ? <ProjectIndexDrawer id={DRAWER_ID} open={open} panelRef={drawerRef} /> : null}
+      {isHome && bio ? (
+        <div className="fixed right-3 top-3 z-[10020] md:hidden">
+          <BioBlock body={bio.body} dropCap={bio.dropCap} links={bio.links} interaction="click" />
+        </div>
+      ) : null}
     </>
   );
 }

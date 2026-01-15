@@ -2,7 +2,7 @@
 "use client";
 
 import type React from "react";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { PortableText } from "@portabletext/react";
@@ -22,6 +22,7 @@ type BioBlockProps = {
   body?: any[] | null; // Sanity PortableText
   dropCap?: boolean | null;
   links?: HeroLink[] | null; // separate link list under the body
+  interaction?: "hover" | "click"; // hover for desktop, click for mobile
 };
 
 type StyleCfg = {
@@ -70,6 +71,7 @@ export default function BioBlock({
   body = null,
   dropCap = false,
   links = null,
+  interaction = "hover",
 }: BioBlockProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -81,6 +83,7 @@ export default function BioBlock({
   const restSecondRef = useRef<HTMLSpanElement | null>(null);
   const bioRef = useRef<HTMLDivElement | null>(null);
   const tlRef = useRef<gsap.core.Timeline | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   const [firstWord = "", secondWord = ""] = name.split(" ");
   const firstC = firstWord.charAt(0) || "C";
@@ -348,8 +351,37 @@ export default function BioBlock({
     { scope: rootRef }
   );
 
-  const handleEnter = () => tlRef.current?.play();
-  const handleLeave = () => tlRef.current?.reverse();
+  const useClick = interaction === "click";
+
+  useEffect(() => {
+    if (!useClick) return;
+    if (!tlRef.current) return;
+    if (isOpen) tlRef.current.play();
+    else tlRef.current.reverse();
+  }, [isOpen, useClick]);
+
+  const handleEnter = () => {
+    if (useClick) return;
+    tlRef.current?.play();
+  };
+  const handleLeave = () => {
+    if (useClick) return;
+    tlRef.current?.reverse();
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!useClick) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("a")) return;
+    setIsOpen((prev) => !prev);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!useClick) return;
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    setIsOpen((prev) => !prev);
+  };
 
   const hasBody = Array.isArray(body) && body.length > 0;
 
@@ -360,10 +392,13 @@ export default function BioBlock({
       tabIndex={0}
       className="inline-block cursor-pointer transform-gpu"
       data-cursor="link"
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
-      onFocus={handleEnter}
-      onBlur={handleLeave}
+      aria-expanded={useClick ? isOpen : undefined}
+      onMouseEnter={useClick ? undefined : handleEnter}
+      onMouseLeave={useClick ? undefined : handleLeave}
+      onFocus={useClick ? undefined : handleEnter}
+      onBlur={useClick ? undefined : handleLeave}
+      onClick={useClick ? handleClick : undefined}
+      onKeyDown={useClick ? handleKeyDown : undefined}
     >
       <div
         ref={boxRef}

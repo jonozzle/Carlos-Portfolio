@@ -1,4 +1,4 @@
-// components/blocks/hero/hero-contents.tsx
+// src: components/blocks/hero/hero-contents.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +18,7 @@ import { getCurrentScrollY, saveScrollForPath } from "@/lib/scroll-state";
 import { getActiveHomeSection, saveActiveHomeSectionNow } from "@/lib/home-section";
 import { lockAppScroll } from "@/lib/scroll-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
+import { clearHeroBioData, setHeroBioData } from "@/lib/hero-bio-store";
 import { PortableText } from "@portabletext/react";
 import clsx from "clsx";
 
@@ -30,7 +31,7 @@ type Props = Extract<Block, { _type: "hero-contents" }>;
 
 type HeroLayout = "feature-left" | "feature-right" | "center-overlay";
 type LinksLayoutMode = "grid" | "center" | "two-column";
-type IndexActionReason = "hover" | "focus" | "click" | "key";
+type IndexActionReason = "hover" | "focus" | "click" | "key" | "cycle";
 
 type HeroImage = {
   asset?: { url?: string | null } | null;
@@ -85,6 +86,13 @@ const HERO_GRID_ROWS = 28;
 
 // CHANGE THIS to control how wide each project link is in grid mode (in grid columns).
 const HERO_GRID_ITEM_COL_SPAN = 6;
+
+// Below-desktop breakpoint (matches your existing scroll logic)
+const BELOW_DESKTOP_MQ = "(max-width: 767px)";
+
+// Below-desktop cycling config
+const MOBILE_CYCLE_MS = 2400;
+const MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS = 4500;
 
 function normalizeLayout(layout: HeroItem["layout"]): HeroLayout {
   if (layout === "feature-right" || layout === "center-overlay") return layout;
@@ -250,6 +258,29 @@ function sanitizeHref(href: unknown) {
   return h || null;
 }
 
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia(query);
+    const onChange = (e: MediaQueryListEvent) => setMatches(e.matches);
+    setMatches(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [query]);
+
+  return matches;
+}
+
+function splitColumnMajor<T>(items: T[]) {
+  const mid = Math.ceil(items.length / 2);
+  return [items.slice(0, mid), items.slice(mid)] as const;
+}
+
 function HeroPortableText({
   value,
   dropCap,
@@ -316,12 +347,243 @@ function HeroPortableText({
   );
 }
 
+function HeroLinksGrid({
+  keyed,
+  activeKey,
+  handleActivate,
+  handleTransitionClick,
+  runIndexAction,
+  activateHeroLink,
+  renderLinkContent,
+  heroLinkAlwaysBold,
+  heroLinkActiveTextClassName,
+  disableHover,
+}: {
+  keyed: HeroItemWithKey[];
+  activeKey: string | null;
+  handleActivate: (it: HeroItemWithKey, index: number, reason: IndexActionReason) => void;
+  handleTransitionClick: (
+    e: React.MouseEvent,
+    href: string,
+    afterFade?: () => void
+  ) => Promise<void>;
+  runIndexAction: (index: number, it: HeroItemWithKey, reason: IndexActionReason) => void;
+  activateHeroLink: (nextKey: string, onActivate?: () => void) => void;
+  renderLinkContent: (it: HeroItemWithKey, index: number) => React.ReactNode;
+  heroLinkAlwaysBold: boolean;
+  heroLinkActiveTextClassName: string;
+  disableHover: boolean;
+}) {
+  return (
+    <div
+      className="w-full h-full"
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${HERO_GRID_COLS}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${HERO_GRID_ROWS}, minmax(0, 1fr))`,
+        alignItems: "center",
+        justifyItems: "start",
+      }}
+    >
+      {keyed.map((it, index) => {
+        const isActive = it._key === activeKey;
+        const href = it.slug ? `/projects/${it.slug}` : "#";
+
+        let colStart = clampInt(it.col, 1, HERO_GRID_COLS, 14);
+        const rowStart = clampInt(it.row, 1, HERO_GRID_ROWS, 14);
+        colStart = Math.min(HERO_GRID_COLS - HERO_GRID_ITEM_COL_SPAN + 1, colStart);
+
+        return (
+          <div
+            key={it._key}
+            className="pointer-events-auto"
+            style={{
+              gridColumn: `${colStart} / span ${HERO_GRID_ITEM_COL_SPAN}`,
+              gridRowStart: rowStart,
+              zIndex: isActive ? 2 : 1,
+            }}
+            onMouseEnter={
+              disableHover ? undefined : () => handleActivate(it, index, "hover")
+            }
+            onFocus={() => handleActivate(it, index, "focus")}
+            data-index={index}
+          >
+            <HeroUnderlineLink
+              href={href}
+              active={isActive}
+              alwaysBold={heroLinkAlwaysBold}
+              activeTextClassName={heroLinkActiveTextClassName}
+              className={[
+                "py-1 px-2",
+                "text-lg md:text-xl font-serif font-normal tracking-tighter",
+                "inline-flex flex-col items-start",
+                isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              aria-current={isActive ? "true" : undefined}
+              data-cursor="link"
+              data-index={index}
+              onClick={(e) => {
+                activateHeroLink(it._key, () => { });
+                handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
+              }}
+            >
+              {renderLinkContent(it, index)}
+            </HeroUnderlineLink>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function HeroLinksCenter({
+  keyed,
+  activeKey,
+  handleActivate,
+  handleTransitionClick,
+  runIndexAction,
+  renderLinkContent,
+  heroLinkAlwaysBold,
+  heroLinkActiveTextClassName,
+  disableHover,
+}: {
+  keyed: HeroItemWithKey[];
+  activeKey: string | null;
+  handleActivate: (it: HeroItemWithKey, index: number, reason: IndexActionReason) => void;
+  handleTransitionClick: (
+    e: React.MouseEvent,
+    href: string,
+    afterFade?: () => void
+  ) => Promise<void>;
+  runIndexAction: (index: number, it: HeroItemWithKey, reason: IndexActionReason) => void;
+  renderLinkContent: (it: HeroItemWithKey, index: number) => React.ReactNode;
+  heroLinkAlwaysBold: boolean;
+  heroLinkActiveTextClassName: string;
+  disableHover: boolean;
+}) {
+  return (
+    <div className="w-full h-full grid place-items-center pointer-events-auto">
+      <div className="flex flex-col items-center text-center gap-1">
+        {keyed.map((it, index) => {
+          const isActive = it._key === activeKey;
+          const href = it.slug ? `/projects/${it.slug}` : "#";
+
+          return (
+            <HeroUnderlineLink
+              key={it._key}
+              href={href}
+              active={isActive}
+              alwaysBold={heroLinkAlwaysBold}
+              activeTextClassName={heroLinkActiveTextClassName}
+              className={[
+                "text-lg md:text-xl font-serif font-normal tracking-tighter",
+                "px-2 py-1",
+                "inline-flex flex-col items-start",
+                isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onMouseEnter={disableHover ? undefined : () => handleActivate(it, index, "hover")}
+              onFocus={() => handleActivate(it, index, "focus")}
+              onClick={(e) =>
+                handleTransitionClick(e, href, () => runIndexAction(index, it, "click"))
+              }
+              aria-current={isActive ? "true" : undefined}
+              data-cursor="link"
+              data-index={index}
+            >
+              {renderLinkContent(it, index)}
+            </HeroUnderlineLink>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HeroLinksTwoColumn({
+  keyed,
+  activeKey,
+  handleActivate,
+  handleTransitionClick,
+  runIndexAction,
+  renderLinkContent,
+  heroLinkAlwaysBold,
+  heroLinkActiveTextClassName,
+  disableHover,
+}: {
+  keyed: HeroItemWithKey[];
+  activeKey: string | null;
+  handleActivate: (it: HeroItemWithKey, index: number, reason: IndexActionReason) => void;
+  handleTransitionClick: (
+    e: React.MouseEvent,
+    href: string,
+    afterFade?: () => void
+  ) => Promise<void>;
+  runIndexAction: (index: number, it: HeroItemWithKey, reason: IndexActionReason) => void;
+  renderLinkContent: (it: HeroItemWithKey, index: number) => React.ReactNode;
+  heroLinkAlwaysBold: boolean;
+  heroLinkActiveTextClassName: string;
+  disableHover: boolean;
+}) {
+  const [colA, colB] = useMemo(() => splitColumnMajor(keyed), [keyed]);
+
+  const renderItem = (it: HeroItemWithKey, index: number) => {
+    const isActive = it._key === activeKey;
+    const href = it.slug ? `/projects/${it.slug}` : "#";
+
+    return (
+      <HeroUnderlineLink
+        key={it._key}
+        href={href}
+        active={isActive}
+        alwaysBold={heroLinkAlwaysBold}
+        activeTextClassName={heroLinkActiveTextClassName}
+        className={[
+          "text-lg md:text-xl font-serif font-normal tracking-tighter",
+          "px-2 py-1",
+          "inline-flex flex-col items-start",
+          isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        onMouseEnter={disableHover ? undefined : () => handleActivate(it, index, "hover")}
+        onFocus={() => handleActivate(it, index, "focus")}
+        onClick={(e) => handleTransitionClick(e, href, () => runIndexAction(index, it, "click"))}
+        aria-current={isActive ? "true" : undefined}
+        data-cursor="link"
+        data-index={index}
+      >
+        {renderLinkContent(it, index)}
+      </HeroUnderlineLink>
+    );
+  };
+
+  return (
+    <div className="w-full h-full grid place-items-center pointer-events-auto">
+      <div className="grid grid-cols-2 gap-x-10 gap-y-0 place-content-center">
+        <div className="flex flex-col gap-1 items-center md:items-start">
+          {colA.map((it, i) => renderItem(it, i))}
+        </div>
+        <div className="flex flex-col gap-1 items-center md:items-start">
+          {colB.map((it, i) => renderItem(it, i + colA.length))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HeroContents(props: Props & { onIndexAction?: RuntimeIndexAction }) {
   const router = useRouter();
   const pathname = usePathname();
   const { loaderDone } = useLoader();
 
   const containerRef = useRef<HTMLElement | null>(null);
+
+  // Below-desktop adaptation switch
+  const isBelowDesktop = useMediaQuery(BELOW_DESKTOP_MQ);
 
   // If this component mounted while the loader was still running, skip the
   // right-column "entrance" tween for this mount (loader already handled reveal).
@@ -357,10 +619,13 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const heroLinkAlwaysBold = showProjectDetails;
   const heroLinkActiveTextClassName = heroLinkAlwaysBold ? "font-bold" : "font-semibold";
 
-  const linksLayout: LinksLayoutMode = useMemo(
+  const linksLayoutFromSanity: LinksLayoutMode = useMemo(
     () => normalizeLinksLayout((props as any)?.linksLayout),
     [props]
   );
+
+  // Below desktop: force two-column layout regardless of sanity selection.
+  const effectiveLinksLayout: LinksLayoutMode = isBelowDesktop ? "two-column" : linksLayoutFromSanity;
 
   const showScrollHint: boolean = !!(props as any)?.showScrollHint;
 
@@ -468,6 +733,62 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     [activateHeroLink, runIndexAction]
   );
 
+  // Below desktop: cycle active state in order (instead of hover)
+  const cyclePauseUntilRef = useRef<number>(0);
+  const pauseCycle = useCallback((ms: number) => {
+    cyclePauseUntilRef.current = Date.now() + Math.max(0, ms);
+  }, []);
+
+  useEffect(() => {
+    if (!loaderDone) return;
+    if (!isBelowDesktop) return;
+    if (keyed.length <= 1) return;
+
+    let raf = 0;
+    let t: any = null;
+
+    const tick = () => {
+      if (Date.now() < cyclePauseUntilRef.current) return;
+
+      const currKey = activeKeyRef.current;
+      const currIndex = currKey ? keyed.findIndex((k) => k._key === currKey) : -1;
+      const nextIndex = (Math.max(-1, currIndex) + 1) % keyed.length;
+      const nextItem = keyed[nextIndex];
+      if (!nextItem?._key) return;
+
+      activateHeroLink(nextItem._key, () => runIndexAction(nextIndex, nextItem, "cycle"));
+    };
+
+    const start = () => {
+      // small initial delay so the first frame doesn't instantly swap after mount
+      raf = window.requestAnimationFrame(() => {
+        t = window.setInterval(tick, MOBILE_CYCLE_MS);
+      });
+    };
+
+    start();
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") {
+        if (t) window.clearInterval(t);
+        t = null;
+        if (raf) window.cancelAnimationFrame(raf);
+        raf = 0;
+        return;
+      }
+
+      if (!t) start();
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (t) window.clearInterval(t);
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, [activateHeroLink, isBelowDesktop, keyed, loaderDone, runIndexAction]);
+
   useEffect(() => {
     if (!loaderDone) return;
     if (typeof window === "undefined") return;
@@ -486,12 +807,15 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       if (idx == null) return;
       if (idx < 0 || idx >= keyed.length) return;
 
+      // On below desktop, any explicit interaction pauses the cycling briefly.
+      if (isBelowDesktop) pauseCycle(MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS);
+
       handleActivate(keyed[idx], idx, "key");
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleActivate, keyed, loaderDone]);
+  }, [handleActivate, isBelowDesktop, keyed, loaderDone, pauseCycle]);
 
   const leftRef = useRef<HTMLDivElement | null>(null);
   const rightRef = useRef<HTMLDivElement | null>(null);
@@ -541,7 +865,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       }
     };
 
-    if (window.matchMedia("(max-width: 767px)").matches) {
+    if (window.matchMedia(BELOW_DESKTOP_MQ).matches) {
       const r = sectionEl.getBoundingClientRect();
       const vh = window.innerHeight || 1;
       const currY = getCurrentScrollY();
@@ -660,6 +984,8 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
 
   const renderProjectDetails = useCallback(
     (it: HeroItemWithKey) => {
+      // Below desktop: remove year/client; title only.
+      if (isBelowDesktop) return null;
       if (!showProjectDetails) return null;
 
       const yearRaw = it.year;
@@ -677,16 +1003,14 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         </span>
       );
     },
-    [showProjectDetails]
+    [isBelowDesktop, showProjectDetails]
   );
 
   const renderLinkContent = useCallback(
     (it: HeroItemWithKey, index: number) => {
       return (
         <span className="inline-flex flex-col items-start">
-          <span className="inline-flex items-baseline">
-            {renderIndexedTitle(it.title ?? "Untitled", index)}
-          </span>
+          <span className="inline-flex items-baseline">{renderIndexedTitle(it.title ?? "Untitled", index)}</span>
           {renderProjectDetails(it)}
         </span>
       );
@@ -724,6 +1048,9 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       if (e.button !== 0) return;
 
+      // Below desktop: user interaction should pause the cycle so it doesn’t jump mid-tap.
+      if (isBelowDesktop) pauseCycle(MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS);
+
       const safeHref = (href ?? "").trim();
       if (!safeHref || safeHref === "#") {
         e.preventDefault();
@@ -750,7 +1077,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
 
       navigateWithTransition(safeHref, kind, activeHome?.id ?? null, activeHome?.type ?? null);
     },
-    [navigateWithTransition, pathname]
+    [isBelowDesktop, navigateWithTransition, pathname, pauseCycle]
   );
 
   // ---------------------------------------
@@ -1132,169 +1459,59 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   }, [loaderDone, showScrollHint]);
 
   // ---------------------------------------
-  // LINKS RENDERERS
+  // LINKS RENDERERS (uses effectiveLinksLayout)
   // ---------------------------------------
-  const renderLinksGrid = useCallback(() => {
-    return (
-      <div
-        className="w-full h-full"
-        style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${HERO_GRID_COLS}, minmax(0, 1fr))`,
-          gridTemplateRows: `repeat(${HERO_GRID_ROWS}, minmax(0, 1fr))`,
-          alignItems: "center",
-          justifyItems: "start",
-        }}
-      >
-        {keyed.map((it, index) => {
-          const isActive = it._key === activeKey;
-          const href = it.slug ? `/projects/${it.slug}` : "#";
+  const disableHover = isBelowDesktop;
 
-          let colStart = clampInt(it.col, 1, HERO_GRID_COLS, 14);
-          const rowStart = clampInt(it.row, 1, HERO_GRID_ROWS, 14);
+  const renderLinks = useMemo(() => {
+    const common = {
+      keyed,
+      activeKey,
+      handleActivate: (it: HeroItemWithKey, index: number, reason: IndexActionReason) => {
+        if (disableHover && reason === "hover") return;
 
-          colStart = Math.min(HERO_GRID_COLS - HERO_GRID_ITEM_COL_SPAN + 1, colStart);
+        if (isBelowDesktop && reason !== "hover") {
+          pauseCycle(MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS);
+        }
 
-          return (
-            <div
-              key={it._key}
-              className="pointer-events-auto"
-              style={{
-                gridColumn: `${colStart} / span ${HERO_GRID_ITEM_COL_SPAN}`,
-                gridRowStart: rowStart,
-                zIndex: isActive ? 2 : 1,
-              }}
-              onMouseEnter={() => handleActivate(it, index, "hover")}
-              onFocus={() => handleActivate(it, index, "focus")}
-              data-index={index}
-            >
-              <HeroUnderlineLink
-                href={href}
-                active={isActive}
-                alwaysBold={heroLinkAlwaysBold}
-                activeTextClassName={heroLinkActiveTextClassName}
-                className={[
-                  "py-1 px-2",
-                  "text-lg md:text-xl font-serif font-normal tracking-tighter",
-                  "inline-flex flex-col items-start",
-                  isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                aria-current={isActive ? "true" : undefined}
-                data-cursor="link"
-                data-index={index}
-                onClick={(e) => {
-                  activateHeroLink(it._key, () => { });
-                  handleTransitionClick(e, href, () => runIndexAction(index, it, "click"));
-                }}
-              >
-                {renderLinkContent(it, index)}
-              </HeroUnderlineLink>
-            </div>
-          );
-        })}
-      </div>
-    );
-  }, [
-    activeKey,
-    activateHeroLink,
-    handleActivate,
-    handleTransitionClick,
-    keyed,
-    renderLinkContent,
-    runIndexAction,
-    heroLinkAlwaysBold,
-    heroLinkActiveTextClassName,
-  ]);
+        handleActivate(it, index, reason);
+      },
+      handleTransitionClick,
+      runIndexAction,
+      renderLinkContent,
+      heroLinkAlwaysBold,
+      heroLinkActiveTextClassName,
+      disableHover,
+    };
 
-  const renderLinksList = useCallback(() => {
-    if (linksLayout === "center") {
+    if (effectiveLinksLayout === "grid") {
       return (
-        <div className="w-full h-full grid place-items-center pointer-events-auto">
-          <div className="flex flex-col items-center text-center gap-1">
-            {keyed.map((it, index) => {
-              const isActive = it._key === activeKey;
-              const href = it.slug ? `/projects/${it.slug}` : "#";
-
-              return (
-                <HeroUnderlineLink
-                  key={it._key}
-                  href={href}
-                  active={isActive}
-                  alwaysBold={heroLinkAlwaysBold}
-                  activeTextClassName={heroLinkActiveTextClassName}
-                  className={[
-                    "text-lg md:text-xl font-serif font-normal tracking-tighter",
-                    "px-2 py-1",
-                    "inline-flex flex-col items-start",
-                    isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  onMouseEnter={() => handleActivate(it, index, "hover")}
-                  onFocus={() => handleActivate(it, index, "focus")}
-                  onClick={(e) => handleTransitionClick(e, href, () => runIndexAction(index, it, "click"))}
-                  aria-current={isActive ? "true" : undefined}
-                  data-cursor="link"
-                  data-index={index}
-                >
-                  {renderLinkContent(it, index)}
-                </HeroUnderlineLink>
-              );
-            })}
-          </div>
-        </div>
+        <HeroLinksGrid
+          {...common}
+          activateHeroLink={activateHeroLink}
+        />
       );
     }
 
-    // two-column
-    return (
-      <div className="w-full h-full grid place-items-center pointer-events-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-1 place-content-center">
-          {keyed.map((it, index) => {
-            const isActive = it._key === activeKey;
-            const href = it.slug ? `/projects/${it.slug}` : "#";
+    if (effectiveLinksLayout === "center") {
+      return <HeroLinksCenter {...common} />;
+    }
 
-            return (
-              <HeroUnderlineLink
-                key={it._key}
-                href={href}
-                active={isActive}
-                alwaysBold={heroLinkAlwaysBold}
-                activeTextClassName={heroLinkActiveTextClassName}
-                className={[
-                  "text-lg md:text-xl font-serif font-normal tracking-tighter",
-                  "px-2 py-1",
-                  "inline-flex flex-col items-start",
-                  isActive ? "opacity-100" : "opacity-70 hover:opacity-100",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onMouseEnter={() => handleActivate(it, index, "hover")}
-                onFocus={() => handleActivate(it, index, "focus")}
-                onClick={(e) => handleTransitionClick(e, href, () => runIndexAction(index, it, "click"))}
-                aria-current={isActive ? "true" : undefined}
-                data-cursor="link"
-                data-index={index}
-              >
-                {renderLinkContent(it, index)}
-              </HeroUnderlineLink>
-            );
-          })}
-        </div>
-      </div>
-    );
+    return <HeroLinksTwoColumn {...common} />;
   }, [
+    activateHeroLink,
     activeKey,
+    disableHover,
+    effectiveLinksLayout,
     handleActivate,
     handleTransitionClick,
+    heroLinkActiveTextClassName,
+    heroLinkAlwaysBold,
+    isBelowDesktop,
     keyed,
-    linksLayout,
+    pauseCycle,
     renderLinkContent,
     runIndexAction,
-    heroLinkAlwaysBold,
-    heroLinkActiveTextClassName,
   ]);
 
   // Featured project fallback: if no explicit featured project, use first hero item.
@@ -1328,6 +1545,11 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     const raw = ((bio as any)?.links ?? []) as unknown[];
     return raw.filter((l): l is HeroLink => !!l && typeof l === "object");
   }, [bio]);
+
+  useEffect(() => {
+    setHeroBioData({ body: bioBody, dropCap: bioDropCap, links: bioLinks });
+    return () => clearHeroBioData();
+  }, [bioBody, bioDropCap, bioLinks]);
 
   // ---- Footer text (“footer bio”) bottom-left ----
   const showFooterText: boolean = !!(props as any)?.showFooterText;
@@ -1438,19 +1660,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       ref={containerRef}
       data-fouc
       data-hero-layout={activeLayout}
-      data-links-layout={linksLayout}
+      data-links-layout={effectiveLinksLayout}
       className="relative flex-none w-screen h-auto md:h-screen grid grid-cols-1 md:grid-cols-2"
       style={{ contain: "layout paint" }}
     >
       {/* LEFT – image */}
       <div ref={leftRef} className="relative h-[60vh] md:h-full overflow-hidden">
-        {/* Mobile BioBlock overlay (stays) */}
-        <div className="absolute right-3 top-3 z-30 md:hidden">
-          <span data-hero-main-title className="block">
-            <BioBlock body={bioBody} dropCap={bioDropCap} links={bioLinks} />
-          </span>
-        </div>
-
         <div className="relative w-full h-full px-6 py-6 md:px-0 md:py-0">
           <div className="relative w-full h-full overflow-hidden">
             {/* CURRENT LAYER */}
@@ -1502,7 +1717,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       {/* RIGHT – content */}
       <div
         ref={rightRef}
-        className="relative h-full min-h-0 px-6 pt-6 pb-5 overflow-hidden flex flex-col"
+        className="relative px-6 pt-6 pb-5 flex flex-col md:h-full md:min-h-0 md:overflow-hidden"
         style={{ contain: "layout paint" }}
       >
         {/* HEADER */}
@@ -1541,15 +1756,17 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         </div>
 
         {/* LINKS FIELD */}
-        <div className="relative flex-1 min-h-0 pointer-events-none">
-          <div className="absolute inset-0 pointer-events-auto">
-            {linksLayout === "grid" ? renderLinksGrid() : renderLinksList()}
-          </div>
+        <div
+          className="relative flex-none md:flex-1 md:min-h-0 pointer-events-none"
+          onPointerDown={isBelowDesktop ? () => pauseCycle(MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS) : undefined}
+          onTouchStart={isBelowDesktop ? () => pauseCycle(MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS) : undefined}
+        >
+          <div className="pointer-events-auto md:absolute md:inset-0">{renderLinks}</div>
         </div>
 
         {/* FOOTER: footerBody bottom-left, links bottom-right */}
         {shouldRenderFooter ? (
-          <div ref={footerRef} className="relative flex-none">
+          <div ref={footerRef} className="hidden md:block relative flex-none">
             <div className="mt-2 flex items-end gap-6">
               <div className="flex-1">{footerTextNode}</div>
 
