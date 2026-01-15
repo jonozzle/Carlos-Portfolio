@@ -544,7 +544,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     const metaRowClass = cx(
         "-mt-1 flex w-full font-serif text-sm md:text-base tracking-tighter",
         isMobileRightAligned ? "justify-end" : "justify-start",
-        "md:justify-start" // desktop alignment handled by md:text-* / md:items-*
+        slot.info.align === "right" ? "md:justify-end" : "md:justify-start"
     );
 
     const infoButtonClass = cx(

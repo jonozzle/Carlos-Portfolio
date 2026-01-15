@@ -2,6 +2,8 @@
 import { defineType, defineField } from "sanity";
 import { Image as ImageIcon } from "lucide-react";
 
+const hasCaption = (parent: any) => Array.isArray(parent?.caption) && parent.caption.length > 0;
+
 export default defineType({
   name: "single-image",
   title: "Single image",
@@ -28,6 +30,7 @@ export default defineType({
       ],
       validation: (r) => r.required(),
     }),
+
     defineField({
       name: "paddingMode",
       title: "Padding",
@@ -36,18 +39,15 @@ export default defineType({
         layout: "radio",
         list: [
           { title: "None", value: "none" },
-          { title: "Default", value: "default" },
-          { title: "Custom", value: "custom" },
+          { title: "Small", value: "sm" },
+          { title: "Medium", value: "md" },
+          { title: "Large", value: "lg" },
+          { title: "XL", value: "xl" },
         ],
       },
-      initialValue: "default",
+      initialValue: "md",
     }),
-    defineField({
-      name: "customPadding",
-      title: "Custom padding (px)",
-      type: "number",
-      hidden: ({ parent }) => parent?.paddingMode !== "custom",
-    }),
+
     defineField({
       name: "widthMode",
       title: "Width",
@@ -62,6 +62,37 @@ export default defineType({
         ],
       },
       initialValue: "auto",
+    }),
+
+    defineField({
+      name: "caption",
+      title: "Photo caption",
+      type: "array",
+      of: [{ type: "block" }],
+    }),
+    defineField({
+      name: "captionPosition",
+      title: "Caption position (desktop)",
+      type: "string",
+      options: {
+        layout: "radio",
+        list: [
+          { title: "Top left", value: "topLeft" },
+          { title: "Top right", value: "topRight" },
+          { title: "Bottom left", value: "bottomLeft" },
+          { title: "Bottom right", value: "bottomRight" },
+        ],
+      },
+      initialValue: "bottomRight",
+      hidden: ({ parent }) => !hasCaption(parent),
+    }),
+    defineField({
+      name: "captionColor",
+      title: "Caption text color",
+      type: "color",
+      options: { disableAlpha: true },
+      initialValue: { hex: "#000000" },
+      hidden: ({ parent }) => !hasCaption(parent),
     }),
   ],
   preview: {

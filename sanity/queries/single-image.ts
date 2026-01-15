@@ -8,8 +8,12 @@ export const singleImageBlockQuery = groq`
     _key,
     title,
     paddingMode,
-    customPadding,
     widthMode,
+
+    caption,
+    captionPosition,
+    "captionColor": captionColor { hex, alpha, rgb },
+
     "image": select(
       defined(image) => {
         "asset": {
