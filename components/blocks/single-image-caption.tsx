@@ -31,9 +31,10 @@ export default function SingleImageCaption({
   const [openMobile, setOpenMobile] = useState(false);
 
   const captionRef = useRef<HTMLDivElement | null>(null);
-  const dotRef = useRef<HTMLButtonElement | null>(null);
-
-  const resolvedColor = useMemo(() => (colorHex && colorHex.length ? colorHex : "#000000"), [colorHex]);
+  const resolvedColor = useMemo(
+    () => (colorHex && colorHex.length ? colorHex : "#000000"),
+    [colorHex]
+  );
 
   const desktopPlacementClass = useMemo(() => {
     switch (pos) {
@@ -50,7 +51,9 @@ export default function SingleImageCaption({
   }, [pos]);
 
   // All positions collapse to bottom-right below desktop.
-  const mobilePlacementClass = "bottom-4 right-4";
+  const mobileCaptionPlacementClass = "bottom-4 right-4";
+  // Increase tap target without changing the dot's visual position.
+  const mobileDotPlacementClass = "bottom-2 right-2";
 
   const fromX = useMemo(() => {
     const isLeft = pos === "topLeft" || pos === "bottomLeft";
@@ -113,23 +116,14 @@ export default function SingleImageCaption({
     };
   }, [hasValue, isDesktop, fromX, hoverTargetRef]);
 
-  // Mobile: dot toggles caption; dot animates to caption top-left when open
+  // Mobile: dot toggles caption
   useEffect(() => {
     if (!hasValue || isDesktop) return;
 
     const captionEl = captionRef.current;
-    const dotEl = dotRef.current;
-    if (!captionEl || !dotEl) return;
+    if (!captionEl) return;
 
-    gsap.killTweensOf([captionEl, dotEl]);
-
-    const moveDotToCaptionTopLeft = () => {
-      const c = captionEl.getBoundingClientRect();
-      const d = dotEl.getBoundingClientRect();
-      const dx = c.left - d.left;
-      const dy = c.top - d.top;
-      gsap.to(dotEl, { x: dx, y: dy, duration: 0.28, ease: "power2.out" });
-    };
+    gsap.killTweensOf(captionEl);
 
     if (openMobile) {
       gsap.set(captionEl, { display: "block" });
@@ -139,11 +133,7 @@ export default function SingleImageCaption({
         { autoAlpha: 1, x: 0, duration: 0.28, ease: "power2.out" }
       );
 
-      requestAnimationFrame(moveDotToCaptionTopLeft);
-
-      const onResize = () => requestAnimationFrame(moveDotToCaptionTopLeft);
-      window.addEventListener("resize", onResize, { passive: true });
-      return () => window.removeEventListener("resize", onResize);
+      return;
     }
 
     gsap.to(captionEl, {
@@ -156,23 +146,29 @@ export default function SingleImageCaption({
       },
     });
 
-    gsap.to(dotEl, { x: 0, y: 0, duration: 0.22, ease: "power2.out" });
   }, [hasValue, isDesktop, openMobile]);
 
   if (!hasValue) return null;
 
   const captionBoxClass = clsx(
     "absolute z-20 pointer-events-auto",
-    isDesktop ? desktopPlacementClass : mobilePlacementClass,
+    isDesktop ? desktopPlacementClass : mobileCaptionPlacementClass,
     "max-w-[30ch] md:max-w-[36ch]",
     "text-xs md:text-sm leading-snug tracking-tight"
   );
 
   const dotClass = clsx(
     "absolute z-30 pointer-events-auto",
-    mobilePlacementClass,
-    "h-2.5 w-2.5 md:hidden",
-    "rounded-full bg-red-600"
+    mobileDotPlacementClass,
+    "md:hidden",
+    "p-2",
+    "flex items-center justify-center"
+  );
+
+  const dotVisualClass = clsx(
+    "h-2.5 w-2.5 bg-red-600",
+    "transition-[border-radius,transform] duration-200 ease-out",
+    openMobile ? "rounded-none scale-90" : "rounded-full scale-100"
   );
 
   const portableTextComponents = {
@@ -199,13 +195,14 @@ export default function SingleImageCaption({
   return (
     <div className="absolute inset-0 pointer-events-none">
       <button
-        ref={dotRef}
         type="button"
         className={dotClass}
         aria-label={openMobile ? "Hide caption" : "Show caption"}
         aria-expanded={openMobile}
         onClick={() => setOpenMobile((v) => !v)}
-      />
+      >
+        <span className={dotVisualClass} />
+      </button>
 
       <div
         ref={captionRef}

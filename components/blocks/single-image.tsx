@@ -51,9 +51,9 @@ export default function SingleImage(props: Props) {
       case "md":
         return "p-6 md:p-8 lg:p-10";
       case "lg":
-        return "p-8 md:p-10 lg:p-12";
+        return "p-8 md:p-24 lg:p-32";
       case "xl":
-        return "p-10 md:p-12 lg:p-16";
+        return "p-10 md:p-12 lg:p-42";
       default:
         return "p-6 md:p-8 lg:p-10";
     }
@@ -69,9 +69,9 @@ export default function SingleImage(props: Props) {
       case "md":
         return 24; // p-6
       case "lg":
-        return 32; // p-8
+        return 100; // p-8
       case "xl":
-        return 40; // p-10
+        return 50; // p-10
       default:
         return 24;
     }
@@ -105,11 +105,11 @@ export default function SingleImage(props: Props) {
   const boxClass = useMemo(() => {
     switch (widthMode) {
       case "small":
-        return "w-[calc(100vw-var(--pad2))] md:w-[min(35vw,calc(100vw-var(--pad2)))]";
+        return "w-[calc(100vw - var(--pad2))] md:w-[max(0px,calc(35vw - var(--pad2)))]";
       case "medium":
-        return "w-[calc(100vw-var(--pad2))] md:w-[min(50vw,calc(100vw-var(--pad2)))]";
+        return "w-[calc(100vw - var(--pad2))] md:w-[max(0px,calc(50vw - var(--pad2)))]";
       case "large":
-        return "w-[calc(100vw-var(--pad2))] md:w-[min(65vw,calc(100vw-var(--pad2)))]";
+        return "w-[calc(100vw - var(--pad2))] md:w-[max(0px,calc(65vw - var(--pad2)))]";
       case "auto":
       default:
         return "w-auto";
@@ -194,7 +194,7 @@ export default function SingleImage(props: Props) {
         <div
           ref={boxRef}
           className={clsx(
-            "relative overflow-hidden max-w-[calc(100vw-var(--pad2))] md:max-w-[calc(100vw-var(--pad2))] md:max-h-[calc(100vh-var(--pad2))]",
+            "relative overflow-hidden max-w-[calc(100vw - var(--pad2))] max-h-[calc(100vh - var(--pad2))] md:max-w-[calc(100vw - var(--pad2))] md:max-h-[calc(100vh - var(--pad2))]",
             boxClass
           )}
           style={{

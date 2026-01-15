@@ -130,6 +130,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     const tileRef = useRef<HTMLDivElement | null>(null);
     const imgScaleRef = useRef<HTMLDivElement | null>(null);
     const navLockedRef = useRef(false);
+    const leaveRafRef = useRef<number | null>(null);
 
     const slug = item?.slug ?? "";
     const href = slug ? `/projects/${slug}` : "#";
@@ -240,9 +241,27 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         if (!skipScale) animateScale(1.1);
     }, [hasTheme, previewTheme, theme, setActiveIndex, index, isScrollingRef, animateScale]);
 
+    const cancelPendingLeave = useCallback(() => {
+        if (leaveRafRef.current !== null) {
+            cancelAnimationFrame(leaveRafRef.current);
+            leaveRafRef.current = null;
+        }
+    }, []);
+
+    const isPointerOverAnyCell = useCallback(() => {
+        if (typeof document === "undefined") return false;
+        const pos = getLastMouse();
+        if (pos) {
+            const hit = document.elementFromPoint(pos.x, pos.y) as HTMLElement | null;
+            return !!(hit && hit.closest("[data-project-block-cell]"));
+        }
+        return !!document.querySelector("[data-project-block-cell]:hover");
+    }, []);
+
     const handleEnter = useCallback(() => {
+        cancelPendingLeave();
         applyHover();
-    }, [applyHover]);
+    }, [applyHover, cancelPendingLeave]);
 
     const isPointerInside = useCallback(() => {
         const el = tileRef.current;
@@ -260,10 +279,19 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     const handleLeave = useCallback(() => {
         if (navLockedRef.current) return;
         if (isHoverLocked()) return;
+
         const appScrolling = isAppScrolling();
         if ((appScrolling || isScrollingRef.current) && isPointerInside()) return;
-        clearHover(appScrolling);
-    }, [clearHover, isScrollingRef, isPointerInside]);
+
+        cancelPendingLeave();
+        leaveRafRef.current = requestAnimationFrame(() => {
+            leaveRafRef.current = null;
+            if (navLockedRef.current) return;
+            if (isHoverLocked()) return;
+            if (isPointerOverAnyCell()) return;
+            clearHover(isAppScrolling());
+        });
+    }, [cancelPendingLeave, clearHover, isPointerInside, isPointerOverAnyCell, isScrollingRef]);
 
     const applyHoverUnderPointer = useCallback(
         (allowIdle?: boolean) => {
@@ -310,6 +338,12 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         window.addEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked);
         return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
     }, [applyHoverUnderPointer]);
+
+    useEffect(() => {
+        return () => {
+            cancelPendingLeave();
+        };
+    }, [cancelPendingLeave]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
