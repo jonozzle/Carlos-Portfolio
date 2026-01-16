@@ -319,7 +319,7 @@ export default function VerticalImageSlider({
                                     alt={img.alt}
                                     fill
                                     sizes={sizesAttr}
-                                    hiMaxWidth={size === "full" ? 5000 : 3500}
+                                    hiMaxWidth={size === "full" ? 2000 : 1400}
                                     lqipWidth={24}
                                     loading="lazy"
                                 />
