@@ -1558,8 +1558,8 @@ export default function BookmarkLinkFabric({
           pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
         }
       } else if (isReturn) {
-        const minX = lerp(-VIEWPORT_PAD, startX - 10, returnEase);
-        const maxX = lerp(fullW + VIEWPORT_PAD, startX + STRIP_W + 10, returnEase);
+        const minX = lerp(-VIEWPORT_PAD, 0, returnEase);
+        const maxX = lerp(fullW + VIEWPORT_PAD, fullW, returnEase);
         const minY = lerp(-VIEWPORT_PAD, startY - 8, returnEase);
         const maxY = lerp(fullH + VIEWPORT_PAD, startY + stripHeight + 14, returnEase);
 

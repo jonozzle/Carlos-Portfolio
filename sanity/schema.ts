@@ -53,6 +53,7 @@ import spacer from "./schemas/blocks/spacer";
 import imageTextGrid from "./schemas/blocks/grid/image-text-grid";
 import imageTextGridImage from "./schemas/blocks/grid/image-text-grid-image";
 import imageTextGridText from "./schemas/blocks/grid/image-text-grid-text";
+import projectIndexDrawer from "./schemas/blocks/project-index-drawer";
 
 export const schema: { types: SchemaTypeDefinition[] } = {
   types: [
@@ -109,5 +110,6 @@ export const schema: { types: SchemaTypeDefinition[] } = {
     imageTextGrid,
     imageTextGridImage,
     imageTextGridText,
+    projectIndexDrawer,
   ],
 };

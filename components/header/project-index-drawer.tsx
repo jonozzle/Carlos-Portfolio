@@ -1,31 +1,73 @@
-// components/header/project-index-drawer.tsx
+// src: components/header/project-index-drawer.tsx
 "use client";
 
-import React, { useEffect, useLayoutEffect, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { gsap } from "gsap";
+import HeroUnderlineLink from "@/components/ui/hero-underline-link";
+
+type DrawerItem = {
+  _key: string;
+  title: string;
+  slug: string | null;
+  year: number | string | null;
+  client: string | null;
+  col: number | null;
+  row: number | null;
+};
+
+export type ProjectIndexDrawerData = {
+  title: string;
+  showNumbers: boolean;
+  showProjectDetails: boolean;
+  items: DrawerItem[];
+} | null;
 
 type ProjectIndexDrawerProps = {
   open: boolean;
+  drawer?: ProjectIndexDrawerData;
   id?: string;
   panelRef?: React.RefObject<HTMLDivElement | null>;
+  onNavigate?: () => void;
 };
 
-const DUMMY_LINKS = [
-  { title: "Atlas Archives", href: "#" },
-  { title: "Copper Field", href: "#" },
-  { title: "Halcyon Studio", href: "#" },
-  { title: "Lumen Foundry", href: "#" },
-  { title: "Morrow & Co.", href: "#" },
-  { title: "Northway Lab", href: "#" },
-  { title: "Signal Ridge", href: "#" },
-  { title: "Violet Works", href: "#" },
-  { title: "Wilderness Unit", href: "#" },
-];
+// Grid layout (28×28)
+const DRAWER_GRID_COLS = 28;
+const DRAWER_GRID_ROWS = 28;
 
-export default function ProjectIndexDrawer({ open, id, panelRef }: ProjectIndexDrawerProps) {
+// CHANGE THIS to control how wide each project link is in grid mode (in grid columns).
+const DRAWER_GRID_ITEM_COL_SPAN = 6;
+const MOBILE_DRAWER_QUERY = "(max-width: 767px)";
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function clampInt(n: unknown, min: number, max: number, fallback: number) {
+  const v = typeof n === "number" && Number.isFinite(n) ? Math.round(n) : fallback;
+  return Math.min(max, Math.max(min, v));
+}
+
+export default function ProjectIndexDrawer({
+  open,
+  drawer,
+  id,
+  panelRef,
+  onNavigate,
+}: ProjectIndexDrawerProps) {
   const localPanelRef = useRef<HTMLDivElement | null>(null);
   const resolvedPanelRef = panelRef ?? localPanelRef;
-  const listRef = useRef<HTMLUListElement | null>(null);
+
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+
+  const title = (drawer?.title ?? "Project Index").trim() || "Project Index";
+  const showNumbers = !!drawer?.showNumbers;
+  const showProjectDetails = drawer?.showProjectDetails ?? true;
+
+  const items = useMemo(() => {
+    const raw = drawer?.items ?? [];
+    return raw.filter((it) => it && it._key && (it.slug || it.title));
+  }, [drawer?.items]);
 
   useLayoutEffect(() => {
     const panel = resolvedPanelRef.current;
@@ -34,12 +76,28 @@ export default function ProjectIndexDrawer({ open, id, panelRef }: ProjectIndexD
   }, [resolvedPanelRef]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia(MOBILE_DRAWER_QUERY);
+    const update = () => setIsMobileLayout(mq.matches);
+    update();
+    if (mq.addEventListener) {
+      mq.addEventListener("change", update);
+      return () => mq.removeEventListener("change", update);
+    }
+    mq.addListener(update);
+    return () => mq.removeListener(update);
+  }, []);
+
+  useEffect(() => {
     const panel = resolvedPanelRef.current;
     if (!panel) return;
 
-    const listItems = listRef.current ? Array.from(listRef.current.children) : [];
+    const itemEls = gridRef.current
+      ? Array.from(gridRef.current.querySelectorAll<HTMLElement>("[data-drawer-item]"))
+      : [];
+
     gsap.killTweensOf(panel);
-    gsap.killTweensOf(listItems);
+    gsap.killTweensOf(itemEls);
 
     if (!open) {
       gsap.to(panel, {
@@ -55,6 +113,7 @@ export default function ProjectIndexDrawer({ open, id, panelRef }: ProjectIndexD
     }
 
     gsap.set(panel, { pointerEvents: "auto" });
+
     const tl = gsap.timeline({ defaults: { overwrite: "auto" } });
 
     tl.to(panel, {
@@ -63,45 +122,143 @@ export default function ProjectIndexDrawer({ open, id, panelRef }: ProjectIndexD
       ease: "power3.out",
     });
 
-    if (listItems.length) {
+    if (itemEls.length) {
       tl.fromTo(
-        listItems,
+        itemEls,
         { y: -12, autoAlpha: 0 },
-        { y: 0, autoAlpha: 1, duration: 0.35, ease: "power2.out", stagger: 0.06 },
+        { y: 0, autoAlpha: 1, duration: 0.35, ease: "power2.out", stagger: 0.035 },
         "-=0.25"
       );
     }
-  }, [open, resolvedPanelRef]);
+  }, [open, resolvedPanelRef, items.length]);
+
+  const renderIndexedTitle = (t: string, index: number) => {
+    if (!showNumbers) return <span className="inline-block">{t}</span>;
+    return (
+      <>
+        <span className="mr-2 inline-block tabular-nums opacity-70">{pad2(index + 1)}</span>
+        <span className="inline-block">{t}</span>
+      </>
+    );
+  };
+
+  const renderProjectDetails = (it: DrawerItem) => {
+    if (!showProjectDetails) return null;
+
+    const yearRaw = it.year;
+    const year = yearRaw == null ? "" : String(yearRaw).trim();
+
+    const clientRaw = it.client;
+    const client = clientRaw == null ? "" : String(clientRaw).trim();
+
+    if (!year && !client) return null;
+
+    return (
+      <span className="mt-1 flex flex-col gap-0 text-xs md:text-sm leading-tight tracking-tighter opacity-60">
+        {year ? <span className="tabular-nums">{year}</span> : null}
+        {client ? <span>{client}</span> : null}
+      </span>
+    );
+  };
+
+  const renderLinkContent = (it: DrawerItem, index: number) => {
+    return (
+      <span className="inline-flex flex-col items-start">
+        <span className="inline-flex items-baseline">
+          {renderIndexedTitle(it.title || "Untitled", index)}
+        </span>
+        {renderProjectDetails(it)}
+      </span>
+    );
+  };
 
   return (
     <div
       id={id}
       ref={resolvedPanelRef}
       className="fixed inset-x-0 top-0 z-[10005] w-full bg-neutral-50/95 text-neutral-900 backdrop-blur-md shadow-[0_20px_60px_rgba(0,0,0,0.12)]"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
     >
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 pb-10 pt-24">
+      <div className="mx-auto flex w-full  flex-col gap-6 px-6 py-6">
         <div className="flex items-center justify-between">
-          <p className="text-[11px] uppercase tracking-[0.3em] text-neutral-500">Project Index</p>
-          <span className="text-[11px] uppercase tracking-[0.2em] text-neutral-400">
-            Bookmark toggles
-          </span>
+          <p className="text-[11px] uppercase tracking-[0.3em] text-neutral-500">{title}</p>
         </div>
-        <ul ref={listRef} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {DUMMY_LINKS.map((item) => (
-            <li key={item.title}>
-              <a
-                href={item.href}
-                onClick={(e) => e.preventDefault()}
-                className="group flex items-center justify-between border-b border-neutral-200/80 pb-2 text-sm uppercase tracking-[0.18em] text-neutral-700 transition-colors duration-200 hover:text-neutral-900"
-              >
-                <span>{item.title}</span>
-                <span className="text-[10px] tracking-[0.22em] text-neutral-400 transition-colors duration-200 group-hover:text-neutral-600">
-                  View
-                </span>
-              </a>
-            </li>
-          ))}
-        </ul>
+
+        <div className="w-full">
+          <div
+            ref={gridRef}
+            className="relative w-full min-h-[35vh] max-h-[50vh] overflow-auto rounded-2xl"
+            style={
+              isMobileLayout
+                ? {
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    gridAutoRows: "auto",
+                    alignItems: "start",
+                    justifyItems: "start",
+                    columnGap: "1.25rem",
+                    rowGap: "0.75rem",
+                    minHeight: "auto",
+                    maxHeight: "none",
+                  }
+                : {
+                    display: "grid",
+                    gridTemplateColumns: `repeat(${DRAWER_GRID_COLS}, minmax(0, 1fr))`,
+                    gridTemplateRows: `repeat(${DRAWER_GRID_ROWS}, minmax(0, 1fr))`,
+                    alignItems: "start",
+                    justifyItems: "start",
+                  }
+            }
+          >
+            {items.length ? (
+              items.map((it, index) => {
+                const href = it.slug ? `/projects/${it.slug}` : "#";
+
+                let colStart = clampInt(it.col, 1, DRAWER_GRID_COLS, 14);
+                const rowStart = clampInt(it.row, 1, DRAWER_GRID_ROWS, 14);
+                colStart = Math.min(DRAWER_GRID_COLS - DRAWER_GRID_ITEM_COL_SPAN + 1, colStart);
+                const placementStyle = isMobileLayout
+                  ? undefined
+                  : {
+                    gridColumn: `${colStart} / span ${DRAWER_GRID_ITEM_COL_SPAN}`,
+                    gridRowStart: rowStart,
+                  };
+
+                return (
+                  <div
+                    key={it._key}
+                    data-drawer-item
+                    className="pointer-events-auto"
+                    style={placementStyle}
+                  >
+                    <HeroUnderlineLink
+                      href={href}
+                      active={false}
+                      alwaysBold={false}
+                      activeTextClassName="font-semibold"
+                      className={[
+                        "py-1 px-2",
+                        "text-lg md:text-xl font-serif font-normal tracking-tighter",
+                        "inline-flex flex-col items-start",
+                        "opacity-70 hover:opacity-100 focus-visible:opacity-100",
+                      ].join(" ")}
+                      data-cursor="link"
+                      onClick={() => onNavigate?.()}
+                    >
+                      {renderLinkContent(it, index)}
+                    </HeroUnderlineLink>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="col-span-full row-span-full grid place-items-center text-sm opacity-60">
+                No drawer items
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

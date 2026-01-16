@@ -45,7 +45,7 @@ type ThemeContext = ReturnType<typeof useTheme>;
 
 type Slot = {
     img: { col: string; row: string };
-    info: { col: string; row: string; align?: "left" | "right" };
+    info: { col: string; row: string };
 };
 
 type ProjectLayoutEntry = {
@@ -539,8 +539,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 
     const mobileInfoAlign = isMobileRightAligned ? "items-end text-right" : "items-start text-left";
 
-    const desktopInfoAlign =
-        slot.info.align === "right" ? "md:items-end md:text-right" : "md:items-start md:text-left";
+    const desktopInfoAlign = "md:items-start md:text-left";
 
     // Aspect-ratio driven image box (mobile) to preserve image shape; clamp tall images.
     const imgAspectStyle = useMemo(() => {
@@ -578,7 +577,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     const metaRowClass = cx(
         "-mt-1 flex w-full font-serif text-sm md:text-base tracking-tighter",
         isMobileRightAligned ? "justify-end" : "justify-start",
-        slot.info.align === "right" ? "md:justify-end" : "md:justify-start"
+        "md:justify-start"
     );
 
     const infoButtonClass = cx(
@@ -614,7 +613,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 data-dim-item={dimState}
                 data-hero-slug={slug || undefined}
                 data-hero-target="home"
-                data-speed-x="0.97"
+                data-speed-x="1"
             >
                 <PageTransitionButton {...buttonCommonProps} className="block w-full h-full cursor-pointer">
                     <div className="relative w-full h-full overflow-hidden">
@@ -649,16 +648,17 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 className={infoBoxClass}
                 style={{ gridColumn: slot.info.col, gridRow: slot.info.row }}
                 data-dim-item={dimState}
+                data-speed-x="0.97"
             >
                 <PageTransitionButton {...buttonCommonProps} className={infoButtonClass}>
                     <h3
                         className="text-4xl md:text-4xl font-serif font-bold leading-tight tracking-tight"
-                        data-speed-x="0.96"
+
                     >
                         {item?.title ?? "Untitled"}
                     </h3>
 
-                    <div className={metaRowClass} data-speed-x="0.96">
+                    <div className={metaRowClass} >
                         <span>{item?.year ? String(item.year) : "\u00A0"}</span>
                         <span className="mr-1">,</span>
                         <span className="">{item?.client ?? "\u00A0"}</span>
@@ -921,7 +921,6 @@ export default function ProjectBlock(props: Props) {
                         info: {
                             col: `${entry.infoColStart} / ${entry.infoColEnd}`,
                             row: `${entry.infoRowStart} / ${entry.infoRowEnd}`,
-                            align: entry.infoColStart >= 7 ? "right" : "left",
                         },
                     };
 

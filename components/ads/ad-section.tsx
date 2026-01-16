@@ -13,7 +13,11 @@ import { APP_EVENTS } from "@/lib/app-events";
 import { getLastMouse, HOVER_EVENTS, isHoverLocked } from "@/lib/hover-lock";
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
-type Props = Extract<Block, { _type: "ad-section" }>;
+type AdBlock = Extract<Block, { _type: "ad-section" }>;
+type Props = AdBlock & {
+    parallaxEnabled?: boolean | null;
+    parallaxAmount?: "sm" | "md" | "lg" | null;
+};
 
 function isAppScrolling() {
     if (typeof window === "undefined") return false;
@@ -30,6 +34,8 @@ export default function AdSection({
     sectionWidth,
     horizontalAlign,
     verticalAlign,
+    parallaxEnabled,
+    parallaxAmount,
 }: Props) {
     const themeActions = useThemeActions();
     const hasTheme = !!(theme?.bg || theme?.text);
@@ -206,6 +212,8 @@ export default function AdSection({
                         size={sliderSize}
                         label={sliderLabel}
                         className="h-full w-full"
+                        parallaxEnabled={parallaxEnabled !== false}
+                        parallaxAmount={parallaxAmount ?? "md"}
                     />
                 ) : (
                     <HorizontalImageSlider
@@ -213,6 +221,8 @@ export default function AdSection({
                         size={sliderSize}
                         label={sliderLabel}
                         className="h-full w-full"
+                        parallaxEnabled={parallaxEnabled !== false}
+                        parallaxAmount={parallaxAmount ?? "md"}
                     />
                 )}
             </div>

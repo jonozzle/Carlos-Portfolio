@@ -1,4 +1,4 @@
-// desk/structure.ts
+// src: desk/structure.ts
 import { orderableDocumentListDeskItem } from "@sanity/orderable-document-list";
 import { Files, BookA, Menu, Settings, LayoutTemplate } from "lucide-react";
 
@@ -24,32 +24,22 @@ export const structure = (S: any, context: any) =>
       S.divider({ title: "Global" }),
 
       S.listItem()
-        .title("Navigation")
+        .title("Project Index Drawer")
         .icon(Menu)
         .child(
           S.editor()
-            .id("navigation")
-            .schemaType("navigation")
-            .documentId("navigation"),
+            .id("projectIndexDrawer")
+            .schemaType("projectIndexDrawer")
+            .documentId("projectIndexDrawer")
         ),
 
       S.listItem()
         .title("Footer")
         .icon(LayoutTemplate)
-        .child(
-          S.editor()
-            .id("footer")
-            .schemaType("footer")
-            .documentId("footer"),
-        ),
+        .child(S.editor().id("footer").schemaType("footer").documentId("footer")),
 
       S.listItem()
         .title("Settings")
         .icon(Settings)
-        .child(
-          S.editor()
-            .id("settings")
-            .schemaType("settings")
-            .documentId("settings"),
-        ),
+        .child(S.editor().id("settings").schemaType("settings").documentId("settings")),
     ]);

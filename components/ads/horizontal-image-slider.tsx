@@ -17,6 +17,8 @@ type Props = {
     size?: "half" | "full" | "auto";
     label?: string;
     direction?: "horizontal" | "vertical";
+    parallaxEnabled?: boolean;
+    parallaxAmount?: "sm" | "md" | "lg";
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -37,6 +39,8 @@ export default function HorizontalImageSlider({
     size = "auto",
     label = "Advertisement",
     direction = "horizontal",
+    parallaxEnabled = true,
+    parallaxAmount = "md",
 }: Props) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const trackRef = useRef<HTMLDivElement | null>(null);
@@ -58,7 +62,10 @@ export default function HorizontalImageSlider({
 
     const len = prepared.length;
     const isSingle = len === 1;
-    const hasClones = direction !== "vertical" && len > 1;
+    const allowParallax = parallaxEnabled !== false;
+    const hasClones = allowParallax && direction !== "vertical" && len > 1;
+    const parallaxScale =
+        parallaxAmount === "sm" ? 0.6 : parallaxAmount === "lg" ? 1.4 : 1;
 
     // For horizontal, extend with clones so we can show prev/next peeks at extremes.
     const renderImages = useMemo(() => {
@@ -96,11 +103,32 @@ export default function HorizontalImageSlider({
     useLayoutEffect(() => {
         if (!len) return;
         if (typeof window === "undefined") return;
-        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
         const container = containerRef.current;
         const track = trackRef.current;
         if (!container || !track) return;
+
+        if (!allowParallax || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            const target = singlePanRef.current;
+            gsap.set(track, {
+                x: 0,
+                y: 0,
+                xPercent: 0,
+                yPercent: 0,
+                willChange: "auto",
+                force3D: false,
+            });
+            if (target) {
+                gsap.set(target, {
+                    x: 0,
+                    y: 0,
+                    scale: 1,
+                    willChange: "auto",
+                    force3D: false,
+                });
+            }
+            return;
+        }
 
         const scroller = window;
 
@@ -158,7 +186,8 @@ export default function HorizontalImageSlider({
                     const target = singlePanRef.current;
                     if (!target) return;
 
-                    const pan = clamp(viewportW * 0.08, 16, 140);
+                    const basePan = clamp(viewportW * 0.08, 16, 140);
+                    const pan = clamp(basePan * parallaxScale, 8, 180);
                     const scale = coverScale(viewportW, pan);
 
                     gsap.set(target, {
@@ -192,7 +221,8 @@ export default function HorizontalImageSlider({
                 if (!totalW) return;
 
                 const frameW = totalW / Math.max(1, renderLen);
-                const peek = clamp(frameW * 0.2, 18, frameW * 0.35);
+                const basePeek = clamp(frameW * 0.2, 18, frameW * 0.35);
+                const peek = clamp(basePeek * parallaxScale, 12, frameW * 0.45);
 
                 const startX = hasClones
                     ? -(frameW - peek) // start on first REAL frame with left peek of the prev (clone)
@@ -230,7 +260,8 @@ export default function HorizontalImageSlider({
                     const target = singlePanRef.current;
                     if (!target) return;
 
-                    const pan = clamp(viewportH * 0.08, 16, 140);
+                    const basePan = clamp(viewportH * 0.08, 16, 140);
+                    const pan = clamp(basePan * parallaxScale, 8, 180);
                     const scale = coverScale(viewportH, pan);
 
                     gsap.set(target, {
@@ -326,7 +357,7 @@ export default function HorizontalImageSlider({
         }, container);
 
         return () => ctx.revert();
-    }, [len, direction, renderLen, hasClones, isSingle]);
+    }, [len, direction, renderLen, hasClones, isSingle, allowParallax, parallaxScale]);
 
     if (len === 0) {
         return (
@@ -375,7 +406,7 @@ export default function HorizontalImageSlider({
                                     alt={img.alt}
                                     fill
                                     sizes={sizesAttr}
-                                    hiMaxWidth={size === "full" ? 2000 : 1400}
+                                    hiMaxWidth={size === "full" ? 5000 : 3500}
                                     lqipWidth={24}
                                     loading="lazy"
                                 />

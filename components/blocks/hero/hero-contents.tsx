@@ -315,7 +315,7 @@ function HeroPortableText({
         const Tag = cfg.tag as any;
 
         const tagClassName = clsx(
-          "it-pt-block font-serif font-normal tracking-tight",
+          "it-pt-block font-sans font-normal tracking-tight opacity-70 hover:opacity-100 duration-200",
           cfg.className,
           isFirst && "it-dropcap-target"
         );
@@ -381,7 +381,7 @@ function HeroLinksGrid({
         display: "grid",
         gridTemplateColumns: `repeat(${HERO_GRID_COLS}, minmax(0, 1fr))`,
         gridTemplateRows: `repeat(${HERO_GRID_ROWS}, minmax(0, 1fr))`,
-        alignItems: "center",
+        alignItems: "start",
         justifyItems: "start",
       }}
     >
@@ -1565,7 +1565,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         value={footerBody}
         dropCap={footerDropCap}
         variant="footer"
-        className="tracking-tighter"
+        className="tracking-normal "
         maxWidthClassName="max-w-[33ch]"
       />
     );
@@ -1665,7 +1665,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       style={{ contain: "layout paint" }}
     >
       {/* LEFT – image */}
-      <div ref={leftRef} className="relative h-[60vh] md:h-full overflow-hidden">
+      <div ref={leftRef} className="relative h-[70vh] md:h-full overflow-hidden">
         <div className="relative w-full h-full px-6 py-6 md:px-0 md:py-0">
           <div className="relative w-full h-full overflow-hidden">
             {/* CURRENT LAYER */}
@@ -1721,7 +1721,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         style={{ contain: "layout paint" }}
       >
         {/* HEADER */}
-        <div className="relative flex-none mb-0 md:mb-4 min-h-0 md:min-h-[64px]">
+        <div className="absolute flex-none mb-0 md:mb-4 min-h-0 md:min-h-[64px]">
           <div className="pr-0 md:pr-[320px]">
             {shouldShowFeatured ? (
               <div className="text-base tracking-tighter flex flex-wrap items-baseline gap-x-2 gap-y-1">

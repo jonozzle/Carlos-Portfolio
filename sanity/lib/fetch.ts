@@ -11,6 +11,7 @@ import {
 } from "@/sanity/queries/post";
 import { PROJECT_QUERY, PROJECTS_SLUGS_QUERY } from "@/sanity/queries/project";
 import { FOOTER_QUERY } from "@/sanity/queries/footer";
+import { projectIndexDrawerQuery } from "@/sanity/queries/project-index-drawer";
 
 import {
   PAGE_QUERYResult,
@@ -24,6 +25,7 @@ import {
   PROJECTS_SLUGS_QUERYResult,
   // you can keep FOOTER_QUERYResult here if you want, but we won't rely on it
 } from "@/sanity.types";
+import type { ProjectIndexDrawerData } from "@/components/header/project-index-drawer";
 
 export const fetchSanityPageBySlug = async ({
   slug,
@@ -120,6 +122,15 @@ export const fetchSanityProjectsStaticParams =
     });
 
     return data;
+  };
+
+export const fetchSanityProjectIndexDrawer =
+  async (): Promise<ProjectIndexDrawerData> => {
+    const { data } = await sanityFetch({
+      query: projectIndexDrawerQuery,
+    });
+
+    return (data ?? null) as ProjectIndexDrawerData;
   };
 
 /**

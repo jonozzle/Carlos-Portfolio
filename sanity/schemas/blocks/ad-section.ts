@@ -50,6 +50,30 @@ export default defineType({
     }),
 
     defineField({
+      name: "parallaxEnabled",
+      title: "Enable parallax",
+      type: "boolean",
+      description: "Toggles the scroll-based parallax motion.",
+      initialValue: true,
+    }),
+
+    defineField({
+      name: "parallaxAmount",
+      title: "Parallax amount",
+      type: "string",
+      options: {
+        list: [
+          { title: "Small", value: "sm" },
+          { title: "Medium", value: "md" },
+          { title: "Large", value: "lg" },
+        ],
+        layout: "radio",
+      },
+      initialValue: "md",
+      hidden: ({ parent }) => parent?.parallaxEnabled === false,
+    }),
+
+    defineField({
       name: "sectionWidth",
       title: "Section width",
       type: "string",
@@ -136,8 +160,18 @@ export default defineType({
       orientation: "orientation",
       padded: "padded",
       sectionWidth: "sectionWidth",
+      parallaxEnabled: "parallaxEnabled",
+      parallaxAmount: "parallaxAmount",
     },
-    prepare({ title, count, orientation, padded, sectionWidth }) {
+    prepare({
+      title,
+      count,
+      orientation,
+      padded,
+      sectionWidth,
+      parallaxEnabled,
+      parallaxAmount,
+    }) {
       const label = orientation === "vertical" ? "Vertical" : "Horizontal";
       const widthLabel =
         sectionWidth === "narrow"
@@ -149,10 +183,12 @@ export default defineType({
               : "Medium";
 
       const padLabel = padded ? "with padding" : "no padding";
+      const parallaxLabel =
+        parallaxEnabled === false ? "parallax off" : `parallax ${parallaxAmount || "md"}`;
 
       return {
         title: "Ad Section",
-        subtitle: `${title || "Untitled"} · ${count || 0} images · ${label} · ${widthLabel} · ${padLabel}`,
+        subtitle: `${title || "Untitled"} · ${count || 0} images · ${label} · ${widthLabel} · ${padLabel} · ${parallaxLabel}`,
       };
     },
   },

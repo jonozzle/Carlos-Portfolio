@@ -22,6 +22,7 @@ import { getCurrentScrollY, setCurrentScrollY } from "@/lib/scroll-state";
 import {
   HOVER_EVENTS,
   getLastMouse,
+  installMouseTrackerOnce,
   isHoverLocked,
 } from "@/lib/hover-lock";
 
@@ -98,37 +99,30 @@ function StylizedLabel({ text }: { text: string }) {
   );
 }
 
-type TileHandle = {
-  dimEls: Array<HTMLElement | null>;
-  hitEl: HTMLElement | null;
-  setHover: (on: boolean, immediate?: boolean) => void;
-};
-
 type TileProps = {
   item: PageLinkItem;
   index: number;
   isHalf: boolean;
-  register: (index: number, handle: TileHandle) => void;
-  unregister: (index: number) => void;
-  activate: (index: number, theme: Theme) => void;
-  activateFromUnlock: (index: number, theme: Theme) => void;
-  deactivate: (index: number, opts?: { force?: boolean }) => void;
+  activeIndex: number | null;
+  setActiveIndex: React.Dispatch<React.SetStateAction<number | null>>;
+  isScrollingRef: React.MutableRefObject<boolean>;
+  themeActions: ReturnType<typeof useThemeActions>;
 };
 
 const PageLinkTile = React.memo(function PageLinkTile({
   item,
   index,
   isHalf,
-  register,
-  unregister,
-  activate,
-  activateFromUnlock,
-  deactivate,
+  activeIndex,
+  setActiveIndex,
+  isScrollingRef,
+  themeActions,
 }: TileProps) {
-  const hitRef = useRef<HTMLDivElement | null>(null);
   const imgTileRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
   const imgScaleRef = useRef<HTMLDivElement | null>(null);
+  const navLockedRef = useRef(false);
+  const leaveRafRef = useRef<number | null>(null);
 
   const slug = item.page?.slug ?? "";
   const isExternal = !!item.externalUrl;
@@ -137,6 +131,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
   const theme = item.page?.theme ?? null;
   const hasTheme = !!(theme?.bg || theme?.text);
+  const { previewTheme, clearPreview, lockTheme } = themeActions;
 
   const imgUrl = item.image?.asset?.url ?? "";
   const alt = item.image?.alt ?? item.label ?? item.page?.title ?? "Page";
@@ -146,6 +141,8 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
   const labelText = item.label ?? item.page?.title ?? "Untitled";
   const sizes = isHalf ? "50vw" : "33vw";
+  const isActive = activeIndex === index;
+  const dimState: "active" | "inactive" = isActive ? "active" : "inactive";
 
   const [heroState, setHeroState] = useState<"idle" | "transitioning" | "shown">(() => {
     if (typeof window === "undefined" || !slug) return "idle";
@@ -154,57 +151,180 @@ const PageLinkTile = React.memo(function PageLinkTile({
   });
   const [isHeroMatch, setIsHeroMatch] = useState(false);
 
-  const setHover = useCallback((on: boolean, immediate?: boolean) => {
+  const animateScale = useCallback((to: number) => {
     const el = imgScaleRef.current;
     if (!el) return;
 
     gsap.killTweensOf(el);
-
-    if (immediate) {
-      gsap.set(el, { scale: 1 });
-      return;
-    }
-
     gsap.to(el, {
-      scale: on ? 1.1 : 1,
+      scale: to,
       duration: 0.55,
       ease: "power3.out",
       overwrite: true,
     });
   }, []);
 
-  useEffect(() => {
-    register(index, {
-      dimEls: [imgTileRef.current, textRef.current],
-      hitEl: hitRef.current,
-      setHover,
+  const hardResetScale = useCallback(() => {
+    const el = imgScaleRef.current;
+    if (!el) return;
+    gsap.killTweensOf(el);
+    gsap.set(el, { scale: 1 });
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = imgScaleRef.current;
+    if (!el) return;
+    gsap.set(el, { scale: 1, transformOrigin: "50% 50%" });
+    return () => {
+      gsap.killTweensOf(el);
+    };
+  }, []);
+
+  const cancelPendingLeave = useCallback(() => {
+    if (leaveRafRef.current !== null) {
+      cancelAnimationFrame(leaveRafRef.current);
+      leaveRafRef.current = null;
+    }
+  }, []);
+
+  const isPointerInside = useCallback(() => {
+    const el = imgTileRef.current;
+    if (!el) return false;
+
+    const pos = getLastMouse();
+    if (pos) {
+      const under = document.elementFromPoint(pos.x, pos.y);
+      return !!(under && el.contains(under));
+    }
+
+    return el.matches(":hover");
+  }, []);
+
+  const isPointerOverAnyCell = useCallback(() => {
+    if (typeof document === "undefined") return false;
+    const pos = getLastMouse();
+    if (pos) {
+      const hit = document.elementFromPoint(pos.x, pos.y) as HTMLElement | null;
+      return !!(hit && hit.closest("[data-page-link-cell]"));
+    }
+    return !!document.querySelector("[data-page-link-cell]:hover");
+  }, []);
+
+  const clearHover = useCallback(
+    (forceAnim?: boolean) => {
+      if (navLockedRef.current) return;
+      if (hasTheme) {
+        const opts = forceAnim ? { animate: true, force: true } : undefined;
+        clearPreview(opts);
+      }
+      setActiveIndex((prev) => (prev === index ? null : prev));
+      animateScale(1);
+    },
+    [animateScale, clearPreview, hasTheme, index, setActiveIndex]
+  );
+
+  const applyHover = useCallback(
+    (allowIdle?: boolean, skipScale?: boolean) => {
+      if (navLockedRef.current) return;
+      if (isScrollingRef.current) return;
+      if (isHoverLocked()) return;
+
+      const forceAnim = isAppScrolling();
+      const opts = allowIdle || forceAnim ? { allowIdle: !!allowIdle, force: forceAnim } : undefined;
+
+      if (hasTheme) previewTheme(theme, opts);
+      setActiveIndex(index);
+      if (!skipScale) animateScale(1.1);
+    },
+    [animateScale, hasTheme, index, isScrollingRef, previewTheme, setActiveIndex, theme]
+  );
+
+  const applyHoverUnderPointer = useCallback(
+    (allowIdle?: boolean) => {
+      const el = imgTileRef.current;
+      if (!el) return;
+      if (!isPointerInside()) return;
+
+      const scaleEl = imgScaleRef.current;
+      const scaleNow = scaleEl ? gsap.getProperty(scaleEl, "scale") : 1;
+      const scaleNum =
+        typeof scaleNow === "number" ? scaleNow : Number.parseFloat(String(scaleNow));
+      const isScaled = Number.isFinite(scaleNum) ? scaleNum > 1.02 : false;
+
+      if (!isScaled) hardResetScale();
+      requestAnimationFrame(() => applyHover(allowIdle, isScaled));
+    },
+    [applyHover, hardResetScale, isPointerInside]
+  );
+
+  const handleEnter = useCallback(() => {
+    cancelPendingLeave();
+    applyHover();
+  }, [cancelPendingLeave, applyHover]);
+
+  const handleLeave = useCallback(() => {
+    if (navLockedRef.current) return;
+    if (isHoverLocked()) return;
+
+    const appScrolling = isAppScrolling();
+    if ((appScrolling || isScrollingRef.current) && isPointerInside()) return;
+
+    cancelPendingLeave();
+    leaveRafRef.current = requestAnimationFrame(() => {
+      leaveRafRef.current = null;
+      if (navLockedRef.current) return;
+      if (isHoverLocked()) return;
+      if (isPointerOverAnyCell()) return;
+      clearHover(isAppScrolling());
     });
+  }, [
+    cancelPendingLeave,
+    clearHover,
+    isPointerInside,
+    isPointerOverAnyCell,
+    isScrollingRef,
+  ]);
 
-    return () => unregister(index);
-  }, [index, register, unregister, setHover]);
+  const handleNavLockCapture = useCallback(() => {
+    if (!slug) return;
+    navLockedRef.current = true;
 
-  // When hover unlocks after transition, if mouse is currently over this tile, apply hover smoothly.
+    if (hasTheme) {
+      lockTheme(theme, { animate: false, force: true, durationMs: 0 });
+    }
+
+    const el = imgScaleRef.current;
+    if (el) gsap.killTweensOf(el);
+  }, [hasTheme, lockTheme, slug, theme]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const onUnlocked = () => {
-      const hit = hitRef.current;
-      if (!hit) return;
-
-      const pos = getLastMouse();
-      if (!pos) return;
-
-      const under = document.elementFromPoint(pos.x, pos.y);
-      if (under && hit.contains(under)) {
-        // baseline first, then activate (bypass idle gating)
-        setHover(false, true);
-        requestAnimationFrame(() => activateFromUnlock(index, theme));
-      }
+      if (isAppScrolling()) return;
+      applyHoverUnderPointer(true);
     };
 
     window.addEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked);
     return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
-  }, [activateFromUnlock, index, theme, setHover]);
+  }, [applyHoverUnderPointer]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onScrollEnd = () => {
+      applyHoverUnderPointer(true);
+    };
+
+    window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
+    return () => window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
+  }, [applyHoverUnderPointer]);
+
+  useEffect(() => {
+    return () => {
+      cancelPendingLeave();
+    };
+  }, [cancelPendingLeave]);
 
   // Hero overlay -> this tile (page -> home case)
   useLayoutEffect(() => {
@@ -382,40 +502,6 @@ const PageLinkTile = React.memo(function PageLinkTile({
     };
   }, [slug]);
 
-  const isPointerInside = useCallback(() => {
-    const hit = hitRef.current;
-    if (!hit) return false;
-
-    const pos = getLastMouse();
-    if (pos) {
-      const under = document.elementFromPoint(pos.x, pos.y);
-      return !!(under && hit.contains(under));
-    }
-
-    return hit.matches(":hover");
-  }, []);
-
-  const onMouseEnter = useCallback(() => {
-    if (isHoverLocked()) return;
-    activate(index, hasTheme ? theme : null);
-  }, [activate, index, hasTheme, theme]);
-
-  const onMouseLeave = useCallback(() => {
-    if (isHoverLocked()) return;
-    if (isAppScrolling() && isPointerInside()) return;
-    deactivate(index, { force: isAppScrolling() });
-  }, [deactivate, index, isPointerInside]);
-
-  const onFocus = useCallback(() => {
-    if (isHoverLocked()) return;
-    activate(index, hasTheme ? theme : null);
-  }, [activate, index, hasTheme, theme]);
-
-  const onBlur = useCallback(() => {
-    if (isHoverLocked()) return;
-    deactivate(index);
-  }, [deactivate, index]);
-
   const heroProps = isInternal
     ? {
       href,
@@ -466,36 +552,33 @@ const PageLinkTile = React.memo(function PageLinkTile({
     </div>
   );
 
-  const ImageWrapper: React.ComponentType<{ children: React.ReactNode }> = !href
-    ? ({ children }) => <>{children}</>
-    : isInternal
-      ? ({ children }) => (
-        <PageTransitionButton
-          {...(heroProps as any)}
-          className="relative block w-full h-full overflow-hidden"
-        >
-          {children}
-        </PageTransitionButton>
-      )
-      : ({ children }) => (
-        <a href={href} className="relative block w-full h-full overflow-hidden">
-          {children}
-        </a>
-      );
+  const imageContent = renderImage();
+  const imageWrapped = !href ? (
+    imageContent
+  ) : isInternal ? (
+    <PageTransitionButton
+      {...(heroProps as any)}
+      className="relative block w-full h-full overflow-hidden"
+    >
+      {imageContent}
+    </PageTransitionButton>
+  ) : (
+    <a href={href} className="relative block w-full h-full overflow-hidden">
+      {imageContent}
+    </a>
+  );
 
-  const TextWrapper: React.ComponentType<{ children: React.ReactNode }> = !href
-    ? ({ children }) => <>{children}</>
-    : isInternal
-      ? ({ children }) => (
-        <PageTransitionButton {...(heroProps as any)} className="inline-flex flex-col text-left">
-          {children}
-        </PageTransitionButton>
-      )
-      : ({ children }) => (
-        <a href={href} className="inline-flex flex-col text-left">
-          {children}
-        </a>
-      );
+  const textWrapped = !href ? (
+    textBlock
+  ) : isInternal ? (
+    <PageTransitionButton {...(heroProps as any)} className="inline-flex flex-col text-left">
+      {textBlock}
+    </PageTransitionButton>
+  ) : (
+    <a href={href} className="inline-flex flex-col text-left">
+      {textBlock}
+    </a>
+  );
 
   const content =
     textPosition === "top-right" ? (
@@ -505,12 +588,13 @@ const PageLinkTile = React.memo(function PageLinkTile({
           data-hero-slug={isInternal ? slug : undefined}
           data-hero-target={isInternal ? "home" : undefined}
           className="relative w-full h-full min-h-0 overflow-hidden"
+          data-dim-item={dimState}
         >
-          <ImageWrapper>{renderImage()}</ImageWrapper>
+          {imageWrapped}
         </div>
 
-        <div ref={textRef} className="self-start">
-          <TextWrapper>{textBlock}</TextWrapper>
+        <div ref={textRef} className="self-start" data-dim-item={dimState}>
+          {textWrapped}
         </div>
       </div>
     ) : textPosition === "center-over" ? (
@@ -519,8 +603,9 @@ const PageLinkTile = React.memo(function PageLinkTile({
         data-hero-slug={isInternal ? slug : undefined}
         data-hero-target={isInternal ? "home" : undefined}
         className="relative w-full h-full min-h-0 overflow-hidden"
+        data-dim-item={dimState}
       >
-        <ImageWrapper>{renderImage()}</ImageWrapper>
+        {imageWrapped}
 
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
           <div className="inline-flex flex-col items-center text-center">
@@ -540,24 +625,27 @@ const PageLinkTile = React.memo(function PageLinkTile({
           data-hero-slug={isInternal ? slug : undefined}
           data-hero-target={isInternal ? "home" : undefined}
           className="relative w-full flex-1 min-h-0 overflow-hidden"
+          data-dim-item={dimState}
         >
-          <ImageWrapper>{renderImage()}</ImageWrapper>
+          {imageWrapped}
         </div>
 
-        <div ref={textRef} className="mt-3 shrink-0">
-          <TextWrapper>{textBlock}</TextWrapper>
+        <div ref={textRef} className="mt-3 shrink-0" data-dim-item={dimState}>
+          {textWrapped}
         </div>
       </div>
     );
 
   return (
     <div
-      ref={hitRef}
       className="flex flex-col text-left cursor-pointer h-full min-h-0"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      onFocus={onFocus}
-      onBlur={onBlur}
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+      onFocusCapture={handleEnter}
+      onBlurCapture={handleLeave}
+      onPointerDownCapture={handleNavLockCapture}
+      onClickCapture={handleNavLockCapture}
+      data-page-link-cell
     >
       {content}
     </div>
@@ -578,24 +666,36 @@ export default function PageLinkSection(props: Props) {
   const paddingMode = props.paddingMode ?? "default";
 
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const activeRef = useRef<number | null>(null);
-  const handlesRef = useRef(new Map<number, TileHandle>());
   const dimParticipationRef = useRef(false);
+  const isScrollingRef = useRef(false);
 
-  const setDim = useCallback((activeIndex: number | null) => {
-    activeRef.current = activeIndex;
-    setActiveIndex(activeIndex);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    installMouseTrackerOnce();
+  }, []);
 
-    for (const [i, h] of handlesRef.current.entries()) {
-      for (const el of h.dimEls) {
-        if (!el) continue;
-        if (activeIndex == null) {
-          el.setAttribute("data-dim-item", "inactive");
-        } else {
-          el.setAttribute("data-dim-item", i === activeIndex ? "active" : "inactive");
-        }
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let timeoutId: number | null = null;
+
+    const onScroll = () => {
+      if (!isScrollingRef.current) {
+        isScrollingRef.current = true;
       }
-    }
+
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+
+      timeoutId = window.setTimeout(() => {
+        isScrollingRef.current = false;
+      }, 0);
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
   }, []);
 
   useEffect(() => {
@@ -630,147 +730,41 @@ export default function PageLinkSection(props: Props) {
     };
   }, [activeIndex]);
 
-  const register = useCallback((index: number, handle: TileHandle) => {
-    handlesRef.current.set(index, handle);
+  const clearAll = useCallback(
+    (opts?: { force?: boolean }) => {
+      setActiveIndex(null);
 
-    const activeIndex = activeRef.current;
-    for (const el of handle.dimEls) {
-      if (!el) continue;
-      if (activeIndex == null) {
-        el.setAttribute("data-dim-item", "inactive");
-      } else {
-        el.setAttribute("data-dim-item", index === activeIndex ? "active" : "inactive");
-      }
-    }
-  }, []);
-
-  const unregister = useCallback((index: number) => {
-    handlesRef.current.delete(index);
-  }, []);
-
-  const applyTheme = useCallback(
-    (t: Theme, opts?: { allowIdle?: boolean; force?: boolean }) => {
       const forceAnim = typeof opts?.force === "boolean" ? opts.force : isAppScrolling();
-      const themeOpts = { animate: true, force: forceAnim, allowIdle: opts?.allowIdle };
-
-      if (t?.bg || t?.text) theme.previewTheme(t, themeOpts);
-      else theme.clearPreview(themeOpts);
+      const themeOpts = forceAnim ? { animate: true, force: true } : undefined;
+      theme.clearPreview(themeOpts);
     },
     [theme]
   );
 
-  const clearAll = useCallback(
-    (immediateScale = false, opts?: { force?: boolean }) => {
-      const curr = activeRef.current;
-      setDim(null);
-      applyTheme(null, { force: opts?.force });
-
-      if (curr != null) {
-        const h = handlesRef.current.get(curr);
-        h?.setHover(false, immediateScale);
-      } else {
-        // ensure no tile is stuck scaled
-        for (const h of handlesRef.current.values()) h.setHover(false, immediateScale);
-      }
-    },
-    [setDim, applyTheme]
-  );
-
-  const isPointerOverSection = useCallback(() => {
+  const isPointerOverCell = useCallback(() => {
     if (typeof document === "undefined") return false;
-    const sectionEl = sectionRef.current;
-    if (!sectionEl) return false;
 
     const pos = getLastMouse();
     if (pos) {
-      const hit = document.elementFromPoint(pos.x, pos.y);
-      return !!(hit && sectionEl.contains(hit));
+      const hit = document.elementFromPoint(pos.x, pos.y) as HTMLElement | null;
+      if (hit && hit.closest("[data-page-link-cell]")) return true;
     }
 
-    return sectionEl.matches(":hover");
+    return !!document.querySelector("[data-page-link-cell]:hover");
   }, []);
-
-  const getHitIndex = useCallback(() => {
-    if (typeof document === "undefined") return null;
-    const pos = getLastMouse();
-    const under = pos ? document.elementFromPoint(pos.x, pos.y) : null;
-
-    for (const [i, h] of handlesRef.current.entries()) {
-      const el = h.hitEl;
-      if (!el) continue;
-      if (under ? el.contains(under) : el.matches(":hover")) return i;
-    }
-
-    return null;
-  }, []);
-
-  const activate = useCallback(
-    (index: number, t: Theme) => {
-      const prev = activeRef.current;
-
-      if (prev != null && prev !== index) {
-        handlesRef.current.get(prev)?.setHover(false);
-      }
-
-      setDim(index);
-      applyTheme(t);
-
-      handlesRef.current.get(index)?.setHover(true);
-    },
-    [setDim, applyTheme]
-  );
-
-  const activateFromUnlock = useCallback(
-    (index: number, t: Theme) => {
-      // baseline first (avoids “jump” when the home becomes visible under the pointer)
-      handlesRef.current.get(index)?.setHover(false, true);
-
-      // bypass idle gating (this is explicitly after unlock)
-      const prev = activeRef.current;
-      if (prev != null && prev !== index) handlesRef.current.get(prev)?.setHover(false);
-
-      setDim(index);
-
-      applyTheme(t, { allowIdle: true });
-
-      handlesRef.current.get(index)?.setHover(true);
-    },
-    [setDim, applyTheme]
-  );
-
-  const deactivate = useCallback(
-    (index: number, opts?: { force?: boolean }) => {
-      if (activeRef.current !== index) return;
-      clearAll(false, opts);
-    },
-    [clearAll]
-  );
 
   // On scroll end, re-sync hover/theme with the element under the pointer.
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const onScrollEnd = () => {
-      if (isHoverLocked()) return;
-
-      const hitIndex = getHitIndex();
-      if (hitIndex == null) {
-        clearAll(false);
-        return;
-      }
-
-      const t = items[hitIndex]?.page?.theme ?? null;
-      if (activeRef.current === hitIndex) {
-        applyTheme(t, { allowIdle: true });
-        return;
-      }
-
-      activateFromUnlock(hitIndex, t);
+      if (isPointerOverCell()) return;
+      clearAll({ force: isAppScrolling() });
     };
     window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
 
     return () => window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
-  }, [activateFromUnlock, applyTheme, clearAll, getHitIndex, items]);
+  }, [clearAll, isPointerOverCell]);
 
   let paddingClass = "";
   const sectionStyle: CSSProperties = { containIntrinsicSize: "100vh 50vw" };
@@ -789,16 +783,6 @@ export default function PageLinkSection(props: Props) {
       ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
       className={`${widthClass} h-screen ${paddingClass} gap-2 md:gap-3 grid grid-cols-12 grid-rows-12 relative overflow-hidden will-change-transform`}
       style={sectionStyle}
-      onMouseLeave={() => {
-        if (isHoverLocked()) return;
-        if (isAppScrolling() && isPointerOverSection()) return;
-        clearAll(false, { force: isAppScrolling() });
-      }}
-      onBlurCapture={() => {
-        if (isAppScrolling()) return;
-        if (isHoverLocked()) return;
-        clearAll(false, { force: isAppScrolling() });
-      }}
     >
       <div
         className="col-span-12 row-span-12 grid h-full min-h-0 items-stretch"
@@ -818,11 +802,10 @@ export default function PageLinkSection(props: Props) {
                 item={item}
                 index={index}
                 isHalf={isHalf}
-                register={register}
-                unregister={unregister}
-                activate={activate}
-                activateFromUnlock={activateFromUnlock}
-                deactivate={deactivate}
+                activeIndex={activeIndex}
+                setActiveIndex={setActiveIndex}
+                isScrollingRef={isScrollingRef}
+                themeActions={theme}
               />
             );
           })

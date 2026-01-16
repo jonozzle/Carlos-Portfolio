@@ -8,6 +8,8 @@ export const adSectionQuery = groq`
     _key,
     title,
     orientation,
+    parallaxEnabled,
+    parallaxAmount,
     padded,
     padding,
     sectionWidth,

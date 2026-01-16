@@ -17,6 +17,8 @@ type Props = {
     className?: string;
     size?: "half" | "full" | "auto";
     label?: string;
+    parallaxEnabled?: boolean;
+    parallaxAmount?: "sm" | "md" | "lg";
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -35,6 +37,8 @@ export default function VerticalImageSlider({
     className,
     size = "auto",
     label = "Advertisement",
+    parallaxEnabled = true,
+    parallaxAmount = "md",
 }: Props) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const trackRef = useRef<HTMLDivElement | null>(null);
@@ -55,17 +59,20 @@ export default function VerticalImageSlider({
 
     const len = prepared.length;
     const isSingle = len === 1;
+    const allowParallax = parallaxEnabled !== false;
+    const parallaxScale =
+        parallaxAmount === "sm" ? 0.6 : parallaxAmount === "lg" ? 1.4 : 1;
 
     // Add clones at both ends so we can show a peek of prev/next at extremes
     const renderImages = useMemo(() => {
-        if (prepared.length <= 1) return prepared;
+        if (!allowParallax || prepared.length <= 1) return prepared;
         const first = prepared[0];
         const last = prepared[prepared.length - 1];
         return [last, ...prepared, first];
-    }, [prepared]);
+    }, [prepared, allowParallax]);
 
     const renderLen = renderImages.length;
-    const hasClones = len > 1;
+    const hasClones = allowParallax && len > 1;
 
     // Pre-decode images when this block approaches the viewport
     useEffect(() => {
@@ -93,11 +100,32 @@ export default function VerticalImageSlider({
     useLayoutEffect(() => {
         if (!len) return;
         if (typeof window === "undefined") return;
-        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
         const container = containerRef.current;
         const track = trackRef.current;
         if (!container || !track) return;
+
+        if (!allowParallax || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            const target = singlePanRef.current;
+            gsap.set(track, {
+                x: 0,
+                y: 0,
+                xPercent: 0,
+                yPercent: 0,
+                willChange: "auto",
+                force3D: false,
+            });
+            if (target) {
+                gsap.set(target, {
+                    x: 0,
+                    y: 0,
+                    scale: 1,
+                    willChange: "auto",
+                    force3D: false,
+                });
+            }
+            return;
+        }
 
         const scroller = ScrollSmoother.get()?.content() || window;
 
@@ -152,7 +180,8 @@ export default function VerticalImageSlider({
                     const target = singlePanRef.current;
                     if (!target) return;
 
-                    const pan = clamp(viewportH * 0.08, 16, 140);
+                    const basePan = clamp(viewportH * 0.08, 16, 140);
+                    const pan = clamp(basePan * parallaxScale, 8, 180);
                     const scale = coverScale(viewportH, pan);
 
                     gsap.set(target, {
@@ -191,7 +220,8 @@ export default function VerticalImageSlider({
                 }
 
                 const frameH = totalH / Math.max(1, renderLen);
-                const peek = clamp(frameH * 0.2, 18, frameH * 0.35);
+                const basePeek = clamp(frameH * 0.2, 18, frameH * 0.35);
+                const peek = clamp(basePeek * parallaxScale, 12, frameH * 0.45);
 
                 const startY = hasClones
                     ? -(frameH - peek) // start on first REAL frame with top peek of prev (clone)
@@ -243,7 +273,7 @@ export default function VerticalImageSlider({
         }, container);
 
         return () => ctx.revert();
-    }, [len, renderLen, hasClones, isSingle]);
+    }, [len, renderLen, hasClones, isSingle, allowParallax, parallaxScale]);
 
     if (len === 0) {
         return (
@@ -289,7 +319,7 @@ export default function VerticalImageSlider({
                                     alt={img.alt}
                                     fill
                                     sizes={sizesAttr}
-                                    hiMaxWidth={size === "full" ? 2000 : 1400}
+                                    hiMaxWidth={size === "full" ? 5000 : 3500}
                                     lqipWidth={24}
                                     loading="lazy"
                                 />

@@ -12,7 +12,7 @@ export const HERO_LINK_UNDERLINE_IN_DURATION = 0.22;
 export const HERO_LINK_UNDERLINE_OUT_DURATION = 0.22;
 export const HERO_LINK_WEIGHT_FADE_DURATION = 0.12;
 
-const HERO_LINK_ACTIVE_SCALE = 1.25;
+const HERO_LINK_ACTIVE_SCALE = 1.15;
 
 type Props = React.ComponentPropsWithoutRef<typeof UnderlineLink> & {
   /**
@@ -97,7 +97,7 @@ export default function HeroUnderlineLink({
   className,
 
   // Underline should sit under the title line (not under any details below).
-  underlineClassName = "bottom-[2px]",
+  underlineClassName = "bottom-[6px]",
 
   activeTextClassName = "font-semibold",
   activeUnderlineClassName = "h-[1px]",
@@ -111,6 +111,8 @@ export default function HeroUnderlineLink({
   ...rest
 }: Props) {
   const linkRef = React.useRef<HTMLAnchorElement | null>(null);
+
+  const titleScaleRef = React.useRef<HTMLSpanElement | null>(null);
 
   const normalWeightRef = React.useRef<HTMLSpanElement | null>(null);
   const boldWeightRef = React.useRef<HTMLSpanElement | null>(null);
@@ -185,37 +187,37 @@ export default function HeroUnderlineLink({
 
   // Scale + weight swap
   React.useEffect(() => {
-    const a = linkRef.current;
-    if (!a || typeof window === "undefined") return;
+    const titleEl = titleScaleRef.current;
+    if (!titleEl || typeof window === "undefined") return;
 
-    gsap.killTweensOf(a);
+    gsap.killTweensOf(titleEl);
 
-    // scale the ANCHOR, not the inner text wrapper.
+    // scale the TITLE only (not the whole link wrapper)
     const targetScale = active ? activeScale : 1;
 
     const boldOn = alwaysBold || active;
 
     if (!didMountRef.current) {
       didMountRef.current = true;
-      gsap.set(a, { scale: targetScale, transformOrigin: "50% 50%" });
+      gsap.set(titleEl, { scale: targetScale, transformOrigin: "0% 100%" });
       setWeightOpacity(boldOn, true);
       syncUnderline(true);
       return;
     }
 
     if (prefersReducedRef.current) {
-      gsap.set(a, { scale: targetScale, transformOrigin: "50% 50%" });
+      gsap.set(titleEl, { scale: targetScale, transformOrigin: "0% 100%" });
       setWeightOpacity(boldOn, true);
       syncUnderline(true);
       return;
     }
 
-    gsap.to(a, {
+    gsap.to(titleEl, {
       scale: targetScale,
       duration: fontSizeDuration,
       ease: active ? "power3.out" : "power2.out",
       overwrite: "auto",
-      transformOrigin: "50% 50%",
+      transformOrigin: "0% 100%",
     });
 
     // If alwaysBold is on, this keeps it bold regardless of active state.
@@ -235,7 +237,7 @@ export default function HeroUnderlineLink({
   const titleNode = title ?? children;
 
   const titleWithUnderline = (
-    <span className="relative inline-block whitespace-nowrap">
+    <span ref={titleScaleRef} className="relative inline-block whitespace-nowrap">
       {/* Reserve the *max* width (bold) so underline reaches the end consistently. */}
       <span className={cn("invisible inline-block", activeTextClassName)} aria-hidden="true">
         {titleNode}
