@@ -124,6 +124,8 @@ export default function HeroUnderlineLink({
   const hoverRef = React.useRef(false);
   const focusRef = React.useRef(false);
 
+  const [isBelowDesktop, setIsBelowDesktop] = React.useState(false);
+
   const setWeightOpacity = React.useCallback((toBold: boolean, immediate = false) => {
     const normal = normalWeightRef.current;
     const bold = boldWeightRef.current;
@@ -185,6 +187,15 @@ export default function HeroUnderlineLink({
     return () => mq.removeEventListener("change", update);
   }, []);
 
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsBelowDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   // Scale + weight swap
   React.useEffect(() => {
     const titleEl = titleScaleRef.current;
@@ -194,19 +205,20 @@ export default function HeroUnderlineLink({
 
     // scale the TITLE only (not the whole link wrapper)
     const targetScale = active ? activeScale : 1;
+    const transformOrigin = isBelowDesktop ? "50% 50%" : "0% 100%";
 
     const boldOn = alwaysBold || active;
 
     if (!didMountRef.current) {
       didMountRef.current = true;
-      gsap.set(titleEl, { scale: targetScale, transformOrigin: "0% 100%" });
+      gsap.set(titleEl, { scale: targetScale, transformOrigin });
       setWeightOpacity(boldOn, true);
       syncUnderline(true);
       return;
     }
 
     if (prefersReducedRef.current) {
-      gsap.set(titleEl, { scale: targetScale, transformOrigin: "0% 100%" });
+      gsap.set(titleEl, { scale: targetScale, transformOrigin });
       setWeightOpacity(boldOn, true);
       syncUnderline(true);
       return;
@@ -217,7 +229,7 @@ export default function HeroUnderlineLink({
       duration: fontSizeDuration,
       ease: active ? "power3.out" : "power2.out",
       overwrite: "auto",
-      transformOrigin: "0% 100%",
+      transformOrigin,
     });
 
     // If alwaysBold is on, this keeps it bold regardless of active state.
@@ -225,7 +237,15 @@ export default function HeroUnderlineLink({
 
     // underline follows active/hover/focus
     syncUnderline(false);
-  }, [active, activeScale, fontSizeDuration, setWeightOpacity, syncUnderline, alwaysBold]);
+  }, [
+    active,
+    activeScale,
+    fontSizeDuration,
+    setWeightOpacity,
+    syncUnderline,
+    alwaysBold,
+    isBelowDesktop,
+  ]);
 
   // If active changes while hovered/focused, keep underline correct.
   React.useEffect(() => {

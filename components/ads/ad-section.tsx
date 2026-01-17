@@ -1,4 +1,4 @@
-// components/ads/ad-section.tsx
+// src: components/ads/ad-section.tsx
 "use client";
 
 import type React from "react";
@@ -114,8 +114,6 @@ export default function AdSection({
     const isVertical = orientation === "vertical";
 
     const sectionWidthClass = useMemo(() => {
-        // Mobile: always full width
-        // Desktop (md+): respect CMS sectionWidth
         switch (sectionWidth) {
             case "narrow":
                 return "w-full md:w-[35vw]";
@@ -131,7 +129,6 @@ export default function AdSection({
     }, [sectionWidth]);
 
     const sliderSize = useMemo(() => {
-        // feeds hiMaxWidth presets in the slider components
         switch (sectionWidth) {
             case "full":
                 return "full" as const;

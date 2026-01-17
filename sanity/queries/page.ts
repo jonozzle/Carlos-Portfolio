@@ -14,10 +14,7 @@ import { logoCloud1Query } from "./logo-cloud/logo-cloud-1";
 import { faqsQuery } from "./faqs";
 import { allPostsQuery } from "./all-posts";
 import { heroContentsQuery } from "./hero/hero-contents";
-import { threeGalleryQuery } from "./three-gallery";
 import { adSectionQuery } from "./ads/ad-section";
-import { halfWidthSingleProjectQuery } from "./half-width-single-project";
-import { halfWidthDoubleProjectQuery } from "./half-width-double-project";
 import { pageLinkSectionQuery } from "./page-link-section";
 import { singleImageBlockQuery } from "./single-image";
 import { projectBlockQuery } from "./project/project-block";
@@ -39,7 +36,6 @@ export const PAGE_QUERY = groq`
     blocks[]{
       ${hero1Query},
       ${hero2Query},
-      ${threeGalleryQuery},
       ${heroContentsQuery},
       ${sectionHeaderQuery},
       ${splitRowQuery},
@@ -52,8 +48,6 @@ export const PAGE_QUERY = groq`
       ${faqsQuery},
       ${allPostsQuery},
       ${adSectionQuery},
-      ${halfWidthSingleProjectQuery},
-      ${halfWidthDoubleProjectQuery},
       ${pageLinkSectionQuery},
       ${singleImageBlockQuery},
       ${projectBlockQuery},

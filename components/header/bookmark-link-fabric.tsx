@@ -48,16 +48,18 @@ const BASE_SHAPE_HEIGHT = BASE_RECT_HEIGHT + TAIL_HEIGHT;
 const HOME_ANCHOR_HEIGHT = 92;
 
 // Visual “drop” for the UI element (separate from drawer-follow y)
-const DROP_INNER_Y = -42;
+const DROP_INNER_Y = -100;
 
 // Intro “fabric fall”
-const REVEAL_LIFT_PX = -64;
+const REVEAL_LIFT_PX = -120;
 const REVEAL_KICK_PULL = 17000;
 const INTRO_FLUTTER_MS = 1200;
-const INTRO_FLUTTER_SCALE = 0.7;
+const INTRO_FLUTTER_SCALE = 0.1;
 
 // “fabric-ness” during size/visibility animations
 const ANIM_WIND_MS = 600;
+const SIZE_WIND_KICK = 0.05;
+const SIZE_VEL_TURBULENCE = 0.01;
 
 // Grab behavior
 const GRAB_HOLD_MS = 90;
@@ -171,6 +173,15 @@ function getTransformedAncestor(el: HTMLElement | null): HTMLElement | null {
     p = p.parentElement;
   }
   return null;
+}
+
+// Avoid heavy size tweening while the hero overlay is animating.
+function isHeroOverlayBusy() {
+  if (typeof window === "undefined") return false;
+  const pending = (window as any).__heroPending as { overlay?: HTMLElement } | undefined;
+  const overlay = pending?.overlay;
+  if (!overlay) return false;
+  return overlay.dataset?.heroTweening === "1" || overlay.dataset?.heroParked === "1";
 }
 
 function createShader(gl: WebGLRenderingContext, type: number, src: string) {
@@ -384,12 +395,12 @@ export default function BookmarkLinkFabric({
 
       sizeTweenRef.current?.kill();
 
-      if (immediate) {
+      if (immediate || isHeroOverlayBusy()) {
         applySize(targetHeight, targetExtra);
         return;
       }
 
-      kickAnimWind(0.7);
+      kickAnimWind(SIZE_WIND_KICK);
 
       const proxy = sizeProxyRef.current;
       sizeTweenRef.current = gsap.to(proxy, {
@@ -1465,7 +1476,7 @@ export default function BookmarkLinkFabric({
         }
 
         // animation wind
-        const motion = Math.max(anim, velNorm * 0.9);
+        const motion = Math.max(anim, velNorm * SIZE_VEL_TURBULENCE);
         if (motion > 0.0001) {
           const w = motion * (0.25 + 0.75 * tRow);
           ax += Math.sin(time * 0.012 + yNorm[i] * 6.0) * 1650 * w;

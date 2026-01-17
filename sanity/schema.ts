@@ -40,10 +40,7 @@ import logoCloud1 from "./schemas/blocks/logo-cloud/logo-cloud-1";
 import faqs from "./schemas/blocks/faqs";
 import allPosts from "./schemas/blocks/all-posts";
 import heroContents from "./schemas/blocks/hero/hero-contents";
-import threeGallery from "./schemas/blocks/three-gallery";
 import projectDetails from "./schemas/blocks/project-details";
-import halfWidthSingleProject from "./schemas/blocks/half-width-single-project";
-import halfWidthDoubleProject from "./schemas/blocks/half-width-double-project";
 import adSection from "./schemas/blocks/ad-section";
 import pageLinkSection from "./schemas/blocks/page-link-section";
 import footer from "./schemas/blocks/footer";
@@ -98,11 +95,8 @@ export const schema: { types: SchemaTypeDefinition[] } = {
     logoCloud1,
     faqs,
     allPosts,
-    threeGallery,
     projectDetails,
     adSection,
-    halfWidthSingleProject,
-    halfWidthDoubleProject,
     pageLinkSection,
     singleImage,
     projectBlock,

@@ -15,9 +15,6 @@ import LogoCloud1 from "@/components/blocks/logo-cloud/logo-cloud-1";
 import FAQs from "@/components/blocks/faqs";
 import AllPosts from "@/components/blocks/all-posts";
 import HeroContents from "@/components/blocks/hero/hero-contents";
-import ThreeGallery from "@/components/blocks/project/three-gallery";
-import HalfWidthSingleProject from "@/components/blocks/project/half-width-single-project";
-import HalfWidthDoubleProject from "@/components/blocks/project/half-width-double-project";
 import AdSection from "@/components/ads/ad-section";
 import PageLinkSection from "./page-link-section";
 import SingleImage from "./single-image";
@@ -27,9 +24,7 @@ import ImageTextGrid from "./grid/image-text-grid";
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
 
-const componentMap: {
-  [K in Block["_type"]]: React.ComponentType<Extract<Block, { _type: K }>>;
-} = {
+const componentMap: Partial<Record<Block["_type"], React.ComponentType<any>>> = {
   "hero-1": Hero1,
   "hero-2": Hero2,
   "hero-contents": HeroContents,
@@ -43,10 +38,7 @@ const componentMap: {
   "logo-cloud-1": LogoCloud1,
   faqs: FAQs,
   "all-posts": AllPosts,
-  "three-gallery": ThreeGallery,
   "ad-section": AdSection,
-  "half-width-single-project": HalfWidthSingleProject,
-  "half-width-double-project": HalfWidthDoubleProject,
   "page-link-section": PageLinkSection,
   "single-image": SingleImage,
   "project-block": ProjectBlock,
