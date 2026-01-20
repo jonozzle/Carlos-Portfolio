@@ -769,7 +769,7 @@ export default function PageLinkSection(props: Props) {
   let paddingClass = "";
   const sectionStyle: CSSProperties = { containIntrinsicSize: "100vh 50vw" };
 
-  if (paddingMode === "default") paddingClass = "p-2 md:p-4";
+  if (paddingMode === "default") paddingClass = "p-10 md:p-6";
   else if (paddingMode === "none") paddingClass = "p-0";
   else if (paddingMode === "custom") {
     const v = typeof props.customPadding === "number" ? props.customPadding : 0;

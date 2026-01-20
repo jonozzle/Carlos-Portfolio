@@ -1,20 +1,35 @@
-// app/(main)/[slug]/page.tsx
+// src: app/(main)/[slug]/page.tsx
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+
 import Blocks from "@/components/blocks";
 import HScrollerWrapper from "@/components/scroll/hscroller-wrapper";
+import PageHeroImage from "@/components/page/page-hero-image";
+import ThemeSetter from "@/components/theme/theme-setter";
+import { StylizedLabel } from "@/components/ui/stylised-label";
 import {
   fetchSanityPageBySlug,
   fetchSanityPagesStaticParams,
 } from "@/sanity/lib/fetch";
 import { generatePageMetadata } from "@/sanity/lib/metadata";
-import PageHeroImage from "@/components/page/page-hero-image";
-import ThemeSetter from "@/components/theme/theme-setter";
-import { StylizedLabel } from "@/components/ui/stylised-label";
 
 type PageProps = {
   params: Promise<{ slug: string }>;
 };
+
+function capSanityImage(url: string, maxW = 2000) {
+  if (!url) return "";
+  try {
+    const u = new URL(url);
+    u.searchParams.set("auto", "format");
+    u.searchParams.set("fit", "max");
+    u.searchParams.set("q", "80");
+    u.searchParams.set("w", String(maxW));
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
 
 export async function generateStaticParams() {
   const pages = await fetchSanityPagesStaticParams();
@@ -40,35 +55,55 @@ export default async function Page({ params }: PageProps) {
   const page = await fetchSanityPageBySlug({ slug });
   if (!page) notFound();
 
-  const heroSrc = page.featuredImage?.asset?.url ?? "";
+  const rawHeroSrc = page.featuredImage?.asset?.url ?? "";
+  const heroSrc = capSanityImage(rawHeroSrc, 2000);
   const heroAlt = page.title ?? "Page image";
+
+  // Optional aspect ratio reservation (won’t break if metadata is missing)
+  const dims = (page as any)?.featuredImage?.asset?.metadata?.dimensions as
+    | { width?: number; height?: number }
+    | undefined;
+
+  const heroAR =
+    dims?.width && dims?.height && dims.width > 0 && dims.height > 0
+      ? dims.width / dims.height
+      : undefined;
 
   return (
     <HScrollerWrapper>
       <ThemeSetter theme={page.theme ?? null} />
 
-      <section data-panel-height="viewport" className="h-panel w-screen relative">
-        <div className="grid grid-cols-1 md:grid-cols-2 h-full">
-          <div className="px-6 md:px-10" data-hero-page-animate>
+      <section
+        data-panel-height="viewport"
+        className="h-panel relative w-screen md:w-auto overflow-hidden"
+      >
+        <div className="h-full flex flex-col md:flex-row md:items-stretch">
+          <div
+            className="w-full md:w-[50vw] md:shrink-0 px-6 md:px-10"
+            data-hero-page-animate
+          >
             <div className="h-full flex flex-col">
+              {/* top spacing block to match project layout */}
               <div className="pt-6 md:pt-10 text-center" />
-              <div className="mt-auto pb-6 md:pb-8 flex justify-center">
-                <h1 className="text-center text-2xl md:text-[9vw] font-serif font-normal leading-none tracking-tighter">
+
+              <div className="mt-18 md:mt-auto pb-6 md:pb-8 flex justify-center">
+                <h1 className="text-center text-[12vw] md:text-[9vw] font-serif font-medium leading-none tracking-tighter">
                   <StylizedLabel text={page.title ?? "Untitled Page"} />
                 </h1>
               </div>
             </div>
           </div>
 
-          <div className="py-6">
+          <div
+            className="w-full md:w-auto md:shrink-0 px-6 md:px-6 py-6 md:py-6 h-auto md:h-full"
+            style={heroAR ? ({ aspectRatio: heroAR } as React.CSSProperties) : undefined}
+          >
             <PageHeroImage src={heroSrc} alt={heroAlt} slug={slug} />
           </div>
         </div>
       </section>
 
-      <div data-hero-page-animate>
-        <Blocks blocks={page.blocks ?? []} />
-      </div>
+      <Blocks blocks={page.blocks ?? []} />
     </HScrollerWrapper>
   );
 }

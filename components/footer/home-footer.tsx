@@ -47,7 +47,7 @@ export default function HomeFooter({ footer }: Props) {
         () => ({
             block: {
                 normal: ({ children }: any) => (
-                    <p className="text-xs md:text-sm leading-relaxed opacity-70 text-right">
+                    <p className="text-xs md:text-sm leading-relaxed opacity-70 text-center md:text-right">
                         {children}
                     </p>
                 ),
@@ -291,7 +291,7 @@ export default function HomeFooter({ footer }: Props) {
 
                     {/* bottom row: links bottom-left + portable text bottom-right */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 items-end">
-                        <div className="flex flex-col gap-3 items-start">
+                        <div className="flex flex-col gap-3 items-center md:items-start">
                             {links.length > 0 ? (
                                 <div className="flex flex-wrap gap-3 md:gap-4 text-xs md:text-sm">
                                     {links.map((link) => {

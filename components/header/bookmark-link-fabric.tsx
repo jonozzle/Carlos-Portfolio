@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { gsap } from "gsap";
+import ScrollTrigger from "gsap/ScrollTrigger";
 import { cn } from "@/lib/utils";
 import { useLoader } from "@/components/loader/loader-context";
 import { APP_EVENTS } from "@/lib/app-events";
@@ -16,6 +17,10 @@ import { setNavIntent } from "@/lib/nav-intent";
 import { lockHover } from "@/lib/hover-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 import type { PageTransitionKind } from "@/lib/transitions/state";
+
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(ScrollTrigger);
+}
 
 /**
  * Toggle fabric grab/drag interactivity.
@@ -67,9 +72,24 @@ const GRAB_MOVE_PX = 2;
 
 // Return behavior (release should “fall back” instead of snapping)
 const RETURN_MS = 950;
+const RETURN_SETTLE_DIST = 6;
 
 // Viewport clamp padding (lets you pull slightly off-screen)
 const VIEWPORT_PAD = 140;
+const RETURN_PAD = VIEWPORT_PAD * 2;
+const RETURN_PAD_X = VIEWPORT_PAD * 10;
+
+// Scroll wind (horizontal breeze during scroll)
+const SCROLL_WIND_STRENGTH = 950;
+const SCROLL_WIND_NORM = 1200;
+const SCROLL_WIND_MAX = 1.2;
+const SCROLL_WIND_SMOOTH = 0.12;
+
+// Grab smoothing (softly pull a patch to avoid vertex points)
+const GRAB_SOFT_RADIUS = 2;
+const GRAB_SOFT_STRENGTH = 0.5;
+const GRAB_MAX_STRETCH = 1.05;
+const GRAB_OVERDRAG = 0.2;
 
 // Target brand red
 const RED_500 = { r: 251 / 255, g: 44 / 255, b: 54 / 255 };
@@ -308,6 +328,13 @@ export default function BookmarkLinkFabric({
     lastX: 0,
     lastY: 0,
     lastT: 0,
+  });
+
+  const scrollWindRef = useRef({
+    vx: 0,
+    lastT: 0,
+    lastProgress: 0,
+    lastX: 0,
   });
 
   // Overlay container (portal) so it’s not clipped/affected by transformed ancestors
@@ -1221,6 +1248,15 @@ export default function BookmarkLinkFabric({
     let fullW = Math.max(1, window.innerWidth);
     let fullH = Math.max(1, window.innerHeight);
 
+    const scrollWind = scrollWindRef.current;
+    scrollWind.vx = 0;
+    scrollWind.lastT = 0;
+    scrollWind.lastProgress = 0;
+    scrollWind.lastX =
+      typeof window !== "undefined"
+        ? window.scrollX || document.documentElement.scrollLeft || 0
+        : 0;
+
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       fullW = Math.max(1, window.innerWidth);
@@ -1246,6 +1282,55 @@ export default function BookmarkLinkFabric({
       gl.uniform2f(uCanvas, fullW, fullH);
     };
 
+    const updateScrollWind = (time: number) => {
+      if (typeof window === "undefined") return;
+
+      const isMdUp = window.matchMedia("(min-width: 768px)").matches;
+      const mode = (window as any).__hsMode as "horizontal" | "vertical" | undefined;
+      const st =
+        mode === "horizontal"
+          ? (ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null)
+          : null;
+
+      if (!scrollWind.lastT) {
+        scrollWind.lastT = time;
+        if (mode === "horizontal" && st) scrollWind.lastProgress = st.progress ?? 0;
+        else scrollWind.lastX = window.scrollX || document.documentElement.scrollLeft || 0;
+        return;
+      }
+
+      const dt = clamp((time - scrollWind.lastT) / 1000, 0.008, 0.05);
+      scrollWind.lastT = time;
+
+      if (!isMdUp) {
+        scrollWind.vx = 0;
+        if (mode === "horizontal" && st) scrollWind.lastProgress = st.progress ?? 0;
+        else scrollWind.lastX = window.scrollX || document.documentElement.scrollLeft || 0;
+        return;
+      }
+
+      if (mode === "vertical") {
+        scrollWind.vx *= 0.9;
+        scrollWind.lastX = window.scrollX || document.documentElement.scrollLeft || 0;
+        return;
+      }
+
+      let vx = 0;
+      if (mode === "horizontal" && st) {
+        const progress = st.progress ?? 0;
+        const amount = Math.max(1, (st.end ?? 0) - (st.start ?? 0));
+        vx = (progress - scrollWind.lastProgress) * amount / dt;
+        scrollWind.lastProgress = progress;
+      } else {
+        const x = window.scrollX || document.documentElement.scrollLeft || 0;
+        vx = (x - scrollWind.lastX) / dt;
+        scrollWind.lastX = x;
+      }
+
+      const norm = clamp(vx / SCROLL_WIND_NORM, -SCROLL_WIND_MAX, SCROLL_WIND_MAX);
+      scrollWind.vx = scrollWind.vx * (1 - SCROLL_WIND_SMOOTH) + norm * SCROLL_WIND_SMOOTH;
+    };
+
     const updateAnchor = () => {
       const a = readAnchor();
       const dx = a.x - startX;
@@ -1267,6 +1352,31 @@ export default function BookmarkLinkFabric({
       startY = a.y;
     };
 
+    const clampGrabTarget = (i: number, targetX: number, targetY: number) => {
+      const cx = i % COLS;
+      const anchorI = idx(cx, 0);
+      const anchorX = rest[anchorI * 3 + 0];
+      const anchorY = rest[anchorI * 3 + 1];
+      const restLen = Math.hypot(rest[i * 3 + 0] - anchorX, rest[i * 3 + 1] - anchorY);
+
+      let tx = targetX;
+      let ty = targetY;
+
+      const dx = tx - anchorX;
+      const dy = ty - anchorY;
+      const dist = Math.hypot(dx, dy) || 1;
+      const maxLen = Math.max(12, restLen * GRAB_MAX_STRETCH);
+
+      if (dist > maxLen) {
+        const eased = maxLen + (dist - maxLen) * GRAB_OVERDRAG;
+        const s = eased / dist;
+        tx = anchorX + dx * s;
+        ty = anchorY + dy * s;
+      }
+
+      return { x: tx, y: ty };
+    };
+
     const enforceGrab = () => {
       const drag = dragRef.current;
       if (!ENABLE_FABRIC_DRAG) return;
@@ -1274,13 +1384,45 @@ export default function BookmarkLinkFabric({
       if (drag.dragIndex < 0) return;
 
       const i = drag.dragIndex;
-      pos[i * 3 + 0] = drag.targetX;
-      pos[i * 3 + 1] = drag.targetY;
+      const cx = i % COLS;
+      const cy = Math.floor(i / COLS);
+      const clamped = clampGrabTarget(i, drag.targetX, drag.targetY);
+      const tx = clamped.x;
+      const ty = clamped.y;
+
+      pos[i * 3 + 0] = tx;
+      pos[i * 3 + 1] = ty;
       pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
 
-      prev[i * 3 + 0] = drag.targetX;
-      prev[i * 3 + 1] = drag.targetY;
+      prev[i * 3 + 0] = tx;
+      prev[i * 3 + 1] = ty;
       prev[i * 3 + 2] = pos[i * 3 + 2];
+      const baseX = rest[i * 3 + 0];
+      const baseY = rest[i * 3 + 1];
+
+      for (let dy = -GRAB_SOFT_RADIUS; dy <= GRAB_SOFT_RADIUS; dy++) {
+        const ry = cy + dy;
+        if (ry < 0 || ry >= ROWS) continue;
+        for (let dx = -GRAB_SOFT_RADIUS; dx <= GRAB_SOFT_RADIUS; dx++) {
+          const rx = cx + dx;
+          if (rx < 0 || rx >= COLS) continue;
+          const j = idx(rx, ry);
+          if (j === i || pinned(j)) continue;
+
+          const dist = Math.hypot(dx, dy);
+          if (dist > GRAB_SOFT_RADIUS) continue;
+          const t = 1 - dist / GRAB_SOFT_RADIUS;
+          const w = GRAB_SOFT_STRENGTH * t * t;
+
+          const nx = tx + (rest[j * 3 + 0] - baseX);
+          const ny = ty + (rest[j * 3 + 1] - baseY);
+
+          pos[j * 3 + 0] = lerp(pos[j * 3 + 0], nx, w);
+          pos[j * 3 + 1] = lerp(pos[j * 3 + 1], ny, w);
+          prev[j * 3 + 0] = pos[j * 3 + 0];
+          prev[j * 3 + 1] = pos[j * 3 + 1];
+        }
+      }
     };
 
     const smoothPass = (k: number) => {
@@ -1348,21 +1490,18 @@ export default function BookmarkLinkFabric({
       resize();
       updateAnchor();
       updateStripHeight(sizeProxyRef.current.height || BASE_SHAPE_HEIGHT);
+      updateScrollWind(time);
 
       const extra = Math.max(0, stripHeight - BASE_SHAPE_HEIGHT);
       const topH = BASE_RECT_HEIGHT + extra;
 
       const drag = dragRef.current;
       const isGrab = drag.mode === "grab";
-      const isReturn = drag.mode === "return";
+      let isReturn = drag.mode === "return";
 
       // Return progress
       const returnAlpha = isReturn ? clamp((time - drag.returnT0) / RETURN_MS, 0, 1) : 0;
       const returnEase = easeOutCubic(returnAlpha);
-
-      if (isReturn && returnAlpha >= 1) {
-        drag.mode = "idle";
-      }
 
       // Physics
       const damping = 0.985;
@@ -1396,6 +1535,7 @@ export default function BookmarkLinkFabric({
 
       // extra “release” flutter at the start of return
       const rel = release.current.v;
+      const scrollV = scrollWindRef.current.vx;
 
       for (let i = 0; i < COUNT; i++) {
         if (pinned(i)) {
@@ -1411,12 +1551,13 @@ export default function BookmarkLinkFabric({
 
         // grabbed vertex hard-pins to cursor (no spikes)
         if (ENABLE_FABRIC_DRAG && isGrab && drag.dragIndex === i) {
-          pos[i * 3 + 0] = drag.targetX;
-          pos[i * 3 + 1] = drag.targetY;
+          const clamped = clampGrabTarget(i, drag.targetX, drag.targetY);
+          pos[i * 3 + 0] = clamped.x;
+          pos[i * 3 + 1] = clamped.y;
           pos[i * 3 + 2] = -10;
 
-          prev[i * 3 + 0] = drag.targetX;
-          prev[i * 3 + 1] = drag.targetY;
+          prev[i * 3 + 0] = pos[i * 3 + 0];
+          prev[i * 3 + 1] = pos[i * 3 + 1];
           prev[i * 3 + 2] = pos[i * 3 + 2];
           continue;
         }
@@ -1454,6 +1595,10 @@ export default function BookmarkLinkFabric({
           ax += p.vx * windStrength * fall * (0.25 + 0.75 * tRow);
           ay += p.vy * windStrength * fall * (0.25 + 0.75 * tRow);
           az += -liftStrength * fall * (0.2 + 0.8 * tRow);
+        }
+
+        if (Math.abs(scrollV) > 0.0001) {
+          ax -= scrollV * SCROLL_WIND_STRENGTH * (0.2 + 0.8 * tRow);
         }
 
         const tug = pull.current.v;
@@ -1502,7 +1647,7 @@ export default function BookmarkLinkFabric({
       }
 
       // Solve constraints more during grabbing/return to smooth kinks
-      const ITER = isGrab ? 14 : isReturn ? 12 : 9;
+      const ITER = isGrab ? 18 : isReturn ? 12 : 9;
 
       for (let it = 0; it < ITER; it++) {
         for (let c = 0; c < constraints.length; c++) {
@@ -1557,8 +1702,25 @@ export default function BookmarkLinkFabric({
       }
 
       // Smoothing to reduce “sharp points” when dragging/returning
-      const smoothK = isGrab ? 0.18 : isReturn ? lerp(0.14, 0.06, returnEase) : 0;
+      const smoothK = isGrab ? 0.24 : isReturn ? lerp(0.14, 0.06, returnEase) : 0;
       smoothPass(smoothK);
+
+      if (isReturn && returnAlpha >= 1) {
+        let maxD = 0;
+        for (let i = 0; i < COUNT; i++) {
+          if (pinned(i)) continue;
+          const dx = pos[i * 3 + 0] - rest[i * 3 + 0];
+          const dy = pos[i * 3 + 1] - rest[i * 3 + 1];
+          const dz = pos[i * 3 + 2] - rest[i * 3 + 2];
+          const d = Math.hypot(dx, dy, dz);
+          if (d > maxD) maxD = d;
+        }
+
+        if (maxD < RETURN_SETTLE_DIST) {
+          drag.mode = "idle";
+          isReturn = false;
+        }
+      }
 
       // Clamps
       if (ENABLE_FABRIC_DRAG && isGrab) {
@@ -1569,10 +1731,10 @@ export default function BookmarkLinkFabric({
           pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
         }
       } else if (isReturn) {
-        const minX = lerp(-VIEWPORT_PAD, 0, returnEase);
-        const maxX = lerp(fullW + VIEWPORT_PAD, fullW, returnEase);
-        const minY = lerp(-VIEWPORT_PAD, startY - 8, returnEase);
-        const maxY = lerp(fullH + VIEWPORT_PAD, startY + stripHeight + 14, returnEase);
+        const minX = -RETURN_PAD_X;
+        const maxX = fullW + RETURN_PAD_X;
+        const minY = lerp(-RETURN_PAD, startY - 8, returnEase);
+        const maxY = lerp(fullH + RETURN_PAD, startY + stripHeight + 14, returnEase);
 
         for (let i = 0; i < COUNT; i++) {
           if (pinned(i)) continue;
@@ -1581,10 +1743,15 @@ export default function BookmarkLinkFabric({
           pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
         }
       } else {
+        const minX = -RETURN_PAD_X;
+        const maxX = fullW + RETURN_PAD_X;
+        const minY = -RETURN_PAD;
+        const maxY = fullH + RETURN_PAD;
+
         for (let i = 0; i < COUNT; i++) {
           if (pinned(i)) continue;
-          pos[i * 3 + 0] = clamp(pos[i * 3 + 0], startX - 10, startX + STRIP_W + 10);
-          pos[i * 3 + 1] = clamp(pos[i * 3 + 1], startY - 8, startY + stripHeight + 14);
+          pos[i * 3 + 0] = clamp(pos[i * 3 + 0], minX, maxX);
+          pos[i * 3 + 1] = clamp(pos[i * 3 + 1], minY, maxY);
           pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
         }
       }
