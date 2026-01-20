@@ -543,7 +543,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
   const textBlock = (
     <div className="flex flex-col items-start text-left">
-      <div className="text-xl md:text-4xl font-serif font-semibold leading-tight tracking-tighter">
+      <div className="text-2xl md:text-4xl font-serif font-semibold leading-tight tracking-tighter">
         <StylizedLabel text={labelText} />
       </div>
       {item.subline ? (
@@ -609,7 +609,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
           <div className="inline-flex flex-col items-center text-center">
-            <span className="text-lg md:text-8xl font-serif font-semibold tracking-tighter">
+            <span className="text-6xl md:text-8xl font-serif font-semibold tracking-tighter">
               <StylizedLabel text={labelText} />
             </span>
             {item.subline ? (

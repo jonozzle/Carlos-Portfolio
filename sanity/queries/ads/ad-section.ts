@@ -1,4 +1,4 @@
-// sanity/queries/ad-section.ts
+// src: sanity/queries/ad-section.ts
 import { groq } from "next-sanity";
 
 // @sanity-typegen-ignore
@@ -7,15 +7,21 @@ export const adSectionQuery = groq`
     _type,
     _key,
     title,
-    orientation,
-    parallaxEnabled,
-    parallaxAmount,
-    padded,
-    padding,
-    sectionWidth,
-    horizontalAlign,
-    verticalAlign,
     theme { bg, text },
+
+    desktop{
+      orientation,
+      parallaxEnabled,
+      parallaxAmount,
+      sectionWidth
+    },
+
+    mobile{
+      orientation,
+      parallaxEnabled,
+      parallaxAmount,
+      height
+    },
 
     "images": images[]{
       "asset": {

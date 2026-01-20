@@ -605,6 +605,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             onPointerDownCapture={handleNavLockCapture}
             onClickCapture={handleNavLockCapture}
             data-project-block-cell
+            data-speed-x="0.5"
         >
             <div
                 ref={tileRef}
@@ -613,7 +614,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 data-dim-item={dimState}
                 data-hero-slug={slug || undefined}
                 data-hero-target="home"
-                data-speed-x="1"
+
             >
                 <PageTransitionButton {...buttonCommonProps} className="block w-full h-full cursor-pointer">
                     <div className="relative w-full h-full overflow-hidden">
@@ -648,7 +649,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 className={infoBoxClass}
                 style={{ gridColumn: slot.info.col, gridRow: slot.info.row }}
                 data-dim-item={dimState}
-                data-speed-x="0.97"
+
             >
                 <PageTransitionButton {...buttonCommonProps} className={infoButtonClass}>
                     <h3

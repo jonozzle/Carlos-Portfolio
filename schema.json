@@ -1682,129 +1682,169 @@
           },
           "optional": true
         },
-        "orientation": {
+        "desktop": {
           "type": "objectAttribute",
           "value": {
-            "type": "union",
-            "of": [
-              {
-                "type": "string",
-                "value": "horizontal"
+            "type": "object",
+            "attributes": {
+              "orientation": {
+                "type": "objectAttribute",
+                "value": {
+                  "type": "union",
+                  "of": [
+                    {
+                      "type": "string",
+                      "value": "horizontal"
+                    },
+                    {
+                      "type": "string",
+                      "value": "vertical"
+                    }
+                  ]
+                },
+                "optional": true
               },
-              {
-                "type": "string",
-                "value": "vertical"
+              "parallaxEnabled": {
+                "type": "objectAttribute",
+                "value": {
+                  "type": "boolean"
+                },
+                "optional": true
+              },
+              "parallaxAmount": {
+                "type": "objectAttribute",
+                "value": {
+                  "type": "union",
+                  "of": [
+                    {
+                      "type": "string",
+                      "value": "sm"
+                    },
+                    {
+                      "type": "string",
+                      "value": "md"
+                    },
+                    {
+                      "type": "string",
+                      "value": "lg"
+                    }
+                  ]
+                },
+                "optional": true
+              },
+              "sectionWidth": {
+                "type": "objectAttribute",
+                "value": {
+                  "type": "union",
+                  "of": [
+                    {
+                      "type": "string",
+                      "value": "narrow"
+                    },
+                    {
+                      "type": "string",
+                      "value": "medium"
+                    },
+                    {
+                      "type": "string",
+                      "value": "wide"
+                    },
+                    {
+                      "type": "string",
+                      "value": "full"
+                    }
+                  ]
+                },
+                "optional": true
               }
-            ]
+            }
           },
           "optional": true
         },
-        "parallaxEnabled": {
+        "mobile": {
           "type": "objectAttribute",
           "value": {
-            "type": "boolean"
-          },
-          "optional": true
-        },
-        "parallaxAmount": {
-          "type": "objectAttribute",
-          "value": {
-            "type": "union",
-            "of": [
-              {
-                "type": "string",
-                "value": "sm"
+            "type": "object",
+            "attributes": {
+              "height": {
+                "type": "objectAttribute",
+                "value": {
+                  "type": "union",
+                  "of": [
+                    {
+                      "type": "string",
+                      "value": "ratio-1-1"
+                    },
+                    {
+                      "type": "string",
+                      "value": "ratio-4-5"
+                    },
+                    {
+                      "type": "string",
+                      "value": "ratio-3-4"
+                    },
+                    {
+                      "type": "string",
+                      "value": "ratio-16-9"
+                    },
+                    {
+                      "type": "string",
+                      "value": "vh-100"
+                    },
+                    {
+                      "type": "string",
+                      "value": "vh-50"
+                    }
+                  ]
+                },
+                "optional": true
               },
-              {
-                "type": "string",
-                "value": "md"
+              "orientation": {
+                "type": "objectAttribute",
+                "value": {
+                  "type": "union",
+                  "of": [
+                    {
+                      "type": "string",
+                      "value": "horizontal"
+                    },
+                    {
+                      "type": "string",
+                      "value": "vertical"
+                    }
+                  ]
+                },
+                "optional": true
               },
-              {
-                "type": "string",
-                "value": "lg"
+              "parallaxEnabled": {
+                "type": "objectAttribute",
+                "value": {
+                  "type": "boolean"
+                },
+                "optional": true
+              },
+              "parallaxAmount": {
+                "type": "objectAttribute",
+                "value": {
+                  "type": "union",
+                  "of": [
+                    {
+                      "type": "string",
+                      "value": "sm"
+                    },
+                    {
+                      "type": "string",
+                      "value": "md"
+                    },
+                    {
+                      "type": "string",
+                      "value": "lg"
+                    }
+                  ]
+                },
+                "optional": true
               }
-            ]
-          },
-          "optional": true
-        },
-        "sectionWidth": {
-          "type": "objectAttribute",
-          "value": {
-            "type": "union",
-            "of": [
-              {
-                "type": "string",
-                "value": "narrow"
-              },
-              {
-                "type": "string",
-                "value": "medium"
-              },
-              {
-                "type": "string",
-                "value": "wide"
-              },
-              {
-                "type": "string",
-                "value": "full"
-              }
-            ]
-          },
-          "optional": true
-        },
-        "padded": {
-          "type": "objectAttribute",
-          "value": {
-            "type": "boolean"
-          },
-          "optional": true
-        },
-        "padding": {
-          "type": "objectAttribute",
-          "value": {
-            "type": "number"
-          },
-          "optional": true
-        },
-        "horizontalAlign": {
-          "type": "objectAttribute",
-          "value": {
-            "type": "union",
-            "of": [
-              {
-                "type": "string",
-                "value": "left"
-              },
-              {
-                "type": "string",
-                "value": "center"
-              },
-              {
-                "type": "string",
-                "value": "right"
-              }
-            ]
-          },
-          "optional": true
-        },
-        "verticalAlign": {
-          "type": "objectAttribute",
-          "value": {
-            "type": "union",
-            "of": [
-              {
-                "type": "string",
-                "value": "top"
-              },
-              {
-                "type": "string",
-                "value": "center"
-              },
-              {
-                "type": "string",
-                "value": "bottom"
-              }
-            ]
+            }
           },
           "optional": true
         },

@@ -1,4 +1,4 @@
-// sanity/schemas/ad-section.ts
+// src: sanity/schemas/ad-section.ts
 import { defineType, defineField } from "sanity";
 
 export default defineType({
@@ -36,102 +36,142 @@ export default defineType({
     }),
 
     defineField({
-      name: "orientation",
-      title: "Scroll orientation",
-      type: "string",
-      options: {
-        list: [
-          { title: "Horizontal", value: "horizontal" },
-          { title: "Vertical", value: "vertical" },
-        ],
-        layout: "radio",
+      name: "desktop",
+      title: "Desktop",
+      type: "object",
+      description: "Applies at tablet and up (>= md).",
+      options: { collapsible: true, collapsed: true },
+      initialValue: {
+        orientation: "horizontal",
+        parallaxEnabled: true,
+        parallaxAmount: "md",
+        sectionWidth: "medium",
       },
-      initialValue: "horizontal",
+      fields: [
+        defineField({
+          name: "orientation",
+          title: "Scroll orientation",
+          type: "string",
+          options: {
+            list: [
+              { title: "Horizontal", value: "horizontal" },
+              { title: "Vertical", value: "vertical" },
+            ],
+            layout: "radio",
+          },
+          initialValue: "horizontal",
+        }),
+
+        defineField({
+          name: "parallaxEnabled",
+          title: "Enable parallax",
+          type: "boolean",
+          description: "Toggles the scroll-based parallax motion.",
+          initialValue: true,
+        }),
+
+        defineField({
+          name: "parallaxAmount",
+          title: "Parallax amount",
+          type: "string",
+          options: {
+            list: [
+              { title: "Small", value: "sm" },
+              { title: "Medium", value: "md" },
+              { title: "Large", value: "lg" },
+            ],
+            layout: "radio",
+          },
+          initialValue: "md",
+          hidden: ({ parent }) => parent?.parallaxEnabled === false,
+        }),
+
+        defineField({
+          name: "sectionWidth",
+          title: "Section width",
+          type: "string",
+          options: {
+            list: [
+              { title: "Narrow (≈35vw)", value: "narrow" },
+              { title: "Medium (≈50vw)", value: "medium" },
+              { title: "Wide (≈65vw)", value: "wide" },
+              { title: "Full (100vw)", value: "full" },
+            ],
+            layout: "radio",
+          },
+          initialValue: "medium",
+        }),
+      ],
     }),
 
     defineField({
-      name: "parallaxEnabled",
-      title: "Enable parallax",
-      type: "boolean",
-      description: "Toggles the scroll-based parallax motion.",
-      initialValue: true,
-    }),
-
-    defineField({
-      name: "parallaxAmount",
-      title: "Parallax amount",
-      type: "string",
-      options: {
-        list: [
-          { title: "Small", value: "sm" },
-          { title: "Medium", value: "md" },
-          { title: "Large", value: "lg" },
-        ],
-        layout: "radio",
+      name: "mobile",
+      title: "Mobile",
+      type: "object",
+      description: "Applies below tablet (< md).",
+      options: { collapsible: true, collapsed: true },
+      initialValue: {
+        orientation: "horizontal",
+        parallaxEnabled: true,
+        parallaxAmount: "md",
+        height: "ratio-4-5",
       },
-      initialValue: "md",
-      hidden: ({ parent }) => parent?.parallaxEnabled === false,
-    }),
+      fields: [
+        defineField({
+          name: "height",
+          title: "Height",
+          type: "string",
+          options: {
+            list: [
+              { title: "Square (1:1)", value: "ratio-1-1" },
+              { title: "Portrait (4:5)", value: "ratio-4-5" },
+              { title: "Portrait (3:4)", value: "ratio-3-4" },
+              { title: "Landscape (16:9)", value: "ratio-16-9" },
+              { title: "Height = 100vh", value: "vh-100" },
+              { title: "Height = 50vh", value: "vh-50" },
+            ],
+          },
+          initialValue: "ratio-4-5",
+        }),
 
-    defineField({
-      name: "sectionWidth",
-      title: "Section width",
-      type: "string",
-      options: {
-        list: [
-          { title: "Narrow (≈35vw)", value: "narrow" },
-          { title: "Medium (≈50vw)", value: "medium" },
-          { title: "Wide (≈65vw)", value: "wide" },
-          { title: "Full (100vw)", value: "full" },
-        ],
-        layout: "radio",
-      },
-      initialValue: "medium",
-    }),
+        defineField({
+          name: "orientation",
+          title: "Scroll orientation",
+          type: "string",
+          options: {
+            list: [
+              { title: "Horizontal", value: "horizontal" },
+              { title: "Vertical", value: "vertical" },
+            ],
+            layout: "radio",
+          },
+          initialValue: "horizontal",
+        }),
 
-    defineField({
-      name: "padded",
-      title: "Add padding",
-      type: "boolean",
-      initialValue: false,
-    }),
+        defineField({
+          name: "parallaxEnabled",
+          title: "Enable parallax",
+          type: "boolean",
+          description: "Toggles the scroll-based parallax motion.",
+          initialValue: true,
+        }),
 
-    defineField({
-      name: "padding",
-      title: "Padding amount (px)",
-      type: "number",
-      description: "Only applies when padding is enabled. Default 24px.",
-      validation: (Rule) => Rule.min(0).max(200),
-    }),
-
-    defineField({
-      name: "horizontalAlign",
-      title: "Horizontal alignment",
-      type: "string",
-      options: {
-        list: [
-          { title: "Left", value: "left" },
-          { title: "Center", value: "center" },
-          { title: "Right", value: "right" },
-        ],
-        layout: "radio",
-      },
-      initialValue: "left",
-    }),
-
-    defineField({
-      name: "verticalAlign",
-      title: "Vertical alignment",
-      type: "string",
-      options: {
-        list: [
-          { title: "Top", value: "top" },
-          { title: "Center", value: "center" },
-          { title: "Bottom", value: "bottom" },
-        ],
-        layout: "radio",
-      },
-      initialValue: "center",
+        defineField({
+          name: "parallaxAmount",
+          title: "Parallax amount",
+          type: "string",
+          options: {
+            list: [
+              { title: "Small", value: "sm" },
+              { title: "Medium", value: "md" },
+              { title: "Large", value: "lg" },
+            ],
+            layout: "radio",
+          },
+          initialValue: "md",
+          hidden: ({ parent }) => parent?.parallaxEnabled === false,
+        }),
+      ],
     }),
 
     defineField({
@@ -157,38 +197,58 @@ export default defineType({
     select: {
       title: "title",
       count: "images.length",
-      orientation: "orientation",
-      padded: "padded",
-      sectionWidth: "sectionWidth",
-      parallaxEnabled: "parallaxEnabled",
-      parallaxAmount: "parallaxAmount",
+      dOrientation: "desktop.orientation",
+      dWidth: "desktop.sectionWidth",
+      dParallaxEnabled: "desktop.parallaxEnabled",
+      dParallaxAmount: "desktop.parallaxAmount",
+      mHeight: "mobile.height",
+      mOrientation: "mobile.orientation",
+      mParallaxEnabled: "mobile.parallaxEnabled",
+      mParallaxAmount: "mobile.parallaxAmount",
     },
     prepare({
       title,
       count,
-      orientation,
-      padded,
-      sectionWidth,
-      parallaxEnabled,
-      parallaxAmount,
+      dOrientation,
+      dWidth,
+      dParallaxEnabled,
+      dParallaxAmount,
+      mHeight,
+      mOrientation,
+      mParallaxEnabled,
+      mParallaxAmount,
     }) {
-      const label = orientation === "vertical" ? "Vertical" : "Horizontal";
+      const oLabel = (o: any) => (o === "vertical" ? "Vertical" : "Horizontal");
       const widthLabel =
-        sectionWidth === "narrow"
+        dWidth === "narrow"
           ? "Narrow"
-          : sectionWidth === "wide"
+          : dWidth === "wide"
             ? "Wide"
-            : sectionWidth === "full"
+            : dWidth === "full"
               ? "Full"
               : "Medium";
 
-      const padLabel = padded ? "with padding" : "no padding";
-      const parallaxLabel =
-        parallaxEnabled === false ? "parallax off" : `parallax ${parallaxAmount || "md"}`;
+      const dParLabel = dParallaxEnabled === false ? "parallax off" : `parallax ${dParallaxAmount || "md"}`;
+      const mParLabel = mParallaxEnabled === false ? "parallax off" : `parallax ${mParallaxAmount || "md"}`;
+
+      const mHeightLabel =
+        mHeight === "vh-100"
+          ? "100vh"
+          : mHeight === "vh-50"
+            ? "50vh"
+            : mHeight === "ratio-1-1"
+              ? "1:1"
+              : mHeight === "ratio-3-4"
+                ? "3:4"
+                : mHeight === "ratio-16-9"
+                  ? "16:9"
+                  : "4:5";
 
       return {
         title: "Ad Section",
-        subtitle: `${title || "Untitled"} · ${count || 0} images · ${label} · ${widthLabel} · ${padLabel} · ${parallaxLabel}`,
+        subtitle: `${title || "Untitled"} · ${count || 0} images · Desktop: ${oLabel(dOrientation)} · ${widthLabel} · ${dParLabel} · Mobile: ${oLabel(
+          mOrientation
+        )} · ${mHeightLabel} · ${mParLabel}`,
       };
     },
   },

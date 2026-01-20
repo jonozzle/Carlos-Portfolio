@@ -315,7 +315,7 @@ function HeroPortableText({
         const Tag = cfg.tag as any;
 
         const tagClassName = clsx(
-          "it-pt-block font-sans font-normal tracking-tight opacity-70 hover:opacity-100 duration-200",
+          "it-pt-block font-sans font-normal tracking-tight opacity-100  duration-200",
           cfg.className,
           isFirst && "it-dropcap-target"
         );

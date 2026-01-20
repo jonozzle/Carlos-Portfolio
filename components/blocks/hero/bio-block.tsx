@@ -65,6 +65,18 @@ function isLikelyExternal(href: string) {
   return h.startsWith("http://") || h.startsWith("https://");
 }
 
+type Rect = { left: number; top: number; right: number; bottom: number; width: number; height: number };
+function unionRect(a: DOMRect, b: DOMRect): Rect {
+  const left = Math.min(a.left, b.left);
+  const top = Math.min(a.top, b.top);
+  const right = Math.max(a.right, b.right);
+  const bottom = Math.max(a.bottom, b.bottom);
+  return { left, top, right, bottom, width: right - left, height: bottom - top };
+}
+function rectCenter(r: Rect | DOMRect) {
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
 export default function BioBlock({
   name = "Carlos Castrosin",
   text = "Carlos is a photographer driven by curiosity for bold commercial ideas. He blends clean composition with conceptual thinking, creating images that feel sharp and contemporary.",
@@ -83,7 +95,12 @@ export default function BioBlock({
   const restSecondRef = useRef<HTMLSpanElement | null>(null);
   const bioRef = useRef<HTMLDivElement | null>(null);
   const tlRef = useRef<gsap.core.Timeline | null>(null);
+
   const [isOpen, setIsOpen] = useState(false);
+  const isOpenRef = useRef(false);
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
 
   const [firstWord = "", secondWord = ""] = name.split(" ");
   const firstC = firstWord.charAt(0) || "C";
@@ -170,188 +187,246 @@ export default function BioBlock({
       .filter((l) => !!l.label && !!l.href);
   }, [links]);
 
+  const useClick = interaction === "click";
+  const hasBody = Array.isArray(body) && body.length > 0;
+
   useGSAP(
     () => {
       const box = boxRef.current;
       const inner = innerRef.current;
       const nameRow = nameRowRef.current;
-      const bigC = bigCRef.current;
-      const smallC = smallCRef.current;
+      const bigCEl = bigCRef.current;
+      const smallCEl = smallCRef.current;
       const restFirstEl = restFirstRef.current;
       const restSecondEl = restSecondRef.current;
-      const bio = bioRef.current;
+      const bioEl = bioRef.current;
 
-      if (!box || !inner || !nameRow || !bigC || !smallC || !restFirstEl || !restSecondEl || !bio) {
-        return;
-      }
+      if (!box || !inner || !nameRow || !bigCEl || !smallCEl || !restFirstEl || !restSecondEl || !bioEl) return;
 
       const SQUARE_SIZE = 64; // closed square
       const EXPANDED_WIDTH = SQUARE_SIZE + 220;
       const EXPANDED_MIN_HEIGHT = SQUARE_SIZE + 110;
 
-      const SMALL_C_SCALE = 0.72;
+      // CLOSED small-c pose (relative to big C center)
+      const SMALL_C_CLOSED = {
+        scale: 0.72,
+        relX: -6, // px from big C center to small C center
+        relY: 0, // px from big C center to small C center
+        rotation: -185, // deg
+      };
 
-      // CLOSED small-c manual offsets
-      const SMALL_C_OFFSET_X = -6; // tweak as needed
-      const SMALL_C_OFFSET_Y = 0; // tweak as needed
+      const build = (opts?: { keepProgress?: boolean; prevProgress?: number; prevReversed?: boolean; prevActive?: boolean }) => {
+        // kill any existing timeline
+        if (tlRef.current) {
+          tlRef.current.kill();
+          tlRef.current = null;
+        }
 
-      // Hide while we set up to avoid flashes
-      gsap.set(box, { autoAlpha: 0 });
+        // Hide while we set up to avoid flashes
+        gsap.set(box, { autoAlpha: 0 });
 
-      // Inner content: measure to fit bio + links, then lock size for stable animation.
-      gsap.set(inner, { width: EXPANDED_WIDTH, height: "auto" });
-      const measuredHeight = Math.ceil(inner.getBoundingClientRect().height);
-      const expandedHeight = Math.max(EXPANDED_MIN_HEIGHT, measuredHeight);
-      gsap.set(inner, { height: expandedHeight });
+        // Clear/normalize any prior inline props that might linger between rebuilds
+        gsap.set([bigCEl, smallCEl, restFirstEl, restSecondEl, bioEl], { clearProps: "transform" });
 
-      // Outer box: animates from square to expanded
-      gsap.set(box, {
-        width: SQUARE_SIZE,
-        height: SQUARE_SIZE,
-      });
+        // Measure inner content for expanded height
+        gsap.set(inner, { width: EXPANDED_WIDTH, height: "auto" });
+        const measuredHeight = Math.ceil(inner.getBoundingClientRect().height);
+        const expandedHeight = Math.max(EXPANDED_MIN_HEIGHT, measuredHeight);
+        gsap.set(inner, { height: expandedHeight });
 
-      // Name row base state (fixed band at the top)
-      gsap.set(nameRow, { y: 0 });
+        // Outer box: animates from square to expanded
+        gsap.set(box, { width: SQUARE_SIZE, height: SQUARE_SIZE });
 
-      // Reset Cs before measuring
-      gsap.set(bigC, {
-        x: 0,
-        y: 0,
-        rotation: 0,
-        scale: 1,
-        transformOrigin: "50% 50%",
-      });
+        // Name row base state
+        gsap.set(nameRow, { y: 0 });
 
-      gsap.set(smallC, {
-        x: 0,
-        y: 0,
-        rotation: 0,
-        scale: SMALL_C_SCALE,
-        transformOrigin: "50% 50%",
-      });
+        // Reset Cs
+        gsap.set(bigCEl, {
+          x: 0,
+          y: 0,
+          rotation: 0,
+          scale: 1,
+          transformOrigin: "50% 50%",
+        });
 
-      // Non-C letters: in place but visually hidden (no layout changes)
-      gsap.set(restFirstEl, {
-        opacity: 0,
-        x: 4,
-        clipPath: "inset(0 100% 0 0)",
-      });
+        gsap.set(smallCEl, {
+          x: 0,
+          y: 0,
+          rotation: 0,
+          scale: SMALL_C_CLOSED.scale,
+          transformOrigin: "50% 50%",
+        });
 
-      gsap.set(restSecondEl, {
-        opacity: 0,
-        x: 4,
-        clipPath: "inset(0 100% 0 0)",
-      });
+        // Non-C letters hidden (no layout changes)
+        gsap.set(restFirstEl, { opacity: 0, x: 4, clipPath: "inset(0 100% 0 0)" });
+        gsap.set(restSecondEl, { opacity: 0, x: 4, clipPath: "inset(0 100% 0 0)" });
 
-      // Bio hidden
-      gsap.set(bio, { opacity: 0, y: 8 });
+        // Bio hidden
+        gsap.set(bioEl, { opacity: 0, y: 8 });
 
-      // Measure for centering the Cs in the closed square
-      const boxRect = box.getBoundingClientRect();
-      const bigRect = bigC.getBoundingClientRect();
-      const smallRect = smallC.getBoundingClientRect();
+        // --- CLOSED STATE: center combined bounds of the two Cs in the square ---
+        const boxRect = box.getBoundingClientRect();
+        const squareCenter = { x: boxRect.left + SQUARE_SIZE / 2, y: boxRect.top + SQUARE_SIZE / 2 };
 
-      const centerX = boxRect.left + SQUARE_SIZE / 2;
-      const centerY = boxRect.top + SQUARE_SIZE / 2;
+        // Pose small C relative to big C center
+        const bigBase = bigCEl.getBoundingClientRect();
+        const smallBase = smallCEl.getBoundingClientRect();
 
-      const bigCenterX = bigRect.left + bigRect.width / 2;
-      const bigCenterY = bigRect.top + bigRect.height / 2;
-      const smallCenterX = smallRect.left + smallRect.width / 2;
-      const smallCenterY = smallRect.top + smallRect.height / 2;
+        const bigBaseCenter = rectCenter(bigBase);
+        const smallBaseCenter = rectCenter(smallBase);
 
-      const bigDx = centerX - bigCenterX;
-      const bigDy = centerY - bigCenterY;
-      const smallDx = centerX - smallCenterX;
-      const smallDy = centerY - smallCenterY;
+        const desiredSmallCenter = {
+          x: bigBaseCenter.x + SMALL_C_CLOSED.relX,
+          y: bigBaseCenter.y + SMALL_C_CLOSED.relY,
+        };
 
-      // CLOSED: both Cs stacked in the middle of the square
-      gsap.set(bigC, {
-        x: bigDx,
-        y: bigDy,
-        rotation: 0,
-      });
+        const smallPoseDx = desiredSmallCenter.x - smallBaseCenter.x;
+        const smallPoseDy = desiredSmallCenter.y - smallBaseCenter.y;
 
-      // CLOSED: small C with manual pixel offsets
-      gsap.set(smallC, {
-        x: smallDx + SMALL_C_OFFSET_X,
-        y: smallDy + SMALL_C_OFFSET_Y,
-        rotation: -185,
-      });
+        gsap.set(smallCEl, {
+          x: smallPoseDx,
+          y: smallPoseDy,
+          rotation: SMALL_C_CLOSED.rotation,
+          scale: SMALL_C_CLOSED.scale,
+        });
 
-      // Reveal box after setup
-      gsap.set(box, { autoAlpha: 1 });
+        // Measure combined bounds AFTER pose; then shift both as a group into square center
+        const bigPosed = bigCEl.getBoundingClientRect();
+        const smallPosed = smallCEl.getBoundingClientRect();
+        const combined = unionRect(bigPosed, smallPosed);
+        const combinedCenter = rectCenter(combined);
 
-      const tl = gsap.timeline({ paused: true });
+        const groupDx = squareCenter.x - combinedCenter.x;
+        const groupDy = squareCenter.y - combinedCenter.y;
 
-      tl.to(
-        box,
-        {
-          width: EXPANDED_WIDTH,
-          height: expandedHeight,
-          duration: 1.4,
-          ease: "power2.inOut",
-        },
-        0
-      )
-        // Cs move from stacked center (with offsets) to inline positions
-        .to(
-          bigC,
+        gsap.set(bigCEl, { x: groupDx, y: groupDy, rotation: 0, scale: 1 });
+        gsap.set(smallCEl, {
+          x: smallPoseDx + groupDx,
+          y: smallPoseDy + groupDy,
+          rotation: SMALL_C_CLOSED.rotation,
+          scale: SMALL_C_CLOSED.scale,
+        });
+
+        // Reveal box after setup
+        gsap.set(box, { autoAlpha: 1 });
+
+        const tl = gsap.timeline({ paused: true });
+
+        tl.to(
+          box,
           {
-            x: 0,
-            y: 0,
-            rotation: 0,
+            width: EXPANDED_WIDTH,
+            height: expandedHeight,
             duration: 1.4,
-            ease: "power3.out",
+            ease: "power2.inOut",
           },
           0
         )
-        .to(
-          smallC,
-          {
-            x: 0,
-            y: 0,
-            rotation: 0,
-            scale: 1,
-            duration: 1.4,
-            ease: "power3.out",
-          },
-          0
-        )
-        // Reveal rest of the letters (no reflow, just opacity/clip)
-        .to(
-          [restFirstEl, restSecondEl],
-          {
-            opacity: 1,
-            x: 0,
-            clipPath: "inset(0 0% 0 0)",
-            duration: 0.8,
-            ease: "power2.out",
-            stagger: 0.05,
-          },
-          0.1
-        )
-        // Reveal bio
-        .to(
-          bio,
-          {
-            opacity: 1,
-            y: 0,
-            duration: 0.8,
-            ease: "power2.out",
-          },
-          0.2
-        );
+          .to(
+            bigCEl,
+            {
+              x: 0,
+              y: 0,
+              rotation: 0,
+              scale: 1,
+              duration: 1.4,
+              ease: "power3.out",
+            },
+            0
+          )
+          .to(
+            smallCEl,
+            {
+              x: 0,
+              y: 0,
+              rotation: 0,
+              scale: 1,
+              duration: 1.4,
+              ease: "power3.out",
+            },
+            0
+          )
+          .to(
+            [restFirstEl, restSecondEl],
+            {
+              opacity: 1,
+              x: 0,
+              clipPath: "inset(0 0% 0 0)",
+              duration: 0.8,
+              ease: "power2.out",
+              stagger: 0.05,
+            },
+            0.1
+          )
+          .to(
+            bioEl,
+            {
+              opacity: 1,
+              y: 0,
+              duration: 0.8,
+              ease: "power2.out",
+            },
+            0.2
+          );
 
-      tlRef.current = tl;
+        tlRef.current = tl;
+
+        // Restore state after rebuild
+        if (useClick) {
+          tl.progress(isOpenRef.current ? 1 : 0).pause();
+        } else if (opts?.keepProgress) {
+          const p = typeof opts.prevProgress === "number" ? opts.prevProgress : 0;
+          tl.progress(p).pause();
+
+          // If it was actively animating pre-resize, continue in the same direction.
+          if (opts.prevActive) {
+            if (opts.prevReversed) tl.reverse();
+            else tl.play();
+          }
+        } else {
+          tl.progress(0).pause();
+        }
+      };
+
+      // Initial build
+      build({ keepProgress: false });
+
+      // Live-resize rebuild (debounced)
+      let t: number | null = null;
+      let raf: number | null = null;
+
+      const onResize = () => {
+        const prev = tlRef.current;
+        const prevProgress = prev ? prev.progress() : 0;
+        const prevReversed = prev ? prev.reversed() : true;
+        const prevActive = prev ? prev.isActive() : false;
+
+        if (t) window.clearTimeout(t);
+        t = window.setTimeout(() => {
+          if (raf) cancelAnimationFrame(raf);
+          raf = requestAnimationFrame(() => {
+            // keep hover-progress; click-mode is derived from isOpenRef
+            build({ keepProgress: !useClick, prevProgress, prevReversed, prevActive });
+          });
+        }, 120);
+      };
+
+      window.addEventListener("resize", onResize, { passive: true });
+      window.addEventListener("orientationchange", onResize);
 
       return () => {
-        tl.kill();
+        window.removeEventListener("resize", onResize);
+        window.removeEventListener("orientationchange", onResize);
+        if (t) window.clearTimeout(t);
+        if (raf) cancelAnimationFrame(raf);
+        if (tlRef.current) {
+          tlRef.current.kill();
+          tlRef.current = null;
+        }
       };
     },
     { scope: rootRef }
   );
-
-  const useClick = interaction === "click";
 
   useEffect(() => {
     if (!useClick) return;
@@ -364,6 +439,7 @@ export default function BioBlock({
     if (useClick) return;
     tlRef.current?.play();
   };
+
   const handleLeave = () => {
     if (useClick) return;
     tlRef.current?.reverse();
@@ -382,8 +458,6 @@ export default function BioBlock({
     e.preventDefault();
     setIsOpen((prev) => !prev);
   };
-
-  const hasBody = Array.isArray(body) && body.length > 0;
 
   return (
     <div
@@ -427,10 +501,7 @@ export default function BioBlock({
               </span>
 
               {/* C of Castrosin */}
-              <span
-                ref={smallCRef}
-                className="font-serif text-[36px] leading-none inline-block ml-3"
-              >
+              <span ref={smallCRef} className="font-serif text-[36px] leading-none inline-block ml-3">
                 {secondC}
               </span>
 
@@ -452,9 +523,7 @@ export default function BioBlock({
                   <PortableText value={body as any} components={ptComponents as any} />
                 </div>
               ) : (
-                <p className="text-sm tracking-normal mb-3 font-sans max-w-[33ch] leading-snug text-left">
-                  {text}
-                </p>
+                <p className="text-sm tracking-normal mb-3 font-sans max-w-[33ch] leading-snug text-left">{text}</p>
               )}
 
               {safeLinks.length ? (

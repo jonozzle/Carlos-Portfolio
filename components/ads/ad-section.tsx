@@ -2,7 +2,7 @@
 "use client";
 
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { PAGE_QUERYResult } from "@/sanity.types";
 import { type AdvertImage } from "@/components/ads/advert";
@@ -14,33 +14,105 @@ import { getLastMouse, HOVER_EVENTS, isHoverLocked } from "@/lib/hover-lock";
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
 type AdBlock = Extract<Block, { _type: "ad-section" }>;
-type Props = AdBlock & {
-    parallaxEnabled?: boolean | null;
-    parallaxAmount?: "sm" | "md" | "lg" | null;
-};
+type Props = AdBlock;
 
 function isAppScrolling() {
     if (typeof window === "undefined") return false;
     return !!(window as any).__appScrolling;
 }
 
-export default function AdSection({
-    images,
-    orientation,
-    title,
-    theme,
-    padded,
-    padding,
-    sectionWidth,
-    horizontalAlign,
-    verticalAlign,
-    parallaxEnabled,
-    parallaxAmount,
-}: Props) {
+function useMediaQuery(query: string) {
+    const [matches, setMatches] = useState(false);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const mql = window.matchMedia(query);
+        const onChange = () => setMatches(mql.matches);
+
+        onChange();
+
+        if (typeof mql.addEventListener === "function") {
+            mql.addEventListener("change", onChange);
+            return () => mql.removeEventListener("change", onChange);
+        }
+
+        mql.addListener(onChange);
+        return () => mql.removeListener(onChange);
+    }, [query]);
+
+    return matches;
+}
+
+type ParallaxAmount = "sm" | "md" | "lg";
+type Orientation = "horizontal" | "vertical";
+type SectionWidth = "narrow" | "medium" | "wide" | "full";
+
+type MobileHeight =
+    | "ratio-1-1"
+    | "ratio-4-5"
+    | "ratio-3-4"
+    | "ratio-16-9"
+    | "vh-100"
+    | "vh-50";
+
+function mobileHeightStyle(opt: MobileHeight | null | undefined): React.CSSProperties {
+    switch (opt) {
+        case "vh-100":
+            return { height: "100vh" };
+        case "vh-50":
+            return { height: "50vh" };
+        case "ratio-1-1":
+            return { aspectRatio: "1 / 1" };
+        case "ratio-4-5":
+            return { aspectRatio: "4 / 5" };
+        case "ratio-3-4":
+            return { aspectRatio: "3 / 4" };
+        case "ratio-16-9":
+            return { aspectRatio: "16 / 9" };
+        default:
+            return { aspectRatio: "4 / 5" };
+    }
+}
+
+export default function AdSection({ images, title, theme, desktop, mobile }: Props) {
     const themeActions = useThemeActions();
     const hasTheme = !!(theme?.bg || theme?.text);
 
     const sectionRef = useRef<HTMLElement | null>(null);
+
+    const isDesktop = useMediaQuery("(min-width: 768px)"); // below tablet => mobile settings
+
+    const desktopCfg = (desktop ?? {}) as {
+        orientation?: Orientation | null;
+        parallaxEnabled?: boolean | null;
+        parallaxAmount?: ParallaxAmount | null;
+        sectionWidth?: SectionWidth | null;
+    };
+
+    const mobileCfg = (mobile ?? {}) as {
+        orientation?: Orientation | null;
+        parallaxEnabled?: boolean | null;
+        parallaxAmount?: ParallaxAmount | null;
+        height?: MobileHeight | null;
+    };
+
+    const effectiveOrientation: Orientation =
+        (isDesktop ? desktopCfg.orientation : mobileCfg.orientation) ??
+        desktopCfg.orientation ??
+        "horizontal";
+
+    const effectiveParallaxEnabled: boolean =
+        (isDesktop ? desktopCfg.parallaxEnabled : mobileCfg.parallaxEnabled) ??
+        desktopCfg.parallaxEnabled ??
+        true;
+
+    const effectiveParallaxAmount: ParallaxAmount =
+        (isDesktop ? desktopCfg.parallaxAmount : mobileCfg.parallaxAmount) ??
+        desktopCfg.parallaxAmount ??
+        "md";
+
+    const desktopSectionWidth: SectionWidth = desktopCfg.sectionWidth ?? "medium";
 
     const imgs: AdvertImage[] | null = useMemo(
         () =>
@@ -111,10 +183,10 @@ export default function AdSection({
         return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
     }, [applyTheme, hasTheme, isPointerInside]);
 
-    const isVertical = orientation === "vertical";
+    const isVertical = effectiveOrientation === "vertical";
 
     const sectionWidthClass = useMemo(() => {
-        switch (sectionWidth) {
+        switch (desktopSectionWidth) {
             case "narrow":
                 return "w-full md:w-[35vw]";
             case "medium":
@@ -126,10 +198,12 @@ export default function AdSection({
             default:
                 return "w-full md:w-[50vw]";
         }
-    }, [sectionWidth]);
+    }, [desktopSectionWidth]);
 
     const sliderSize = useMemo(() => {
-        switch (sectionWidth) {
+        if (!isDesktop) return "full" as const;
+
+        switch (desktopSectionWidth) {
             case "full":
                 return "full" as const;
             case "narrow":
@@ -137,37 +211,10 @@ export default function AdSection({
             default:
                 return "auto" as const;
         }
-    }, [sectionWidth]);
-
-    const hAlignClass = useMemo(() => {
-        switch (horizontalAlign) {
-            case "center":
-                return "justify-center";
-            case "right":
-                return "justify-end";
-            case "left":
-            default:
-                return "justify-start";
-        }
-    }, [horizontalAlign]);
-
-    const vAlignClass = useMemo(() => {
-        switch (verticalAlign) {
-            case "top":
-                return "items-start";
-            case "bottom":
-                return "items-end";
-            case "center":
-            default:
-                return "items-center";
-        }
-    }, [verticalAlign]);
-
-    const paddingStyle = padded ? { padding: typeof padding === "number" ? padding : 24 } : undefined;
+    }, [desktopSectionWidth, isDesktop]);
 
     const sectionStyle: React.CSSProperties = {
-        ...(paddingStyle ?? {}),
-        containIntrinsicSize: "100vh 50vw",
+        containIntrinsicSize: isDesktop ? "100vh 50vw" : "60vh 100vw",
     };
 
     const sliderLabel = title ?? "Ad section";
@@ -176,10 +223,9 @@ export default function AdSection({
         <section
             ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
             className={clsx(
-                "h-screen flex flex-none relative overflow-hidden will-change-transform transform-gpu",
-                sectionWidthClass,
-                hAlignClass,
-                vAlignClass
+                "flex flex-none relative overflow-hidden will-change-transform transform-gpu items-center justify-start",
+                isDesktop ? "h-screen" : "h-auto",
+                sectionWidthClass
             )}
             style={sectionStyle}
             aria-label={sliderLabel}
@@ -202,15 +248,18 @@ export default function AdSection({
                 clearTheme(isAppScrolling());
             }}
         >
-            <div className="relative h-full w-full">
+            <div
+                className={clsx("relative w-full", isDesktop ? "h-full" : "h-auto")}
+                style={!isDesktop ? mobileHeightStyle(mobileCfg.height) : undefined}
+            >
                 {isVertical ? (
                     <VerticalImageSlider
                         images={imgs ?? []}
                         size={sliderSize}
                         label={sliderLabel}
                         className="h-full w-full"
-                        parallaxEnabled={parallaxEnabled !== false}
-                        parallaxAmount={parallaxAmount ?? "md"}
+                        parallaxEnabled={effectiveParallaxEnabled}
+                        parallaxAmount={effectiveParallaxAmount}
                     />
                 ) : (
                     <HorizontalImageSlider
@@ -218,8 +267,8 @@ export default function AdSection({
                         size={sliderSize}
                         label={sliderLabel}
                         className="h-full w-full"
-                        parallaxEnabled={parallaxEnabled !== false}
-                        parallaxAmount={parallaxAmount ?? "md"}
+                        parallaxEnabled={effectiveParallaxEnabled}
+                        parallaxAmount={effectiveParallaxAmount}
                     />
                 )}
             </div>
