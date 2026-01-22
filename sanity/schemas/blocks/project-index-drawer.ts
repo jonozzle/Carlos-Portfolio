@@ -35,6 +35,20 @@ export default defineType({
     }),
 
     defineField({
+      name: "heightDesktop",
+      title: "Drawer height (desktop)",
+      type: "string",
+      description: "Overrides the drawer max height on desktop. Use svh (e.g., 48svh).",
+    }),
+
+    defineField({
+      name: "heightMobile",
+      title: "Drawer height (mobile)",
+      type: "string",
+      description: "Overrides the drawer max height on mobile. Use svh (e.g., 60svh).",
+    }),
+
+    defineField({
       name: "items",
       title: "Drawer Projects",
       type: "array",

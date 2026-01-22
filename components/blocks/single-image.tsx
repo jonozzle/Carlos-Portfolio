@@ -22,7 +22,6 @@ function getSafeRatio(w: number | null, h: number | null) {
 export default function SingleImage(props: Props) {
   const {
     image,
-    title,
     paddingMode,
     widthMode,
     caption,
@@ -35,8 +34,9 @@ export default function SingleImage(props: Props) {
 
   const imgUrl = image?.asset?.url ?? "";
   const alt =
-    image?.alt ??
-    (typeof title === "string" && title.length > 0 ? title : "Project image");
+    typeof image?.alt === "string" && image.alt.trim().length > 0
+      ? image.alt
+      : "Project image";
 
   const imgWidth = image?.asset?.width ?? null;
   const imgHeight = image?.asset?.height ?? null;
@@ -173,8 +173,6 @@ export default function SingleImage(props: Props) {
     return () => observer.disconnect();
   }, [imgUrl]);
 
-  const label = title ?? "Project image";
-
   // Pass only a string (hex). This avoids TS conflicts with Sanity's color plugin types.
   const captionColorHex: string | undefined =
     (captionColor as any)?.hex ?? undefined;
@@ -187,7 +185,7 @@ export default function SingleImage(props: Props) {
         paddingClass
       )}
       style={{ contain: "layout paint" }}
-      aria-label={label}
+      aria-label={alt}
       data-cursor-blend="normal"
     >
       <figure className="relative inline-flex flex-col items-center max-w-[100vw]">
@@ -224,12 +222,6 @@ export default function SingleImage(props: Props) {
             hoverTargetRef={boxRef}
           />
         </div>
-
-        {title ? (
-          <figcaption className="mt-2 w-full max-w-full px-1 text-xs md:text-sm tracking-tight font-serif opacity-70 text-center break-words">
-            {title}
-          </figcaption>
-        ) : null}
       </figure>
     </section>
   );

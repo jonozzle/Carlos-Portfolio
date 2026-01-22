@@ -11,7 +11,7 @@ import type { ProjectIndexDrawerData } from "@/components/header/project-index-d
 
 const DRAWER_ID = "home-project-index";
 const BOOKMARK_FOLLOWS_DRAWER = true;
-const DRAWER_CLOSE_MS = 350;
+const DRAWER_CLOSE_MS = 900;
 
 type HomeBookmarkNavProps = {
   drawer?: ProjectIndexDrawerData;

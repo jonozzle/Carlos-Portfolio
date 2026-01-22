@@ -8,6 +8,8 @@ export const projectIndexDrawerQuery = groq`
     "title": coalesce(title, "Project Index"),
     "showNumbers": coalesce(showNumbers, false),
     "showProjectDetails": coalesce(showProjectDetails, true),
+    "heightDesktop": heightDesktop,
+    "heightMobile": heightMobile,
 
     "items": coalesce(items, [])[]{
       _key,

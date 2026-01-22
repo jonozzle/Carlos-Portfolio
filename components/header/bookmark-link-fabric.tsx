@@ -54,6 +54,9 @@ const HOME_ANCHOR_HEIGHT = 92;
 
 // Visual “drop” for the UI element (separate from drawer-follow y)
 const DROP_INNER_Y = -100;
+const DRAWER_SYNC_DUR = 1.1;
+const FIRST_DROP_DUR = 0.45;
+const DRAWER_SYNC_EASE = "elastic.out(1,0.5)";
 
 // Intro “fabric fall”
 const REVEAL_LIFT_PX = -120;
@@ -62,9 +65,14 @@ const INTRO_FLUTTER_MS = 1200;
 const INTRO_FLUTTER_SCALE = 0.1;
 
 // “fabric-ness” during size/visibility animations
-const ANIM_WIND_MS = 600;
-const SIZE_WIND_KICK = 0.05;
-const SIZE_VEL_TURBULENCE = 0.01;
+const ANIM_WIND_MS = 420;
+const SIZE_WIND_KICK = 0.02;
+const SIZE_VEL_TURBULENCE = 0.003;
+
+// Height overshoot when shrinking back to home
+const SIZE_BOUNCE_MIN_PX = 12;
+const SIZE_BOUNCE_MAX_PX = 64;
+const SIZE_BOUNCE_RATIO = 0.06;
 
 // Grab behavior
 const GRAB_HOLD_MS = 90;
@@ -86,10 +94,10 @@ const SCROLL_WIND_MAX = 1.2;
 const SCROLL_WIND_SMOOTH = 0.12;
 
 // Grab smoothing (softly pull a patch to avoid vertex points)
-const GRAB_SOFT_RADIUS = 2;
-const GRAB_SOFT_STRENGTH = 0.5;
-const GRAB_MAX_STRETCH = 1.05;
-const GRAB_OVERDRAG = 0.2;
+const GRAB_SOFT_RADIUS = 3;
+const GRAB_SOFT_STRENGTH = 0.8;
+const GRAB_MAX_STRETCH = 1.02;
+const GRAB_OVERDRAG = 0.05;
 
 // Target brand red
 const RED_500 = { r: 251 / 255, g: 44 / 255, b: 54 / 255 };
@@ -427,19 +435,39 @@ export default function BookmarkLinkFabric({
         return;
       }
 
+      const proxy = sizeProxyRef.current;
+      const currentHeight =
+        Number.isFinite(proxy.height) && proxy.height > 0 ? proxy.height : targetHeight;
+      const shouldBounceToHome = isHome && targetHeight < currentHeight - 0.5;
+
       kickAnimWind(SIZE_WIND_KICK);
 
-      const proxy = sizeProxyRef.current;
+      if (shouldBounceToHome) {
+        const bump = clamp(currentHeight * SIZE_BOUNCE_RATIO, SIZE_BOUNCE_MIN_PX, SIZE_BOUNCE_MAX_PX);
+        const peak = currentHeight + bump;
+        const peakExtra = Math.max(0, peak - BASE_SHAPE_HEIGHT);
+
+        sizeTweenRef.current = gsap.timeline({
+          defaults: { overwrite: "auto" },
+          onUpdate: () => applySize(proxy.height, proxy.extra),
+        });
+
+        sizeTweenRef.current
+          .to(proxy, { height: peak, extra: peakExtra, duration: 0.22, ease: "power2.out" })
+          .to(proxy, { height: targetHeight, extra: targetExtra, duration: 0.75, ease: "power2.out" });
+        return;
+      }
+
       sizeTweenRef.current = gsap.to(proxy, {
         height: targetHeight,
         extra: targetExtra,
-        duration: 1.1,
+        duration: 1.05,
         ease: "power2.out",
         overwrite: "auto",
         onUpdate: () => applySize(proxy.height, proxy.extra),
       });
     },
-    [applySize, computeTargetSize, kickAnimWind]
+    [applySize, computeTargetSize, isHome, kickAnimWind]
   );
 
   useEffect(() => {
@@ -492,6 +520,7 @@ export default function BookmarkLinkFabric({
 
     const wasShown = shownRef.current;
     shownRef.current = true;
+    const shouldPlainDrop = isHome && !wasShown;
 
     updateSize(false);
 
@@ -502,7 +531,9 @@ export default function BookmarkLinkFabric({
     if (!wasShown) {
       gsap.killTweensOf(inner, "y");
       gsap.set(inner, { y: DROP_INNER_Y });
-      gsap.to(inner, { y: 0, duration: 0.65, ease: "power3.out", overwrite: "auto" });
+      const dropDur = shouldPlainDrop ? FIRST_DROP_DUR : DRAWER_SYNC_DUR;
+      const dropEase = shouldPlainDrop ? "none" : DRAWER_SYNC_EASE;
+      gsap.to(inner, { y: 0, duration: dropDur, ease: dropEase, overwrite: "auto" });
 
       if (simApiRef.current) simApiRef.current.reset(REVEAL_LIFT_PX);
       else pendingResetLiftRef.current = REVEAL_LIFT_PX;
@@ -510,7 +541,7 @@ export default function BookmarkLinkFabric({
       kickReveal();
       kickAnimWind(1);
     }
-  }, [kickAnimWind, kickReveal, updateSize]);
+  }, [isHome, kickAnimWind, kickReveal, updateSize]);
 
   // Follow drawer
   const followActive = !!(isHome && homeFollow && homeFollowRef?.current);
@@ -544,7 +575,7 @@ export default function BookmarkLinkFabric({
 
     window.cancelAnimationFrame(raf);
     gsap.killTweensOf(el, "y");
-    gsap.to(el, { y: 0, duration: 0.35, ease: "power2.out", overwrite: "auto" });
+    gsap.to(el, { y: 0, duration: 0.55, ease: "bounce.out", overwrite: "auto" });
 
     return () => window.cancelAnimationFrame(raf);
   }, [followActive, homeFollowRef]);
@@ -657,7 +688,8 @@ export default function BookmarkLinkFabric({
 
       try {
         const now = performance.now();
-        if (now - lastTugAtRef.current > TUG_COOLDOWN_MS) {
+        const shouldTug = !!href && href !== "/";
+        if (shouldTug && now - lastTugAtRef.current > TUG_COOLDOWN_MS) {
           lastTugAtRef.current = now;
           gsap.killTweensOf(pull.current);
           pull.current.v = 0;
@@ -675,7 +707,7 @@ export default function BookmarkLinkFabric({
         clickLock.current = false;
       }
     },
-    [doNavigate, isHome, onHomeToggle]
+    [doNavigate, href, isHome, onHomeToggle]
   );
 
   // Show/hide hook-up
@@ -1392,7 +1424,7 @@ export default function BookmarkLinkFabric({
 
       pos[i * 3 + 0] = tx;
       pos[i * 3 + 1] = ty;
-      pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
+      pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -10, 10);
 
       prev[i * 3 + 0] = tx;
       prev[i * 3 + 1] = ty;
@@ -1504,13 +1536,13 @@ export default function BookmarkLinkFabric({
       const returnEase = easeOutCubic(returnAlpha);
 
       // Physics
-      const damping = 0.985;
+      const damping = 0.975;
       const gravity = 1400;
 
       // grabbing: very low shape pull so it can travel across the window
       // returning: ramp back up so it "falls back" naturally
-      const tether = isGrab ? 2.2 : isReturn ? lerp(2.2, 22, returnEase) : 22;
-      const zTether = isGrab ? 2.2 : isReturn ? lerp(2.2, 28, returnEase) : 28;
+      const tether = isGrab ? 9 : isReturn ? lerp(9, 26, returnEase) : 26;
+      const zTether = isGrab ? 12 : isReturn ? lerp(12, 34, returnEase) : 34;
 
       const windStrength = 1800;
       const liftStrength = 140;
@@ -1647,7 +1679,7 @@ export default function BookmarkLinkFabric({
       }
 
       // Solve constraints more during grabbing/return to smooth kinks
-      const ITER = isGrab ? 18 : isReturn ? 12 : 9;
+      const ITER = isGrab ? 24 : isReturn ? 16 : 10;
 
       for (let it = 0; it < ITER; it++) {
         for (let c = 0; c < constraints.length; c++) {
@@ -1702,7 +1734,7 @@ export default function BookmarkLinkFabric({
       }
 
       // Smoothing to reduce “sharp points” when dragging/returning
-      const smoothK = isGrab ? 0.24 : isReturn ? lerp(0.14, 0.06, returnEase) : 0;
+      const smoothK = isGrab ? 0.34 : isReturn ? lerp(0.18, 0.08, returnEase) : 0;
       smoothPass(smoothK);
 
       if (isReturn && returnAlpha >= 1) {

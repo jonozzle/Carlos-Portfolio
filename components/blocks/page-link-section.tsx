@@ -758,13 +758,14 @@ export default function PageLinkSection(props: Props) {
     if (typeof window === "undefined") return;
 
     const onScrollEnd = () => {
+      if (activeIndex === null) return;
       if (isPointerOverCell()) return;
       clearAll({ force: isAppScrolling() });
     };
     window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
 
     return () => window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
-  }, [clearAll, isPointerOverCell]);
+  }, [activeIndex, clearAll, isPointerOverCell]);
 
   let paddingClass = "";
   const sectionStyle: CSSProperties = { containIntrinsicSize: "100vh 50vw" };

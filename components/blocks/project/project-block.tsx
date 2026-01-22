@@ -723,6 +723,7 @@ export default function ProjectBlock(props: Props) {
         if (typeof window === "undefined") return;
 
         const onScrollEnd = () => {
+            if (activeIndex === null) return;
             if (isPointerOverCell()) return;
             clearPreview();
             setActiveIndex(null);
@@ -730,7 +731,7 @@ export default function ProjectBlock(props: Props) {
 
         window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
         return () => window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
-    }, [clearPreview, isPointerOverCell]);
+    }, [activeIndex, clearPreview, isPointerOverCell]);
 
     useEffect(() => {
         if (typeof document === "undefined" || typeof window === "undefined") return;

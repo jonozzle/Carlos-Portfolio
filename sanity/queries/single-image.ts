@@ -6,7 +6,6 @@ export const singleImageBlockQuery = groq`
   _type == "single-image" => {
     _type,
     _key,
-    title,
     paddingMode,
     widthMode,
 

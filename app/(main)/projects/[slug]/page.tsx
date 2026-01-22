@@ -81,7 +81,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                             <div className="pt-6 md:pt-10 text-center">
                                 <div className="text-sm md:text-base font-serif leading-tight tracking-tighter flex flex-col items-center">
                                     {project.year && <span className="mb-0 md:text-xl">{project.year}</span>}
-                                    {project.client && <span className="italic">{project.client}</span>}
+                                    {project.client && <span className="">{project.client}</span>}
                                 </div>
                             </div>
 

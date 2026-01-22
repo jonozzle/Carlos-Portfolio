@@ -19,6 +19,8 @@ export type ProjectIndexDrawerData = {
   title: string;
   showNumbers: boolean;
   showProjectDetails: boolean;
+  heightDesktop?: string | null;
+  heightMobile?: string | null;
   items: DrawerItem[];
 } | null;
 
@@ -37,6 +39,11 @@ const DRAWER_GRID_ROWS = 28;
 // CHANGE THIS to control how wide each project link is in grid mode (in grid columns).
 const DRAWER_GRID_ITEM_COL_SPAN = 6;
 const MOBILE_DRAWER_QUERY = "(max-width: 767px)";
+const DRAWER_OPEN_DUR = 1.1;
+const DRAWER_CLOSE_DUR = 0.9;
+const DRAWER_OPEN_EASE = "elastic.out(1,1)";
+const DRAWER_CLOSE_EASE = "elastic.in(1,1)";
+const TOP_FILL_HEIGHT = 240;
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -56,6 +63,7 @@ export default function ProjectIndexDrawer({
 }: ProjectIndexDrawerProps) {
   const localPanelRef = useRef<HTMLDivElement | null>(null);
   const resolvedPanelRef = panelRef ?? localPanelRef;
+  const wasOpenRef = useRef(false);
 
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [isMobileLayout, setIsMobileLayout] = useState(false);
@@ -63,6 +71,8 @@ export default function ProjectIndexDrawer({
   const title = (drawer?.title ?? "Project Index").trim() || "Project Index";
   const showNumbers = !!drawer?.showNumbers;
   const showProjectDetails = drawer?.showProjectDetails ?? true;
+  const desktopHeight = drawer?.heightDesktop?.trim();
+  const mobileHeight = drawer?.heightMobile?.trim();
 
   const items = useMemo(() => {
     const raw = drawer?.items ?? [];
@@ -100,11 +110,15 @@ export default function ProjectIndexDrawer({
     gsap.killTweensOf(itemEls);
 
     if (!open) {
+      if (!wasOpenRef.current) {
+        gsap.set(panel, { yPercent: -100, pointerEvents: "none" });
+        return;
+      }
+
       gsap.to(panel, {
         yPercent: -100,
-        duration: 0.35,
-        ease: "power2.in",
-        overwrite: "auto",
+        duration: DRAWER_CLOSE_DUR,
+        ease: DRAWER_CLOSE_EASE,
         onComplete: () => {
           gsap.set(panel, { pointerEvents: "none" });
         },
@@ -113,13 +127,14 @@ export default function ProjectIndexDrawer({
     }
 
     gsap.set(panel, { pointerEvents: "auto" });
+    wasOpenRef.current = true;
 
     const tl = gsap.timeline({ defaults: { overwrite: "auto" } });
 
     tl.to(panel, {
       yPercent: 0,
-      duration: 0.6,
-      ease: "power3.out",
+      duration: DRAWER_OPEN_DUR,
+      ease: DRAWER_OPEN_EASE,
     });
 
     if (itemEls.length) {
@@ -181,6 +196,11 @@ export default function ProjectIndexDrawer({
       aria-modal="true"
       aria-label={title}
     >
+      <div
+        aria-hidden
+        className="absolute left-0 right-0 pointer-events-none bg-neutral-50/95 backdrop-blur-md"
+        style={{ height: TOP_FILL_HEIGHT, top: -TOP_FILL_HEIGHT }}
+      />
       <div className="mx-auto flex w-full  flex-col gap-6 px-6 py-6">
         <div className="flex items-center justify-between">
           <p className="text-[11px] uppercase tracking-[0.3em] text-neutral-500">{title}</p>
@@ -189,7 +209,7 @@ export default function ProjectIndexDrawer({
         <div className="w-full">
           <div
             ref={gridRef}
-            className="relative w-full min-h-[35vh] max-h-[50vh] overflow-auto rounded-2xl"
+            className="relative w-full min-h-[35vh] max-h-[48vh] overflow-auto rounded-2xl"
             style={
               isMobileLayout
                 ? {
@@ -201,7 +221,7 @@ export default function ProjectIndexDrawer({
                     columnGap: "1.25rem",
                     rowGap: "0.75rem",
                     minHeight: "auto",
-                    maxHeight: "none",
+                    maxHeight: mobileHeight || "none",
                   }
                 : {
                     display: "grid",
@@ -209,6 +229,7 @@ export default function ProjectIndexDrawer({
                     gridTemplateRows: `repeat(${DRAWER_GRID_ROWS}, minmax(0, 1fr))`,
                     alignItems: "start",
                     justifyItems: "start",
+                    ...(desktopHeight ? { maxHeight: desktopHeight } : {}),
                   }
             }
           >
@@ -222,9 +243,9 @@ export default function ProjectIndexDrawer({
                 const placementStyle = isMobileLayout
                   ? undefined
                   : {
-                    gridColumn: `${colStart} / span ${DRAWER_GRID_ITEM_COL_SPAN}`,
-                    gridRowStart: rowStart,
-                  };
+                      gridColumn: `${colStart} / span ${DRAWER_GRID_ITEM_COL_SPAN}`,
+                      gridRowStart: rowStart,
+                    };
 
                 return (
                   <div

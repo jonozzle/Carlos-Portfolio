@@ -55,6 +55,20 @@
         },
         "optional": true
       },
+      "heightDesktop": {
+        "type": "objectAttribute",
+        "value": {
+          "type": "string"
+        },
+        "optional": true
+      },
+      "heightMobile": {
+        "type": "objectAttribute",
+        "value": {
+          "type": "string"
+        },
+        "optional": true
+      },
       "items": {
         "type": "objectAttribute",
         "value": {
@@ -973,13 +987,6 @@
             "type": "string",
             "value": "single-image"
           }
-        },
-        "title": {
-          "type": "objectAttribute",
-          "value": {
-            "type": "string"
-          },
-          "optional": true
         },
         "image": {
           "type": "objectAttribute",

@@ -11,11 +11,6 @@ export default defineType({
   icon: ImageIcon,
   fields: [
     defineField({
-      name: "title",
-      title: "Label / caption (optional)",
-      type: "string",
-    }),
-    defineField({
       name: "image",
       title: "Image",
       type: "image",
@@ -97,13 +92,13 @@ export default defineType({
   ],
   preview: {
     select: {
-      label: "title",
       media: "image",
+      alt: "image.alt",
     },
-    prepare({ label, media }) {
+    prepare({ alt, media }) {
       return {
         title: "Single image",
-        subtitle: label || "No label",
+        subtitle: alt || "No alt text",
         media,
       };
     },
