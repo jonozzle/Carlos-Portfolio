@@ -44,6 +44,7 @@ type BookmarkLinkFabricProps = {
 const TOP_THRESHOLD = 24;
 const TUG_COOLDOWN_MS = 1000;
 
+
 const BOOKMARK_TALL_VH = 0.5;
 
 const BASE_RECT_HEIGHT = 24;
