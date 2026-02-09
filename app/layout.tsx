@@ -10,6 +10,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { ViewTransitions } from "next-view-transitions";
 import { LoaderProvider } from "@/components/loader/loader-context";
 
+export const revalidate = 60;
+
 const isProduction = process.env.NEXT_PUBLIC_SITE_ENV === "production";
 
 export const metadata: Metadata = {
