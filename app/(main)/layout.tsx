@@ -11,6 +11,8 @@ import UiRevealCoordinator from "@/components/ui/ui-reveal-coordinator";
 import ScrollManager from "@/components/scroll/scroll-manager";
 import Script from "next/script";
 
+export const revalidate = 60;
+
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
   const isDraft = (await draftMode()).isEnabled;
   void isDraft;
