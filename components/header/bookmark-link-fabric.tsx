@@ -287,7 +287,7 @@ export default function BookmarkLinkFabric({
     height: stored0?.height ?? 0,
     extra: stored0?.extra ?? 0,
   });
-  const sizeTweenRef = useRef<gsap.core.Tween | null>(null);
+  const sizeTweenRef = useRef<gsap.core.Animation | null>(null);
 
   const sizeMotionRef = useRef({
     lastH: stored0?.height ?? 0,
@@ -447,14 +447,16 @@ export default function BookmarkLinkFabric({
         const peak = currentHeight + bump;
         const peakExtra = Math.max(0, peak - BASE_SHAPE_HEIGHT);
 
-        sizeTweenRef.current = gsap.timeline({
+        const timeline = gsap.timeline({
           defaults: { overwrite: "auto" },
           onUpdate: () => applySize(proxy.height, proxy.extra),
         });
 
-        sizeTweenRef.current
+        timeline
           .to(proxy, { height: peak, extra: peakExtra, duration: 0.22, ease: "power2.out" })
           .to(proxy, { height: targetHeight, extra: targetExtra, duration: 0.75, ease: "power2.out" });
+
+        sizeTweenRef.current = timeline;
         return;
       }
 
