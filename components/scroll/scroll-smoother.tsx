@@ -12,12 +12,23 @@ if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
 }
 
+function isDesktopSafari() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+  const isApple = /Apple/i.test(vendor);
+  const isMobile = /Mobile|iP(ad|hone|od)/i.test(ua);
+  return isSafari && isApple && !isMobile;
+}
+
 export default function SmoothScroller({ children }: { children: React.ReactNode }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
+    const safariDesktop = isDesktopSafari();
 
     // Prevent “catch up” snapping.
     gsap.ticker.lagSmoothing(0);
@@ -35,10 +46,10 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
     const smoother = ScrollSmoother.create({
       wrapper: wrapperRef.current!,
       content: contentRef.current!,
-      smooth: 0.5,
-      smoothTouch: 0.2,
-      effects: true,
-      normalizeScroll: true,
+      smooth: safariDesktop ? 0.35 : 0.5,
+      smoothTouch: safariDesktop ? 0.1 : 0.2,
+      effects: !safariDesktop,
+      normalizeScroll: !safariDesktop,
     });
 
     if (contentRef.current) {

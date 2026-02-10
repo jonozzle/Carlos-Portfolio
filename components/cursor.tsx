@@ -4,7 +4,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { gsap } from "gsap";
 import { APP_EVENTS } from "@/lib/app-events";
-import { useLoader } from "@/components/loader/loader-context";
 
 const ROOT_SELECTOR = ".has-custom-cursor";
 const ACTIVE_CLASS = "custom-cursor-active";
@@ -15,6 +14,12 @@ function isFinePointer() {
     window.matchMedia("(pointer: fine)").matches &&
     window.matchMedia("(hover: hover)").matches
   );
+}
+
+function isSafariBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /Safari/.test(ua) && !/Chrome|Chromium|Edg|OPR/.test(ua);
 }
 
 function clampScale(n: number, fallback = 1) {
@@ -41,13 +46,12 @@ export default function Cursor({
   size?: number;
   growScale?: number;
 }) {
-  const { loaderDone } = useLoader();
-
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const dotRef = useRef<HTMLDivElement | null>(null);
 
   const shownRef = useRef(false);
   const hasMovedRef = useRef(false);
+  const lastScaleRef = useRef(1);
 
   // When the page loses focus/visibility, we consider the last position untrusted.
   const staleRef = useRef(true);
@@ -57,25 +61,43 @@ export default function Cursor({
   const baseGrow = useMemo(() => clampScale(growScale, 1.8), [growScale]);
 
   const findScaleFromEvent = useCallback(
-    (e: Event) => {
+    (e: Event, x?: number, y?: number) => {
+      const resolveFromElement = (el: Element | null) => {
+        if (!(el instanceof HTMLElement)) return 1;
+
+        const scaleAttr =
+          el.closest<HTMLElement>("[data-cursor-scale]")?.dataset.cursorScale;
+        if (scaleAttr) return clampScale(parseFloat(scaleAttr), baseGrow);
+
+        const cursorFlag = el.closest<HTMLElement>("[data-cursor]");
+        if (cursorFlag) return baseGrow;
+
+        const interactive = el.closest<HTMLElement>(
+          'a, button, [role="button"], input, textarea, select, label'
+        );
+        if (interactive) return baseGrow;
+
+        return 1;
+      };
+
       const pe = e as any;
       const path = (pe.composedPath?.() as EventTarget[]) || [];
       for (const p of path) {
         if (!(p instanceof HTMLElement)) continue;
-
-        const scaleAttr =
-          p.closest<HTMLElement>("[data-cursor-scale]")?.dataset.cursorScale;
-        if (scaleAttr) return clampScale(parseFloat(scaleAttr), baseGrow);
-
-        const cursorFlag = p.closest<HTMLElement>("[data-cursor]");
-        if (cursorFlag) return baseGrow;
-
-        const interactive = p.closest<HTMLElement>(
-          'a, button, [role="button"], input, textarea, select, label'
-        );
-        if (interactive) return baseGrow;
+        const resolved = resolveFromElement(p);
+        if (resolved !== 1) return resolved;
       }
-      return 1;
+
+      const target =
+        (e.target as Element | null) ??
+        (typeof document !== "undefined"
+          ? document.elementFromPoint(
+              x ?? lastPos.current.x,
+              y ?? lastPos.current.y
+            )
+          : null);
+
+      return resolveFromElement(target);
     },
     [baseGrow]
   );
@@ -88,6 +110,10 @@ export default function Cursor({
     setRootActive(false);
 
     gsap.killTweensOf(wrap);
+    if (dotRef.current) {
+      lastScaleRef.current = 1;
+      gsap.set(dotRef.current, { scale: 1 });
+    }
 
     gsap.set(wrap, {
       autoAlpha: 0,
@@ -163,16 +189,28 @@ export default function Cursor({
     });
     gsap.set(dot, { scale: 1, transformOrigin: "50% 50%" });
 
-    const xTo = gsap.quickTo(wrap, "x", { duration: 0.22, ease: "power3.out" });
-    const yTo = gsap.quickTo(wrap, "y", { duration: 0.22, ease: "power3.out" });
+    const moveDur = isSafariBrowser() ? 0.12 : 0.22;
+    const scaleDur = isSafariBrowser() ? 0.16 : 0.2;
+
+    const xTo = gsap.quickTo(wrap, "x", { duration: moveDur, ease: "power3.out" });
+    const yTo = gsap.quickTo(wrap, "y", { duration: moveDur, ease: "power3.out" });
 
     const canUseCustomNow = () => {
-      if (!loaderDone) return false;
       if (document.visibilityState !== "visible") return false;
-      if (!document.hasFocus()) return false;
-      if (!hasMovedRef.current) return false;
-      if (staleRef.current) return false;
       return true;
+    };
+
+    const activateIfReady = (force = false) => {
+      if (!canUseCustomNow()) {
+        deactivateToNativeHard(false);
+        return;
+      }
+      if (!hasMovedRef.current) return;
+      if (!force && staleRef.current) return;
+
+      staleRef.current = false;
+      gsap.set(wrap, { x: lastPos.current.x, y: lastPos.current.y });
+      show();
     };
 
     const deactivateToNativeHard = (moveOffscreen: boolean) => {
@@ -180,13 +218,16 @@ export default function Cursor({
       hardResetToNative(moveOffscreen);
     };
 
-    const activateIfReady = () => {
-      if (canUseCustomNow()) {
-        gsap.set(wrap, { x: lastPos.current.x, y: lastPos.current.y });
-        show();
-      } else {
-        deactivateToNativeHard(false);
-      }
+    const scaleTo = gsap.quickTo(dot, "scale", {
+      duration: scaleDur,
+      ease: "power3.out",
+    });
+
+    const updateScale = (next: number) => {
+      const clamped = clampScale(next, 1);
+      if (Math.abs(clamped - lastScaleRef.current) < 0.01) return;
+      lastScaleRef.current = clamped;
+      scaleTo(clamped);
     };
 
     const handleMove = (e: any) => {
@@ -211,20 +252,14 @@ export default function Cursor({
         yTo(y);
       }
 
-      // Only hide OS cursor when we’re truly active and focused/visible
-      if (loaderDone && document.visibilityState === "visible" && document.hasFocus()) {
+      // Only hide OS cursor when we’re truly active and visible
+      if (canUseCustomNow()) {
         show();
       } else {
         deactivateToNativeHard(false);
       }
 
-      const s = findScaleFromEvent(e);
-      gsap.to(dot, {
-        scale: s,
-        duration: 0.14,
-        ease: "power3.out",
-        overwrite: "auto",
-      });
+      updateScale(findScaleFromEvent(e, x, y));
     };
 
     const onPointerOver = (e: any) => {
@@ -234,17 +269,21 @@ export default function Cursor({
     };
 
     const onBlur = () => deactivateToNativeHard(true);
-    const onFocus = () => deactivateToNativeHard(true);
+    const onFocus = () => activateIfReady(true);
 
     const onVis = () => {
       // Any visibility flip: force native + require fresh move next
-      deactivateToNativeHard(true);
+      if (document.visibilityState === "visible") {
+        activateIfReady(true);
+      } else {
+        deactivateToNativeHard(true);
+      }
     };
 
     const onPageHide = () => deactivateToNativeHard(true);
-    const onPageShow = () => deactivateToNativeHard(true);
+    const onPageShow = () => activateIfReady(true);
 
-    const onShowEvent = () => activateIfReady();
+    const onShowEvent = () => activateIfReady(true);
     const onHideEvent = () => deactivateToNativeHard(true);
 
     // CAPTURE listeners so stopPropagation() in the tree can’t block us.
@@ -303,21 +342,7 @@ export default function Cursor({
 
       setRootActive(false);
     };
-  }, [findScaleFromEvent, hardResetToNative, hideSoft, show, loaderDone]);
-
-  // Loader guard: if loader toggles, force native until next move
-  useEffect(() => {
-    if (!wrapRef.current) return;
-    if (!loaderDone) {
-      staleRef.current = true;
-      hardResetToNative(true);
-      return;
-    }
-    // When loader completes, still require a fresh move if we’re stale.
-    if (staleRef.current) {
-      hardResetToNative(true);
-    }
-  }, [loaderDone, hardResetToNative]);
+  }, [findScaleFromEvent, hardResetToNative, hideSoft, show]);
 
   return (
     <div

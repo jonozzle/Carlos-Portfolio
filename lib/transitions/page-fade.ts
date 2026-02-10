@@ -3,6 +3,7 @@
 "use client";
 
 import { gsap } from "gsap";
+import { APP_EVENTS } from "@/lib/app-events";
 
 type FadeOpts = {
     duration?: number;
@@ -47,6 +48,25 @@ function currentBgColor(): string {
     return "#ffffff";
 }
 
+function setTransitionBusy(on: boolean) {
+    if (typeof window === "undefined") return;
+    const prev = !!(window as any).__pageTransitionBusy;
+    if (prev === on) return;
+
+    (window as any).__pageTransitionBusy = on;
+    if (typeof document !== "undefined") {
+        const root = document.documentElement;
+        if (on) root.dataset.pageTransitionBusy = "1";
+        else delete (root as any).dataset.pageTransitionBusy;
+    }
+
+    try {
+        window.dispatchEvent(new Event(on ? APP_EVENTS.NAV_START : APP_EVENTS.NAV_END));
+    } catch {
+        // ignore
+    }
+}
+
 /**
  * Cross-fades OUT the current page:
  * - transition-layer fades IN (to hide theme/app mount gap)
@@ -66,6 +86,8 @@ export function fadeOutPageRoot(opts: FadeOpts = {}): Promise<void> {
     // Guard: if a fade-out is already in progress, don’t start another.
     if ((window as any).__pageFadeOutPending) return Promise.resolve();
     (window as any).__pageFadeOutPending = true;
+
+    setTransitionBusy(true);
 
     return new Promise<void>((resolve) => {
         const done = () => {

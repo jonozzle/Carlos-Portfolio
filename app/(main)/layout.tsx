@@ -47,7 +47,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
             </PageEnterShell>
           </SmoothScroller>
 
-          <Cursor size={10} />
+          <Cursor size={10} growScale={2.6} />
         </div>
       </div>
     </>

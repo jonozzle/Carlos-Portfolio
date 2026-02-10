@@ -6,6 +6,7 @@ import type React from "react";
 import { useLayoutEffect, useRef } from "react";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
+import { useLoader } from "@/components/loader/loader-context";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
@@ -20,12 +21,14 @@ type HomeActiveSection = {
 };
 
 export default function HorizontalScroller({ children, className = "" }: Props) {
+  const { loaderDone } = useLoader();
   const containerRef = useRef<HTMLElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
+    if (!loaderDone) return;
 
     const container = containerRef.current;
     const track = trackRef.current;
@@ -334,7 +337,7 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
 
       killInstance();
     };
-  }, []);
+  }, [loaderDone]);
 
   // Markup stays identical; mobile vertical is handled by CSS
   return (

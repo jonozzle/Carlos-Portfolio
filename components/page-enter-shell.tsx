@@ -7,7 +7,18 @@ import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
 import type { PendingHero, PageTransitionPending } from "@/lib/transitions/state";
 import { unlockAppScroll } from "@/lib/scroll-lock";
+import { APP_EVENTS } from "@/lib/app-events";
 import { unlockHover } from "@/lib/hover-lock";
+
+function isDesktopSafari() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+  const isApple = /Apple/i.test(vendor);
+  const isMobile = /Mobile|iP(ad|hone|od)/i.test(ua);
+  return isSafari && isApple && !isMobile;
+}
 
 function resetTransitionLayer() {
   if (typeof document === "undefined") return;
@@ -35,6 +46,24 @@ function resetTransitionLayer() {
     });
   } catch {
     // ignore
+  }
+}
+
+function setPageTransitionBusy(on: boolean) {
+  const prev = typeof window !== "undefined" ? !!(window as any).__pageTransitionBusy : false;
+  if (prev === on) return;
+  if (typeof document !== "undefined") {
+    const root = document.documentElement;
+    if (on) root.dataset.pageTransitionBusy = "1";
+    else delete (root as any).dataset.pageTransitionBusy;
+  }
+  if (typeof window !== "undefined") {
+    (window as any).__pageTransitionBusy = on;
+    try {
+      window.dispatchEvent(new Event(on ? APP_EVENTS.NAV_START : APP_EVENTS.NAV_END));
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -191,6 +220,7 @@ function finalizeParkedHero() {
   const slug = current?.slug;
   const overlay = current?.overlay;
   const targetEl = current?.targetEl ?? null;
+  const safariDesktop = isDesktopSafari();
 
   if (slug) {
     const targets = document.querySelectorAll<HTMLElement>(`[data-hero-slug="${slug}"]`);
@@ -213,6 +243,24 @@ function finalizeParkedHero() {
 
   if (overlay) {
     (async () => {
+      let hardKillId: number | null = null;
+
+      if (safariDesktop) {
+        hardKillId = window.setTimeout(() => {
+          if (!document.body.contains(overlay)) return;
+          try {
+            gsap.killTweensOf(overlay);
+          } catch {
+            // ignore
+          }
+          try {
+            overlay.remove();
+          } catch {
+            // ignore
+          }
+        }, 1800);
+      }
+
       // Give the tile time to get a real image (non-placeholder) ready.
       await waitForBestNonPlaceholderImg(targetEl, 900);
 
@@ -234,6 +282,7 @@ function finalizeParkedHero() {
         ease: "power1.out",
         overwrite: "auto",
         onComplete: () => {
+          if (hardKillId) window.clearTimeout(hardKillId);
           try {
             overlay.remove();
           } catch {
@@ -244,6 +293,7 @@ function finalizeParkedHero() {
     })();
   }
 
+  setPageTransitionBusy(false);
   unlockAppScroll();
   requestAnimationFrame(() => unlockHover());
 }
@@ -278,6 +328,10 @@ export default function PageEnterShell({ children }: Props) {
 
     if (heroPending && !isHeroNav) clearStaleHeroPending();
 
+    const clearBusy = () => setPageTransitionBusy(false);
+    if (pending) setPageTransitionBusy(true);
+    else setPageTransitionBusy(false);
+
     if (!pending) {
       if (!skipInitial) {
         gsap.fromTo(
@@ -297,6 +351,7 @@ export default function PageEnterShell({ children }: Props) {
       const animateEls = gsap.utils.toArray<HTMLElement>("[data-hero-page-animate]");
 
       const runFallbackUnlock = () => {
+        clearBusy();
         unlockAppScroll();
         requestAnimationFrame(() => unlockHover());
         gsap.set(pageRoot, { opacity: 1, clearProps: "opacity" });
@@ -336,6 +391,7 @@ export default function PageEnterShell({ children }: Props) {
         return () => {
           window.removeEventListener("hero-transition-done", done as any);
           clearTimer(timer);
+          clearBusy();
         };
       }
 
@@ -369,6 +425,7 @@ export default function PageEnterShell({ children }: Props) {
         return () => {
           window.removeEventListener("hero-transition-done", done as any);
           clearTimer(timer);
+          clearBusy();
         };
       }
 
@@ -406,6 +463,7 @@ export default function PageEnterShell({ children }: Props) {
       return () => {
         window.removeEventListener("hero-transition-done", done as any);
         clearTimer(timer);
+        clearBusy();
       };
     }
 
@@ -418,6 +476,7 @@ export default function PageEnterShell({ children }: Props) {
         ease: "power2.out",
         clearProps: "opacity",
         onComplete: () => {
+          clearBusy();
           unlockAppScroll();
           requestAnimationFrame(() => unlockHover());
         },

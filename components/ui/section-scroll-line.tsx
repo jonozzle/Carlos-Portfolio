@@ -31,10 +31,7 @@ export default function SectionScrollLine({
   pollMs = 100,
 }: Props) {
   const progressRef = useRef<HTMLDivElement | null>(null);
-  const [isMdUp, setIsMdUp] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia("(min-width: 768px)").matches;
-  });
+  const [isMdUp, setIsMdUp] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

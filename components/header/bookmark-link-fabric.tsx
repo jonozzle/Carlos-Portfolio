@@ -22,6 +22,16 @@ if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
 }
 
+function isDesktopSafari() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+  const isApple = /Apple/i.test(vendor);
+  const isMobile = /Mobile|iP(ad|hone|od)/i.test(ua);
+  return isSafari && isApple && !isMobile;
+}
+
 /**
  * Toggle fabric grab/drag interactivity.
  */
@@ -60,8 +70,8 @@ const FIRST_DROP_DUR = 0.45;
 const DRAWER_SYNC_EASE = "elastic.out(1,0.5)";
 
 // Intro “fabric fall”
-const REVEAL_LIFT_PX = -120;
-const REVEAL_KICK_PULL = 17000;
+const REVEAL_LIFT_PX = -90;
+const REVEAL_KICK_PULL = 14000;
 const INTRO_FLUTTER_MS = 1200;
 const INTRO_FLUTTER_SCALE = 0.1;
 
@@ -93,6 +103,28 @@ const SCROLL_WIND_STRENGTH = 950;
 const SCROLL_WIND_NORM = 1200;
 const SCROLL_WIND_MAX = 1.2;
 const SCROLL_WIND_SMOOTH = 0.12;
+const SAFARI_SCROLL_WIND_MULT = 0.7;
+const SAFARI_SCROLL_WIND_SMOOTH = 0.14;
+const SAFARI_DAMPING_SCROLLING = 0.82;
+const SAFARI_DAMPING_IDLE = 0.8;
+const SAFARI_WIND_MULT = 0.6;
+const SAFARI_LIFT_MULT = 0.6;
+const SAFARI_FLUTTER_MULT = 0.0;
+const SAFARI_RELEASE_MULT = 0.12;
+const SAFARI_ANIM_MULT = 0.3;
+const SAFARI_GRAVITY = 1050;
+const SAFARI_TETHER_MULT = 1.25;
+const SAFARI_Z_TETHER_MULT = 1.1;
+const SAFARI_GRAB_STRETCH = 1.3;
+const SAFARI_GRAB_REST_MIN = 0.05;
+const SAFARI_GRAB_TETHER_MULT = 0.45;
+const SAFARI_GRAB_Z_TETHER_MULT = 0.5;
+
+const SETTLE_SPEED = 6;
+const SETTLE_HOLD_MS = 180;
+const SIZE_EPS = 2;
+const SIZE_TWEEN_DUR = 0.7;
+const VIEWPORT_HEIGHT_EPS = 8;
 
 // Grab smoothing (softly pull a patch to avoid vertex points)
 const GRAB_SOFT_RADIUS = 3;
@@ -146,6 +178,13 @@ function resolveHeroImgUrl(sourceEl: HTMLElement | null): string | null {
   }
 
   return null;
+}
+
+function readViewportHeight(): number {
+  if (typeof window === "undefined") return 0;
+  const vv = window.visualViewport;
+  const h = vv && typeof vv.height === "number" ? vv.height : window.innerHeight;
+  return Number.isFinite(h) ? h : window.innerHeight || 0;
 }
 
 function getRawScrollY(): number {
@@ -213,6 +252,16 @@ function isHeroOverlayBusy() {
   return overlay.dataset?.heroTweening === "1" || overlay.dataset?.heroParked === "1";
 }
 
+function isTransitionBusy() {
+  if (typeof window === "undefined" || typeof document === "undefined") return false;
+  if (isHeroOverlayBusy()) return true;
+  if ((window as any).__pageTransitionPending) return true;
+  if ((window as any).__pageTransitionBusy) return true;
+  if ((document.documentElement as any).dataset?.pageTransitionBusy === "1") return true;
+  if ((document.documentElement as any).dataset?.homeHold === "1") return true;
+  return false;
+}
+
 function createShader(gl: WebGLRenderingContext, type: number, src: string) {
   const sh = gl.createShader(type);
   if (!sh) return null;
@@ -272,6 +321,7 @@ export default function BookmarkLinkFabric({
   const router = useRouter();
   const pathname = usePathname();
   const isHome = pathname === "/";
+  const safariDesktop = useMemo(() => isDesktopSafari(), []);
 
   const linkRef = useRef<HTMLAnchorElement | null>(null);
   const innerWrapRef = useRef<HTMLDivElement | null>(null);
@@ -289,15 +339,38 @@ export default function BookmarkLinkFabric({
     extra: stored0?.extra ?? 0,
   });
   const sizeTweenRef = useRef<gsap.core.Animation | null>(null);
+  const pendingSizeRef = useRef<StoredSize | null>(null);
+  const deferSizeRafRef = useRef<number | null>(null);
+  const safariFreezeSizeRef = useRef(false);
 
   const sizeMotionRef = useRef({
     lastH: stored0?.height ?? 0,
     vel: 0,
   });
+  const viewportHeightRef = useRef(0);
+  const pendingViewportHeightRef = useRef<number | null>(null);
+  const scrollActiveRef = useRef(false);
 
   const [webglOk, setWebglOk] = useState(true);
   const [canvasReady, setCanvasReady] = useState(false);
+  const [transitionBusy, setTransitionBusy] = useState(false);
+  const [isShown, setIsShown] = useState(false);
+  const [prewarm, setPrewarm] = useState(false);
   const canvasReadyRef = useRef(false);
+  const isShownRef = useRef(isShown);
+
+  const debugStateRef = useRef({
+    targetH: 0,
+    targetExtra: 0,
+    appliedH: 0,
+    appliedExtra: 0,
+    lastApplyAt: 0,
+    anchorX: 0,
+    anchorY: 0,
+    stripH: 0,
+    scrollVx: 0,
+    lastWindAt: 0,
+  });
 
   const pull = useRef({ v: 0 });
   const lastTugAtRef = useRef(0);
@@ -310,8 +383,40 @@ export default function BookmarkLinkFabric({
   const animWind = useRef({ v: 0 });
   const animWindTweenRef = useRef<gsap.core.Animation | null>(null);
 
-  const simApiRef = useRef<{ reset: (liftPx: number) => void } | null>(null);
-  const pendingResetLiftRef = useRef<number | null>(null);
+  useEffect(() => {
+    isShownRef.current = isShown;
+  }, [isShown]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onStart = () => setTransitionBusy((prev) => (prev ? prev : true));
+    const onEnd = () => setTransitionBusy((prev) => (prev ? false : prev));
+
+    window.addEventListener(APP_EVENTS.NAV_START, onStart);
+    window.addEventListener(APP_EVENTS.NAV_END, onEnd);
+
+    return () => {
+      window.removeEventListener(APP_EVENTS.NAV_START, onStart);
+      window.removeEventListener(APP_EVENTS.NAV_END, onEnd);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (deferSizeRafRef.current != null) {
+        window.cancelAnimationFrame(deferSizeRafRef.current);
+        deferSizeRafRef.current = null;
+      }
+    };
+  }, []);
+
+  const simApiRef = useRef<
+    { reset: (liftPx: number, opts?: { randomizeZ?: boolean }) => void } | null
+  >(null);
+  const pendingResetLiftRef = useRef<{ lift: number; randomizeZ?: boolean } | null>(null);
+  const showDelayRef = useRef<number | null>(null);
+  const dropTimerRef = useRef<number | null>(null);
+  const dropActiveRef = useRef(false);
 
   const dragRef = useRef({
     down: false,
@@ -321,7 +426,9 @@ export default function BookmarkLinkFabric({
     downAt: 0,
     suppressClick: false,
     pointerId: -1,
+    useWindowPointer: false,
     dragIndex: -1,
+    grabRow: -1,
     targetX: 0,
     targetY: 0,
     mode: "idle" as "idle" | "grab" | "return",
@@ -339,11 +446,18 @@ export default function BookmarkLinkFabric({
     lastT: 0,
   });
 
+  const windowPointerHandlersRef = useRef<{
+    move: (e: PointerEvent) => void;
+    up: (e: PointerEvent) => void;
+    cancel: (e: PointerEvent) => void;
+  } | null>(null);
+
   const scrollWindRef = useRef({
     vx: 0,
     lastT: 0,
     lastProgress: 0,
     lastX: 0,
+    lastMoveT: 0,
   });
 
   // Overlay container (portal) so it’s not clipped/affected by transformed ancestors
@@ -375,7 +489,7 @@ export default function BookmarkLinkFabric({
       }
       createdOverlayRef.current = false;
     };
-  }, []);
+  }, [prewarm]);
 
   const kickAnimWind = useCallback((amp = 1) => {
     animWindTweenRef.current?.kill();
@@ -405,14 +519,19 @@ export default function BookmarkLinkFabric({
 
     const lastH = sizeMotionRef.current.lastH;
     const dh = height - lastH;
+    const dhSafe = Math.abs(dh) < 1 ? 0 : dh;
     sizeMotionRef.current.lastH = height;
-    sizeMotionRef.current.vel = sizeMotionRef.current.vel * 0.75 + dh * 0.25;
+    sizeMotionRef.current.vel = sizeMotionRef.current.vel * 0.75 + dhSafe * 0.25;
 
     gsap.set(el, { height });
     el.style.setProperty("--bookmark-total", `${height}px`);
     el.style.setProperty("--bookmark-extra", `${extra}px`);
 
     setStoredSize({ height, extra });
+
+    debugStateRef.current.appliedH = height;
+    debugStateRef.current.appliedExtra = extra;
+    debugStateRef.current.lastApplyAt = performance.now();
   }, []);
 
   const computeTargetSize = useCallback(() => {
@@ -420,10 +539,93 @@ export default function BookmarkLinkFabric({
       const h = HOME_ANCHOR_HEIGHT;
       return { height: h, extra: Math.max(0, h - BASE_SHAPE_HEIGHT) };
     }
-    const targetHeight = isHome ? HOME_ANCHOR_HEIGHT : window.innerHeight * BOOKMARK_TALL_VH;
+    const viewportH = viewportHeightRef.current || readViewportHeight();
+    const rawHeight = isHome ? HOME_ANCHOR_HEIGHT : viewportH * BOOKMARK_TALL_VH;
+    const targetHeight = Math.round(rawHeight / SIZE_EPS) * SIZE_EPS;
     const targetExtra = Math.max(0, targetHeight - BASE_SHAPE_HEIGHT);
     return { height: targetHeight, extra: targetExtra };
   }, [isHome]);
+
+  const tweenSizeTo = useCallback(
+    (height: number, extra: number, duration = SIZE_TWEEN_DUR) => {
+      sizeTweenRef.current?.kill();
+      const proxy = sizeProxyRef.current;
+      sizeTweenRef.current = gsap.to(proxy, {
+        height,
+        extra,
+        duration,
+        ease: "power2.out",
+        overwrite: "auto",
+        onUpdate: () => applySize(proxy.height, proxy.extra),
+      });
+    },
+    [applySize]
+  );
+
+  const animateToTargetSize = useCallback(() => {
+    const { height, extra } = computeTargetSize();
+    tweenSizeTo(height, extra, SIZE_TWEEN_DUR);
+  }, [computeTargetSize, tweenSizeTo]);
+
+  const flushPendingSize = useCallback(
+    (opts?: { force?: boolean; animate?: boolean }) => {
+      if (!pendingSizeRef.current) return;
+      if (!opts?.force && isTransitionBusy()) return;
+      const { height, extra } = pendingSizeRef.current;
+      pendingSizeRef.current = null;
+      if (opts?.animate) {
+        tweenSizeTo(height, extra, SIZE_TWEEN_DUR);
+        return;
+      }
+      applySize(height, extra);
+    },
+    [applySize, tweenSizeTo]
+  );
+
+  const scheduleDeferredSize = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (deferSizeRafRef.current != null) return;
+
+    const tick = () => {
+      deferSizeRafRef.current = null;
+      if (!pendingSizeRef.current) return;
+      if (isTransitionBusy()) {
+        deferSizeRafRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+      flushPendingSize({ animate: true });
+    };
+
+    deferSizeRafRef.current = window.requestAnimationFrame(tick);
+  }, [flushPendingSize]);
+
+  useEffect(() => {
+    if (!safariDesktop) return;
+    if (transitionBusy) {
+      safariFreezeSizeRef.current = true;
+      pendingSizeRef.current = null;
+      sizeTweenRef.current?.kill();
+      return;
+    }
+    if (safariFreezeSizeRef.current) {
+      safariFreezeSizeRef.current = false;
+      animateToTargetSize();
+    }
+  }, [animateToTargetSize, safariDesktop, transitionBusy]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onNavEnd = () => flushPendingSize({ force: true, animate: true });
+    const onHomeRestored = () => flushPendingSize({ force: true, animate: true });
+
+    window.addEventListener(APP_EVENTS.NAV_END, onNavEnd);
+    window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored);
+
+    return () => {
+      window.removeEventListener(APP_EVENTS.NAV_END, onNavEnd);
+      window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored);
+    };
+  }, [flushPendingSize]);
 
   const updateSize = useCallback(
     (immediate?: boolean) => {
@@ -431,12 +633,37 @@ export default function BookmarkLinkFabric({
 
       sizeTweenRef.current?.kill();
 
-      if (immediate || isHeroOverlayBusy()) {
+      debugStateRef.current.targetH = targetHeight;
+      debugStateRef.current.targetExtra = targetExtra;
+
+      const proxy = sizeProxyRef.current;
+      const heightDiff = Math.abs(targetHeight - proxy.height);
+      const extraDiff = Math.abs(targetExtra - proxy.extra);
+      if (heightDiff < SIZE_EPS && extraDiff < SIZE_EPS) return;
+
+      if (safariDesktop && safariFreezeSizeRef.current) {
+        return;
+      }
+
+      const busy = transitionBusy || isTransitionBusy();
+      if (busy) {
+        sizeTweenRef.current?.kill();
+        pendingSizeRef.current = { height: targetHeight, extra: targetExtra };
+        scheduleDeferredSize();
+        return;
+      }
+
+      if (safariDesktop) {
+        // Always tween on Safari for smooth height changes
+        tweenSizeTo(targetHeight, targetExtra, SIZE_TWEEN_DUR);
+        return;
+      }
+
+      if (immediate) {
         applySize(targetHeight, targetExtra);
         return;
       }
 
-      const proxy = sizeProxyRef.current;
       const currentHeight =
         Number.isFinite(proxy.height) && proxy.height > 0 ? proxy.height : targetHeight;
       const shouldBounceToHome = isHome && targetHeight < currentHeight - 0.5;
@@ -464,13 +691,21 @@ export default function BookmarkLinkFabric({
       sizeTweenRef.current = gsap.to(proxy, {
         height: targetHeight,
         extra: targetExtra,
-        duration: 1.05,
+        duration: 0.7,
         ease: "power2.out",
         overwrite: "auto",
         onUpdate: () => applySize(proxy.height, proxy.extra),
       });
     },
-    [applySize, computeTargetSize, isHome, kickAnimWind]
+    [
+      applySize,
+      computeTargetSize,
+      isHome,
+      kickAnimWind,
+      safariDesktop,
+      scheduleDeferredSize,
+      transitionBusy,
+    ]
   );
 
   useEffect(() => {
@@ -480,10 +715,54 @@ export default function BookmarkLinkFabric({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const onResize = () => updateSize(true);
+
+    viewportHeightRef.current = readViewportHeight();
+
+    const commitHeight = (next: number) => {
+      const prev = viewportHeightRef.current || next;
+      if (Math.abs(next - prev) < VIEWPORT_HEIGHT_EPS) return;
+      viewportHeightRef.current = next;
+      if (transitionBusy || isTransitionBusy()) {
+        pendingViewportHeightRef.current = next;
+        pendingSizeRef.current = computeTargetSize();
+        scheduleDeferredSize();
+        return;
+      }
+      updateSize(true);
+    };
+
+    const onResize = () => {
+      const next = readViewportHeight();
+      if (scrollActiveRef.current || transitionBusy || isTransitionBusy()) {
+        pendingViewportHeightRef.current = next;
+        return;
+      }
+      commitHeight(next);
+    };
+
+    const onScrollStart = () => {
+      scrollActiveRef.current = true;
+    };
+    const onScrollEnd = () => {
+      scrollActiveRef.current = false;
+      if (pendingViewportHeightRef.current == null) return;
+      const next = pendingViewportHeightRef.current;
+      pendingViewportHeightRef.current = null;
+      commitHeight(next);
+    };
+
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [updateSize]);
+    window.visualViewport?.addEventListener("resize", onResize);
+    window.addEventListener(APP_EVENTS.SCROLL_START, onScrollStart);
+    window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.visualViewport?.removeEventListener("resize", onResize);
+      window.removeEventListener(APP_EVENTS.SCROLL_START, onScrollStart);
+      window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
+    };
+  }, [computeTargetSize, scheduleDeferredSize, transitionBusy, updateSize]);
 
   const kickReveal = useCallback(() => {
     introRef.current = { t0: performance.now(), active: true };
@@ -501,7 +780,19 @@ export default function BookmarkLinkFabric({
     const el = linkRef.current;
     if (!el) return;
 
+    if (showDelayRef.current) {
+      window.clearTimeout(showDelayRef.current);
+      showDelayRef.current = null;
+    }
+    if (prewarm) setPrewarm(false);
+    if (dropTimerRef.current) {
+      window.clearTimeout(dropTimerRef.current);
+      dropTimerRef.current = null;
+    }
+    dropActiveRef.current = false;
+
     shownRef.current = false;
+    setIsShown(false);
 
     gsap.killTweensOf(el, "autoAlpha");
     gsap.set(el, { pointerEvents: "none" });
@@ -523,6 +814,8 @@ export default function BookmarkLinkFabric({
 
     const wasShown = shownRef.current;
     shownRef.current = true;
+    setIsShown(true);
+    if (prewarm) setPrewarm(false);
     const shouldPlainDrop = isHome && !wasShown;
 
     updateSize(false);
@@ -538,16 +831,55 @@ export default function BookmarkLinkFabric({
       const dropEase = shouldPlainDrop ? "none" : DRAWER_SYNC_EASE;
       gsap.to(inner, { y: 0, duration: dropDur, ease: dropEase, overwrite: "auto" });
 
-      if (simApiRef.current) simApiRef.current.reset(REVEAL_LIFT_PX);
-      else pendingResetLiftRef.current = REVEAL_LIFT_PX;
+      const scheduleReveal = (
+        liftPx: number,
+        opts?: { randomizeZ?: boolean; silent?: boolean }
+      ) => {
+        if (simApiRef.current) simApiRef.current.reset(liftPx, { randomizeZ: opts?.randomizeZ });
+        else pendingResetLiftRef.current = { lift: liftPx, randomizeZ: opts?.randomizeZ };
 
-      kickReveal();
-      kickAnimWind(1);
+        if (!opts?.silent) {
+          kickReveal();
+          kickAnimWind(1);
+        }
+      };
+
+      if (safariDesktop) {
+        scheduleReveal(REVEAL_LIFT_PX * 0.25, { randomizeZ: false });
+        dropActiveRef.current = true;
+        if (dropTimerRef.current) window.clearTimeout(dropTimerRef.current);
+        dropTimerRef.current = window.setTimeout(() => {
+          dropTimerRef.current = null;
+          dropActiveRef.current = false;
+          if (!isShownRef.current) return;
+        }, Math.round(dropDur * 1000) + 80);
+      } else {
+        scheduleReveal(REVEAL_LIFT_PX);
+      }
     }
-  }, [isHome, kickAnimWind, kickReveal, updateSize]);
+  }, [isHome, kickAnimWind, kickReveal, prewarm, safariDesktop, updateSize]);
+
+  const showWithPrewarm = useCallback(() => {
+    if (!safariDesktop) {
+      show();
+      return;
+    }
+
+    if (!simApiRef.current || !canvasReadyRef.current) {
+      setPrewarm(true);
+      if (showDelayRef.current) window.clearTimeout(showDelayRef.current);
+      showDelayRef.current = window.setTimeout(() => {
+        showDelayRef.current = null;
+        show();
+      }, 120);
+      return;
+    }
+
+    show();
+  }, [safariDesktop, show]);
 
   // Follow drawer
-  const followActive = !!(isHome && homeFollow && homeFollowRef?.current);
+  const followActive = !!(isHome && homeFollow && homeFollowRef?.current && !transitionBusy);
 
   useEffect(() => {
     const el = linkRef.current;
@@ -567,7 +899,7 @@ export default function BookmarkLinkFabric({
           const ancTop = transformedAncestor ? transformedAncestor.getBoundingClientRect().top : 0;
 
           // Align bookmark TOP to drawer BOTTOM
-          setY(rect.bottom - ancTop);
+          setY(Math.round(rect.bottom - ancTop));
         }
         raf = window.requestAnimationFrame(tick);
       };
@@ -735,20 +1067,20 @@ export default function BookmarkLinkFabric({
       applySize(height, extra);
     }
 
-    const onShow = () => show();
+    const onShow = () => showWithPrewarm();
     const onHide = () => hide();
 
     window.addEventListener(APP_EVENTS.UI_BOOKMARK_SHOW, onShow);
     window.addEventListener(APP_EVENTS.UI_BOOKMARK_HIDE, onHide);
 
-    if (loaderDone) show();
+    if (loaderDone) showWithPrewarm();
     else hide(true);
 
     return () => {
       window.removeEventListener(APP_EVENTS.UI_BOOKMARK_SHOW, onShow);
       window.removeEventListener(APP_EVENTS.UI_BOOKMARK_HIDE, onHide);
     };
-  }, [applySize, computeTargetSize, hide, show, loaderDone]);
+  }, [applySize, computeTargetSize, hide, showWithPrewarm, loaderDone]);
 
   // Pointer in VIEWPORT coords (canvas is full-viewport)
   const updatePointer = useCallback((clientX: number, clientY: number) => {
@@ -784,6 +1116,132 @@ export default function BookmarkLinkFabric({
     return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
   }, []);
 
+  const handleDragMove = useCallback(
+    (pointerId: number) => {
+      if (!ENABLE_FABRIC_DRAG) return;
+      const drag = dragRef.current;
+      if (!drag.down) return;
+      if (drag.pointerId !== -1 && pointerId !== drag.pointerId) return;
+
+      const now = performance.now();
+      const dx = drag.targetX - drag.startX;
+      const dy = drag.targetY - drag.startY;
+      const dist = Math.hypot(dx, dy);
+
+      if (!drag.moved && dist > GRAB_MOVE_PX) {
+        drag.moved = true;
+      }
+
+      if (drag.mode !== "grab") {
+        const holdMs = safariDesktop ? 0 : GRAB_HOLD_MS;
+        const heldLongEnough = now - drag.downAt >= holdMs;
+        if (heldLongEnough && drag.moved) {
+          drag.mode = "grab";
+          drag.suppressClick = true;
+        }
+      }
+    },
+    [safariDesktop]
+  );
+
+  const detachWindowPointerListeners = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const handlers = windowPointerHandlersRef.current;
+    if (!handlers) return;
+    window.removeEventListener("pointermove", handlers.move);
+    window.removeEventListener("pointerup", handlers.up);
+    window.removeEventListener("pointercancel", handlers.cancel);
+    windowPointerHandlersRef.current = null;
+    dragRef.current.useWindowPointer = false;
+  }, []);
+
+  type PointerLikeEvent = { clientX: number; clientY: number; pointerId: number };
+
+  const endPointer = useCallback(
+    (e: PointerLikeEvent) => {
+      const drag = dragRef.current;
+      if (drag.pointerId !== -1 && e.pointerId !== drag.pointerId) return;
+
+      const wasDown = drag.down;
+      const wasGrab = drag.mode === "grab";
+
+      drag.down = false;
+      drag.pointerId = -1;
+      drag.dragIndex = -1;
+      drag.grabRow = -1;
+      drag.useWindowPointer = false;
+
+      if (wasGrab) {
+        drag.mode = "return";
+        drag.returnT0 = performance.now();
+        kickRelease();
+        kickAnimWind(0.9);
+      } else {
+        drag.mode = drag.mode === "grab" ? "idle" : drag.mode;
+      }
+
+      if (wasDown && !pointInAnchor(e.clientX, e.clientY)) {
+        pointerRef.current.active = false;
+        pointerRef.current.vx *= 0.25;
+        pointerRef.current.vy *= 0.25;
+      }
+
+      if (drag.suppressClick) {
+        window.setTimeout(() => {
+          drag.suppressClick = false;
+        }, 0);
+      }
+
+      try {
+        linkRef.current?.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+
+      detachWindowPointerListeners();
+    },
+    [detachWindowPointerListeners, kickAnimWind, kickRelease, pointInAnchor]
+  );
+
+  const attachWindowPointerListeners = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (windowPointerHandlersRef.current) return;
+
+    const move = (e: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag.down || !drag.useWindowPointer) return;
+      if (drag.pointerId !== -1 && e.pointerId !== drag.pointerId) return;
+      updatePointer(e.clientX, e.clientY);
+      handleDragMove(e.pointerId);
+    };
+
+    const up = (e: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag.down || !drag.useWindowPointer) return;
+      if (drag.pointerId !== -1 && e.pointerId !== drag.pointerId) return;
+      endPointer({ clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId });
+    };
+
+    const cancel = (e: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag.down || !drag.useWindowPointer) return;
+      if (drag.pointerId !== -1 && e.pointerId !== drag.pointerId) return;
+      endPointer({ clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId });
+    };
+
+    windowPointerHandlersRef.current = { move, up, cancel };
+    window.addEventListener("pointermove", move, { passive: true });
+    window.addEventListener("pointerup", up, { passive: true });
+    window.addEventListener("pointercancel", cancel, { passive: true });
+    dragRef.current.useWindowPointer = true;
+  }, [endPointer, handleDragMove, updatePointer]);
+
+  useEffect(() => {
+    return () => {
+      detachWindowPointerListeners();
+    };
+  }, [detachWindowPointerListeners]);
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLAnchorElement>) => {
       if (e.button !== 0) return;
@@ -801,87 +1259,49 @@ export default function BookmarkLinkFabric({
       dragRef.current.down = true;
       dragRef.current.moved = false;
       dragRef.current.dragIndex = -1;
+      dragRef.current.grabRow = -1;
       dragRef.current.startX = e.clientX;
       dragRef.current.startY = e.clientY;
       dragRef.current.downAt = performance.now();
       dragRef.current.pointerId = e.pointerId;
+      dragRef.current.useWindowPointer = false;
 
       // don’t kill return instantly; only if they start a new grab
       if (dragRef.current.mode === "return") dragRef.current.mode = "idle";
 
-      try {
-        a.setPointerCapture(e.pointerId);
-      } catch {
-        // ignore
+      let needsWindowPointer = safariDesktop;
+      if (!needsWindowPointer) {
+        if (typeof a.setPointerCapture === "function") {
+          try {
+            a.setPointerCapture(e.pointerId);
+          } catch {
+            needsWindowPointer = true;
+          }
+          if (
+            !needsWindowPointer &&
+            typeof a.hasPointerCapture === "function" &&
+            !a.hasPointerCapture(e.pointerId)
+          ) {
+            needsWindowPointer = true;
+          }
+        } else {
+          needsWindowPointer = true;
+        }
+      }
+
+      if (needsWindowPointer) {
+        attachWindowPointerListeners();
       }
     },
-    [updatePointer]
+    [attachWindowPointerListeners, safariDesktop, updatePointer]
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLAnchorElement>) => {
       updatePointer(e.clientX, e.clientY);
-
-      if (!ENABLE_FABRIC_DRAG) return;
-      if (!dragRef.current.down) return;
-
-      const now = performance.now();
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
-      const dist = Math.hypot(dx, dy);
-
-      if (!dragRef.current.moved && dist > GRAB_MOVE_PX) {
-        dragRef.current.moved = true;
-      }
-
-      if (dragRef.current.mode !== "grab") {
-        const heldLongEnough = now - dragRef.current.downAt >= GRAB_HOLD_MS;
-        if (heldLongEnough && dragRef.current.moved) {
-          dragRef.current.mode = "grab";
-          dragRef.current.suppressClick = true;
-        }
-      }
+      handleDragMove(e.pointerId);
     },
-    [updatePointer]
-  );
-
-  const endPointer = useCallback(
-    (e: React.PointerEvent<HTMLAnchorElement>) => {
-      const wasDown = dragRef.current.down;
-      const wasGrab = dragRef.current.mode === "grab";
-
-      dragRef.current.down = false;
-      dragRef.current.pointerId = -1;
-      dragRef.current.dragIndex = -1;
-
-      if (wasGrab) {
-        dragRef.current.mode = "return";
-        dragRef.current.returnT0 = performance.now();
-        kickRelease();
-        kickAnimWind(0.9);
-      } else {
-        dragRef.current.mode = dragRef.current.mode === "grab" ? "idle" : dragRef.current.mode;
-      }
-
-      if (wasDown && !pointInAnchor(e.clientX, e.clientY)) {
-        pointerRef.current.active = false;
-        pointerRef.current.vx *= 0.25;
-        pointerRef.current.vy *= 0.25;
-      }
-
-      if (dragRef.current.suppressClick) {
-        window.setTimeout(() => {
-          dragRef.current.suppressClick = false;
-        }, 0);
-      }
-
-      try {
-        linkRef.current?.releasePointerCapture(e.pointerId);
-      } catch {
-        // ignore
-      }
-    },
-    [kickAnimWind, kickRelease, pointInAnchor]
+    [handleDragMove, updatePointer]
   );
 
   const onPointerUp = useCallback(
@@ -913,9 +1333,16 @@ export default function BookmarkLinkFabric({
     pointerRef.current.vy *= 0.25;
   }, []);
 
+  const simEnabled = loaderDone && (isShown || prewarm);
+
   // WebGL cloth
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!simEnabled) {
+      canvasReadyRef.current = false;
+      setCanvasReady(false);
+      return;
+    }
 
     const canvas = canvasRef.current;
     const host = clothHostRef.current;
@@ -1044,21 +1471,34 @@ export default function BookmarkLinkFabric({
     }
 
     // Higher mesh resolution to reduce “sharp points”
-    const COLS = 10;
-    const ROWS = 32;
+    const COLS = safariDesktop ? 8 : 10;
+    const ROWS = safariDesktop ? 24 : 32;
     const COUNT = COLS * ROWS;
 
     const pos = new Float32Array(COUNT * 3);
     const prev = new Float32Array(COUNT * 3);
     const rest = new Float32Array(COUNT * 3);
+    const rowPos = new Float32Array(ROWS * 3);
+    const rowPrev = new Float32Array(ROWS * 3);
     const uv = new Float32Array(COUNT * 2);
     const yNorm = new Float32Array(COUNT);
+    const rowNorm = new Float32Array(ROWS);
+    const rowT = new Float32Array(ROWS);
 
     // scratch for smoothing
     const smoothTmp = new Float32Array(COUNT * 3);
+    const rowFlutterAx = new Float32Array(ROWS);
+    const rowFlutterAz = new Float32Array(ROWS);
+    const rowAnimAx = new Float32Array(ROWS);
+    const rowAnimAy = new Float32Array(ROWS);
+    const rowAnimAz = new Float32Array(ROWS);
+    const rowReleaseAx = new Float32Array(ROWS);
+    const rowReleaseAy = new Float32Array(ROWS);
+    const rowReleaseAz = new Float32Array(ROWS);
 
     type C = { a: number; b: number; rest: number };
-    const constraints: C[] = [];
+    const constraintsBase: C[] = [];
+    const constraintsExtra: C[] = [];
 
     const STRIP_W = 16;
     let stripHeight = Math.max(BASE_SHAPE_HEIGHT, sizeProxyRef.current.height || BASE_SHAPE_HEIGHT);
@@ -1070,7 +1510,13 @@ export default function BookmarkLinkFabric({
     const readAnchor = () => {
       const r = host.getBoundingClientRect();
       const cx = r.left + r.width / 2;
-      return { x: cx - STRIP_W / 2, y: r.top };
+      const next = {
+        x: Math.round(cx - STRIP_W / 2),
+        y: Math.round(r.top),
+      };
+      debugStateRef.current.anchorX = next.x;
+      debugStateRef.current.anchorY = next.y;
+      return next;
     };
 
     {
@@ -1080,13 +1526,16 @@ export default function BookmarkLinkFabric({
     }
 
     const stepX = STRIP_W / (COLS - 1);
+    const centerCol = Math.floor(COLS / 2);
     const idx = (cx: number, ry: number) => ry * COLS + cx;
 
     for (let ry = 0; ry < ROWS; ry++) {
+      const n = ry / (ROWS - 1);
+      rowNorm[ry] = n;
+      rowT[ry] = n;
       for (let cx = 0; cx < COLS; cx++) {
         const i = idx(cx, ry);
         const x = startX + cx * stepX;
-        const n = ry / (ROWS - 1);
         const y = startY + n * stripHeight;
         const z = 0;
 
@@ -1108,7 +1557,18 @@ export default function BookmarkLinkFabric({
       }
     }
 
-    const addConstraint = (a: number, b: number) => {
+    for (let ry = 0; ry < ROWS; ry++) {
+      const i = idx(centerCol, ry);
+      rowPos[ry * 3 + 0] = rest[i * 3 + 0];
+      rowPos[ry * 3 + 1] = rest[i * 3 + 1];
+      rowPos[ry * 3 + 2] = rest[i * 3 + 2];
+
+      rowPrev[ry * 3 + 0] = rest[i * 3 + 0];
+      rowPrev[ry * 3 + 1] = rest[i * 3 + 1];
+      rowPrev[ry * 3 + 2] = rest[i * 3 + 2];
+    }
+
+    const addConstraint = (list: C[], a: number, b: number) => {
       const ax = rest[a * 3 + 0];
       const ay = rest[a * 3 + 1];
       const az = rest[a * 3 + 2];
@@ -1116,7 +1576,7 @@ export default function BookmarkLinkFabric({
       const by = rest[b * 3 + 1];
       const bz = rest[b * 3 + 2];
       const L = Math.hypot(bx - ax, by - ay, bz - az);
-      constraints.push({ a, b, rest: L });
+      list.push({ a, b, rest: L });
     };
 
     // constraints (structural + diagonals + bending)
@@ -1124,36 +1584,40 @@ export default function BookmarkLinkFabric({
       for (let cx = 0; cx < COLS; cx++) {
         const i = idx(cx, ry);
 
-        if (cx + 1 < COLS) addConstraint(i, idx(cx + 1, ry));
-        if (ry + 1 < ROWS) addConstraint(i, idx(cx, ry + 1));
+        if (cx + 1 < COLS) addConstraint(constraintsBase, i, idx(cx + 1, ry));
+        if (ry + 1 < ROWS) addConstraint(constraintsBase, i, idx(cx, ry + 1));
 
-        if (cx + 1 < COLS && ry + 1 < ROWS) addConstraint(i, idx(cx + 1, ry + 1));
-        if (cx - 1 >= 0 && ry + 1 < ROWS) addConstraint(i, idx(cx - 1, ry + 1));
+        if (cx + 1 < COLS && ry + 1 < ROWS)
+          addConstraint(constraintsBase, i, idx(cx + 1, ry + 1));
+        if (cx - 1 >= 0 && ry + 1 < ROWS)
+          addConstraint(constraintsBase, i, idx(cx - 1, ry + 1));
 
-        if (cx + 2 < COLS) addConstraint(i, idx(cx + 2, ry));
-        if (ry + 2 < ROWS) addConstraint(i, idx(cx, ry + 2));
+        if (cx + 2 < COLS) addConstraint(constraintsExtra, i, idx(cx + 2, ry));
+        if (ry + 2 < ROWS) addConstraint(constraintsExtra, i, idx(cx, ry + 2));
 
-        if (cx + 3 < COLS) addConstraint(i, idx(cx + 3, ry));
-        if (ry + 3 < ROWS) addConstraint(i, idx(cx, ry + 3));
+        if (!safariDesktop && cx + 3 < COLS) addConstraint(constraintsExtra, i, idx(cx + 3, ry));
+        if (!safariDesktop && ry + 3 < ROWS) addConstraint(constraintsExtra, i, idx(cx, ry + 3));
       }
     }
 
+    const constraintsAll = constraintsBase.concat(constraintsExtra);
+
     const updateConstraintRest = () => {
-      for (let c = 0; c < constraints.length; c++) {
-        const { a, b } = constraints[c];
+      for (let c = 0; c < constraintsAll.length; c++) {
+        const { a, b } = constraintsAll[c];
         const ax = rest[a * 3 + 0];
         const ay = rest[a * 3 + 1];
         const az = rest[a * 3 + 2];
         const bx = rest[b * 3 + 0];
         const by = rest[b * 3 + 1];
         const bz = rest[b * 3 + 2];
-        constraints[c].rest = Math.hypot(bx - ax, by - ay, bz - az);
+        constraintsAll[c].rest = Math.hypot(bx - ax, by - ay, bz - az);
       }
     };
 
     const updateStripHeight = (nextHeight: number) => {
       const safeNext = Math.max(BASE_SHAPE_HEIGHT, nextHeight);
-      if (Math.abs(safeNext - stripHeight) < 0.5) return;
+      if (Math.abs(safeNext - stripHeight) < SIZE_EPS) return;
 
       const scaleY = safeNext / stripHeight;
 
@@ -1167,8 +1631,17 @@ export default function BookmarkLinkFabric({
         rest[i * 3 + 1] = startY + yNorm[i] * safeNext;
       }
 
+      for (let ry = 0; ry < ROWS; ry++) {
+        const i = ry * 3;
+        const py = rowPos[i + 1];
+        const ppy = rowPrev[i + 1];
+        rowPos[i + 1] = startY + (py - startY) * scaleY;
+        rowPrev[i + 1] = startY + (ppy - startY) * scaleY;
+      }
+
       updateConstraintRest();
       stripHeight = safeNext;
+      debugStateRef.current.stripH = stripHeight;
     };
 
     // neighbors for smoothing
@@ -1229,36 +1702,57 @@ export default function BookmarkLinkFabric({
 
     const pinned = (i: number) => Math.floor(i / COLS) === 0;
 
-    const resetCloth = (liftPx: number) => {
+    const resetCloth = (liftPx: number, opts?: { randomizeZ?: boolean }) => {
+      const randomizeZ = opts?.randomizeZ ?? true;
       for (let i = 0; i < COUNT; i++) {
         const x = rest[i * 3 + 0];
         const y = rest[i * 3 + 1];
         const z = rest[i * 3 + 2];
 
         pos[i * 3 + 0] = x;
-        pos[i * 3 + 2] = z;
-
         prev[i * 3 + 0] = x;
-        prev[i * 3 + 2] = z;
 
         if (pinned(i)) {
           pos[i * 3 + 1] = y;
           prev[i * 3 + 1] = y;
+          pos[i * 3 + 2] = z;
+          prev[i * 3 + 2] = z;
         } else {
           const lift = liftPx * yNorm[i];
           pos[i * 3 + 1] = y + lift;
           prev[i * 3 + 1] = y + lift;
 
-          pos[i * 3 + 2] = (Math.random() - 0.5) * 2.5;
-          prev[i * 3 + 2] = pos[i * 3 + 2];
+          const newZ = randomizeZ ? (Math.random() - 0.5) * 2.5 : z;
+          pos[i * 3 + 2] = newZ;
+          prev[i * 3 + 2] = newZ;
         }
+      }
+
+      for (let ry = 0; ry < ROWS; ry++) {
+        const i = idx(centerCol, ry);
+        const x = rest[i * 3 + 0];
+        const y = rest[i * 3 + 1];
+        const z = rest[i * 3 + 2];
+        const lift = ry === 0 ? 0 : liftPx * rowT[ry];
+        const newZ = randomizeZ ? (Math.random() - 0.5) * 2.5 : z;
+
+        const ii = ry * 3;
+        rowPos[ii + 0] = x;
+        rowPos[ii + 1] = y + lift;
+        rowPos[ii + 2] = ry === 0 ? z : newZ;
+
+        rowPrev[ii + 0] = x;
+        rowPrev[ii + 1] = y + lift;
+        rowPrev[ii + 2] = ry === 0 ? z : newZ;
       }
     };
 
     simApiRef.current = { reset: resetCloth };
 
     if (pendingResetLiftRef.current != null) {
-      resetCloth(pendingResetLiftRef.current);
+      resetCloth(pendingResetLiftRef.current.lift, {
+        randomizeZ: pendingResetLiftRef.current.randomizeZ,
+      });
       pendingResetLiftRef.current = null;
     }
 
@@ -1278,7 +1772,11 @@ export default function BookmarkLinkFabric({
     };
 
     let raf = 0;
+    let timeoutId: number | null = null;
     let lastT = 0;
+    let lastActiveAt = 0;
+    let debugEl: HTMLDivElement | null = null;
+    let debugNextAt = 0;
 
     let fullW = Math.max(1, window.innerWidth);
     let fullH = Math.max(1, window.innerHeight);
@@ -1317,15 +1815,23 @@ export default function BookmarkLinkFabric({
       gl.uniform2f(uCanvas, fullW, fullH);
     };
 
-    const updateScrollWind = (time: number) => {
+    const updateScrollWind = (time: number, isScrolling: boolean) => {
       if (typeof window === "undefined") return;
 
-      const isMdUp = window.matchMedia("(min-width: 768px)").matches;
+      const isMdUp = fullW >= 768;
       const mode = (window as any).__hsMode as "horizontal" | "vertical" | undefined;
       const st =
         mode === "horizontal"
           ? (ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null)
           : null;
+
+      if (!isScrolling) {
+        scrollWind.vx = 0;
+        scrollWind.lastT = time;
+        if (mode === "horizontal" && st) scrollWind.lastProgress = st.progress ?? 0;
+        else scrollWind.lastX = window.scrollX || document.documentElement.scrollLeft || 0;
+        return;
+      }
 
       if (!scrollWind.lastT) {
         scrollWind.lastT = time;
@@ -1346,6 +1852,7 @@ export default function BookmarkLinkFabric({
 
       if (mode === "vertical") {
         scrollWind.vx *= 0.9;
+        if (Math.abs(scrollWind.vx) < 0.01) scrollWind.vx = 0;
         scrollWind.lastX = window.scrollX || document.documentElement.scrollLeft || 0;
         return;
       }
@@ -1353,24 +1860,43 @@ export default function BookmarkLinkFabric({
       let vx = 0;
       if (mode === "horizontal" && st) {
         const progress = st.progress ?? 0;
+        const delta = progress - scrollWind.lastProgress;
+        if (Math.abs(delta) < 0.0004) {
+          scrollWind.lastProgress = progress;
+          scrollWind.vx = 0;
+          return;
+        }
         const amount = Math.max(1, (st.end ?? 0) - (st.start ?? 0));
-        vx = (progress - scrollWind.lastProgress) * amount / dt;
+        vx = delta * amount / dt;
         scrollWind.lastProgress = progress;
       } else {
         const x = window.scrollX || document.documentElement.scrollLeft || 0;
-        vx = (x - scrollWind.lastX) / dt;
+        const dx = x - scrollWind.lastX;
+        if (Math.abs(dx) < 0.5) {
+          scrollWind.lastX = x;
+          scrollWind.vx = 0;
+          return;
+        }
+        vx = dx / dt;
         scrollWind.lastX = x;
       }
 
       const norm = clamp(vx / SCROLL_WIND_NORM, -SCROLL_WIND_MAX, SCROLL_WIND_MAX);
-      scrollWind.vx = scrollWind.vx * (1 - SCROLL_WIND_SMOOTH) + norm * SCROLL_WIND_SMOOTH;
+      const normScaled = safariDesktop ? norm * SAFARI_SCROLL_WIND_MULT : norm;
+      const smooth = safariDesktop ? SAFARI_SCROLL_WIND_SMOOTH : SCROLL_WIND_SMOOTH;
+      scrollWind.vx = scrollWind.vx * (1 - smooth) + normScaled * smooth;
+      if (Math.abs(scrollWind.vx) < 0.01) scrollWind.vx = 0;
+      if (Math.abs(scrollWind.vx) > 0.01) scrollWind.lastMoveT = time;
+
+      debugStateRef.current.scrollVx = scrollWind.vx;
+      debugStateRef.current.lastWindAt = time;
     };
 
     const updateAnchor = () => {
       const a = readAnchor();
       const dx = a.x - startX;
       const dy = a.y - startY;
-      if (Math.abs(dx) + Math.abs(dy) < 0.01) return;
+      if (Math.abs(dx) + Math.abs(dy) < 0.5) return;
 
       for (let i = 0; i < COUNT; i++) {
         pos[i * 3 + 0] += dx;
@@ -1381,6 +1907,14 @@ export default function BookmarkLinkFabric({
 
         rest[i * 3 + 0] += dx;
         rest[i * 3 + 1] += dy;
+      }
+
+      for (let ry = 0; ry < ROWS; ry++) {
+        const i = ry * 3;
+        rowPos[i + 0] += dx;
+        rowPos[i + 1] += dy;
+        rowPrev[i + 0] += dx;
+        rowPrev[i + 1] += dy;
       }
 
       startX = a.x;
@@ -1511,287 +2045,745 @@ export default function BookmarkLinkFabric({
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
+    const baseFps = 60;
+    let lastFrameTime = 0;
+
+    const scheduleNext = (delayMs = 0) => {
+      if (!isActive) return;
+      if (delayMs <= 0) {
+        raf = window.requestAnimationFrame(draw);
+      } else {
+        if (timeoutId) window.clearTimeout(timeoutId);
+        timeoutId = window.setTimeout(() => {
+          timeoutId = null;
+          raf = window.requestAnimationFrame(draw);
+        }, delayMs);
+      }
+    };
+
+    let paused = false;
+    const setPaused = (next: boolean) => {
+      paused = next;
+      if (!paused) {
+        lastT = 0;
+        lastFrameTime = 0;
+        scheduleNext(0);
+      }
+    };
+
     const draw = (time: number) => {
       if (!canvasReadyRef.current && isActive) {
         canvasReadyRef.current = true;
         setCanvasReady(true);
       }
 
-      raf = window.requestAnimationFrame(draw);
+      if (paused) {
+        lastT = time;
+        lastFrameTime = time;
+        return;
+      }
 
-      const dt = lastT ? clamp((time - lastT) / 1000, 0.01, 0.033) : 0.016;
+      const docHidden = typeof document !== "undefined" && document.visibilityState !== "visible";
+      if (docHidden) {
+        scheduleNext(250);
+        return;
+      }
+      if (safariDesktop && !isShownRef.current) {
+        lastT = time;
+        lastFrameTime = time;
+        scheduleNext(160);
+        return;
+      }
+
+      const isTransitioning =
+        !!(window as any).__heroPending ||
+        !!(window as any).__pageTransitionPending ||
+        (typeof document !== "undefined" && (document.documentElement as any).dataset?.homeHold === "1");
+      const lowCost = safariDesktop && isTransitioning;
+      const isScrolling = !!(window as any).__appScrolling;
+
+      if (safariDesktop) {
+        const targetFps = isTransitioning ? 30 : baseFps;
+        const frameInterval = 1000 / targetFps;
+        if (lastFrameTime && time - lastFrameTime < frameInterval) {
+          scheduleNext(0);
+          return;
+        }
+      }
+      lastFrameTime = time;
+
+      const maxDt = safariDesktop ? 0.05 : 0.033;
+      const dt = lastT ? clamp((time - lastT) / 1000, 0.008, maxDt) : 0.016;
       lastT = time;
 
       resize();
       updateAnchor();
       updateStripHeight(sizeProxyRef.current.height || BASE_SHAPE_HEIGHT);
-      updateScrollWind(time);
+      updateScrollWind(time, isScrolling);
+      const scrollSettling = time - scrollWindRef.current.lastMoveT < 220;
+      const scrollActive = isScrolling
+        ? scrollSettling || Math.abs(scrollWindRef.current.vx) > 0.002
+        : scrollSettling;
+      if (scrollActive) lastActiveAt = time;
+      if (!sizeTweenRef.current || !sizeTweenRef.current.isActive()) {
+        sizeMotionRef.current.vel *= 0.9;
+        if (Math.abs(sizeMotionRef.current.vel) < 0.0005) sizeMotionRef.current.vel = 0;
+      }
+      if (animWind.current.v < 0.0005) animWind.current.v = 0;
+      if (reveal.current.v < 0.0005) reveal.current.v = 0;
+      if (pull.current.v < 0.0005) pull.current.v = 0;
+      if (release.current.v < 0.0005) release.current.v = 0;
 
       const extra = Math.max(0, stripHeight - BASE_SHAPE_HEIGHT);
       const topH = BASE_RECT_HEIGHT + extra;
 
-      const drag = dragRef.current;
-      const isGrab = drag.mode === "grab";
-      let isReturn = drag.mode === "return";
-
-      // Return progress
-      const returnAlpha = isReturn ? clamp((time - drag.returnT0) / RETURN_MS, 0, 1) : 0;
-      const returnEase = easeOutCubic(returnAlpha);
-
-      // Physics
-      const damping = 0.975;
-      const gravity = 1400;
-
-      // grabbing: very low shape pull so it can travel across the window
-      // returning: ramp back up so it "falls back" naturally
-      const tether = isGrab ? 9 : isReturn ? lerp(9, 26, returnEase) : 26;
-      const zTether = isGrab ? 12 : isReturn ? lerp(12, 34, returnEase) : 34;
-
-      const windStrength = 1800;
-      const liftStrength = 140;
-
-      const p = pointerRef.current;
-
-      if (ENABLE_FABRIC_DRAG && isGrab && drag.dragIndex < 0) {
-        drag.dragIndex = pickNearestVertexUnpinned(p.x, p.y);
+      const dropActive = safariDesktop && dropActiveRef.current;
+      let busy = false;
+      const pointer = pointerRef.current;
+      const pointerAge = pointer.active ? time - pointer.lastT : Infinity;
+      const pointerIdle = pointer.active && pointerAge > 120;
+      if (pointerIdle) {
+        pointer.vx *= 0.6;
+        pointer.vy *= 0.6;
+        if (Math.abs(pointer.vx) < 0.001) pointer.vx = 0;
+        if (Math.abs(pointer.vy) < 0.001) pointer.vy = 0;
       }
+      const pointerActive = pointer.active && !pointerIdle;
 
-      // intro flutter (decays to 0)
-      let flutter = 0;
-      if (introRef.current.active) {
-        const age = time - introRef.current.t0;
-        flutter = clamp(1 - age / INTRO_FLUTTER_MS, 0, 1);
-        if (flutter <= 0.0001) introRef.current.active = false;
-      }
+      if (safariDesktop) {
+        const drag = dragRef.current;
+        const isGrab = drag.mode === "grab";
+        const isReturn = drag.mode === "return";
+        const returnEase = isReturn
+          ? easeOutCubic(clamp((time - drag.returnT0) / RETURN_MS, 0, 1))
+          : 0;
 
-      // wind during show/size animations
-      const anim = clamp(animWind.current.v, 0, 1);
-      const velNorm = clamp(Math.abs(sizeMotionRef.current.vel) / 6, 0, 1);
+        const damping = scrollActive ? SAFARI_DAMPING_SCROLLING : SAFARI_DAMPING_IDLE;
+        const gravity = SAFARI_GRAVITY;
+        const tetherBase = isReturn ? lerp(8, 22, returnEase) : 22;
+        const zTetherBase = isReturn ? lerp(10, 28, returnEase) : 28;
+        const grabTether = isGrab ? SAFARI_GRAB_TETHER_MULT : 1;
+        const grabZTether = isGrab ? SAFARI_GRAB_Z_TETHER_MULT : 1;
+        const tether = tetherBase * SAFARI_TETHER_MULT * grabTether;
+        const zTether = zTetherBase * SAFARI_Z_TETHER_MULT * grabZTether;
 
-      // extra “release” flutter at the start of return
-      const rel = release.current.v;
-      const scrollV = scrollWindRef.current.vx;
+        const introActive = introRef.current.active;
+        const introAge = introActive ? time - introRef.current.t0 : 0;
+        let flutter = 0;
+        if (introActive) {
+          const flutterMs = INTRO_FLUTTER_MS * 0.55;
+          flutter = clamp(1 - introAge / flutterMs, 0, 1);
+          if (flutter <= 0.0001) introRef.current.active = false;
+        }
+        flutter *= SAFARI_FLUTTER_MULT;
+        if (lowCost && flutter > 0) flutter = 0;
 
-      for (let i = 0; i < COUNT; i++) {
-        if (pinned(i)) {
-          pos[i * 3 + 0] = rest[i * 3 + 0];
-          pos[i * 3 + 1] = rest[i * 3 + 1];
-          pos[i * 3 + 2] = rest[i * 3 + 2];
+        const perfDrop = dropActive || (introAge > 0 && introAge < 520);
+        const perfLite = lowCost || perfDrop;
 
-          prev[i * 3 + 0] = rest[i * 3 + 0];
-          prev[i * 3 + 1] = rest[i * 3 + 1];
-          prev[i * 3 + 2] = rest[i * 3 + 2];
-          continue;
+        const windStrength = (perfLite ? 1200 : 1600) * SAFARI_WIND_MULT;
+        const liftStrength = (perfLite ? 90 : 120) * SAFARI_LIFT_MULT;
+        const scrollWindStrength = SCROLL_WIND_STRENGTH * (perfLite ? 0.25 : 1);
+
+        const anim = clamp(animWind.current.v, 0, 1);
+        const velAbs = Math.abs(sizeMotionRef.current.vel);
+        const velNorm = velAbs < 0.06 ? 0 : clamp(velAbs / 6, 0, 1);
+        const rel = release.current.v;
+        const scrollV = scrollWindRef.current.vx;
+        const p = pointer;
+        const grabX = drag.targetX;
+        const grabY = drag.targetY;
+
+        let grabRow = isGrab ? drag.grabRow : -1;
+        if (isGrab && grabRow < 1) {
+          let best = 1;
+          let bestD = 1e9;
+          for (let ry = 1; ry < ROWS; ry++) {
+            const i = ry * 3;
+            const dx = rowPos[i + 0] - grabX;
+            const dy = rowPos[i + 1] - grabY;
+            const d = dx * dx + dy * dy;
+            if (d < bestD) {
+              bestD = d;
+              best = ry;
+            }
+          }
+          drag.grabRow = best;
+          grabRow = best;
         }
 
-        // grabbed vertex hard-pins to cursor (no spikes)
-        if (ENABLE_FABRIC_DRAG && isGrab && drag.dragIndex === i) {
-          const clamped = clampGrabTarget(i, drag.targetX, drag.targetY);
-          pos[i * 3 + 0] = clamped.x;
-          pos[i * 3 + 1] = clamped.y;
-          pos[i * 3 + 2] = -10;
-
-          prev[i * 3 + 0] = pos[i * 3 + 0];
-          prev[i * 3 + 1] = pos[i * 3 + 1];
-          prev[i * 3 + 2] = pos[i * 3 + 2];
-          continue;
-        }
-
-        const x = pos[i * 3 + 0];
-        const y = pos[i * 3 + 1];
-        const z = pos[i * 3 + 2];
-
-        const px = prev[i * 3 + 0];
-        const py = prev[i * 3 + 1];
-        const pz = prev[i * 3 + 2];
-
-        const vx = (x - px) * damping;
-        const vy = (y - py) * damping;
-        const vz = (z - pz) * damping;
-
-        let ax = 0;
-        let ay = gravity;
-        let az = 0;
-
-        // return-to-shape
-        ax += (rest[i * 3 + 0] - x) * tether;
-        ay += (rest[i * 3 + 1] - y) * tether;
-        az += (rest[i * 3 + 2] - z) * zTether;
-
-        const ry = Math.floor(i / COLS);
-        const tRow = ry / (ROWS - 1);
-
-        if (p.active) {
-          const dx = x - p.x;
-          const dy = y - p.y;
-          const r2 = dx * dx + dy * dy;
-          const fall = 1 / (1 + r2 / (28 * 28));
-
-          ax += p.vx * windStrength * fall * (0.25 + 0.75 * tRow);
-          ay += p.vy * windStrength * fall * (0.25 + 0.75 * tRow);
-          az += -liftStrength * fall * (0.2 + 0.8 * tRow);
-        }
-
-        if (Math.abs(scrollV) > 0.0001) {
-          ax -= scrollV * SCROLL_WIND_STRENGTH * (0.2 + 0.8 * tRow);
-        }
-
-        const tug = pull.current.v;
-        if (tug > 0.0001) {
-          ay += tug * 9000 * tRow;
-          az += -tug * 260 * tRow;
-        }
-
-        const rev = reveal.current.v;
-        if (rev > 0.0001) {
-          ay += rev * REVEAL_KICK_PULL * tRow;
-          az += -rev * 340 * tRow;
-        }
-
-        // intro flutter
         if (flutter > 0.0001) {
-          const w = flutter * INTRO_FLUTTER_SCALE * (0.2 + 0.8 * tRow);
-          ax += Math.sin(time * 0.01 + yNorm[i] * 5.5) * 2400 * w;
-          az += Math.cos(time * 0.013 + yNorm[i] * 4.2) * 55 * w;
+          for (let ry = 0; ry < ROWS; ry++) {
+            const w = flutter * INTRO_FLUTTER_SCALE * (0.2 + 0.8 * rowT[ry]);
+            rowFlutterAx[ry] = Math.sin(time * 0.01 + rowNorm[ry] * 5.5) * 2400 * w;
+            rowFlutterAz[ry] = Math.cos(time * 0.013 + rowNorm[ry] * 4.2) * 55 * w;
+          }
+        } else {
+          for (let ry = 0; ry < ROWS; ry++) {
+            rowFlutterAx[ry] = 0;
+            rowFlutterAz[ry] = 0;
+          }
         }
 
-        // animation wind
-        const motion = Math.max(anim, velNorm * SIZE_VEL_TURBULENCE);
+        const motion = !perfLite ? Math.max(anim, velNorm * SIZE_VEL_TURBULENCE) : 0;
         if (motion > 0.0001) {
-          const w = motion * (0.25 + 0.75 * tRow);
-          ax += Math.sin(time * 0.012 + yNorm[i] * 6.0) * 1650 * w;
-          az += Math.cos(time * 0.015 + yNorm[i] * 4.7) * 42 * w;
-          ay += Math.sin(time * 0.009 + yNorm[i] * 3.3) * 620 * w;
-        }
-
-        // release “settle” (helps the return feel like a fall, not a snap)
-        if (rel > 0.0001) {
-          const w = rel * (0.15 + 0.85 * tRow);
-          ax += Math.sin(time * 0.014 + yNorm[i] * 5.2) * 1400 * w;
-          ay += Math.sin(time * 0.010 + yNorm[i] * 3.1) * 900 * w;
-          az += Math.cos(time * 0.013 + yNorm[i] * 4.1) * 38 * w;
-        }
-
-        prev[i * 3 + 0] = x;
-        prev[i * 3 + 1] = y;
-        prev[i * 3 + 2] = z;
-
-        pos[i * 3 + 0] = x + vx + ax * dt * dt;
-        pos[i * 3 + 1] = y + vy + ay * dt * dt;
-        pos[i * 3 + 2] = z + vz + az * dt * dt;
-      }
-
-      // Solve constraints more during grabbing/return to smooth kinks
-      const ITER = isGrab ? 24 : isReturn ? 16 : 10;
-
-      for (let it = 0; it < ITER; it++) {
-        for (let c = 0; c < constraints.length; c++) {
-          const { a, b, rest: L } = constraints[c];
-
-          const axp = pos[a * 3 + 0];
-          const ayp = pos[a * 3 + 1];
-          const azp = pos[a * 3 + 2];
-
-          const bxp = pos[b * 3 + 0];
-          const byp = pos[b * 3 + 1];
-          const bzp = pos[b * 3 + 2];
-
-          const dx = bxp - axp;
-          const dy = byp - ayp;
-          const dz = bzp - azp;
-
-          const d = Math.hypot(dx, dy, dz) || 1;
-          const diff = (d - L) / d;
-
-          const aPinned = pinned(a);
-          const bPinned = pinned(b);
-
-          const wa = aPinned ? 0 : 0.5;
-          const wb = bPinned ? 0 : 0.5;
-
-          const sx = dx * diff;
-          const sy = dy * diff;
-          const sz = dz * diff;
-
-          if (!aPinned) {
-            pos[a * 3 + 0] += sx * wa;
-            pos[a * 3 + 1] += sy * wa;
-            pos[a * 3 + 2] += sz * wa;
+          for (let ry = 0; ry < ROWS; ry++) {
+            const w = motion * SAFARI_ANIM_MULT * (0.25 + 0.75 * rowT[ry]);
+            rowAnimAx[ry] = Math.sin(time * 0.012 + rowNorm[ry] * 6.0) * 1650 * w;
+            rowAnimAz[ry] = Math.cos(time * 0.015 + rowNorm[ry] * 4.7) * 42 * w;
+            rowAnimAy[ry] = Math.sin(time * 0.009 + rowNorm[ry] * 3.3) * 620 * w;
           }
-          if (!bPinned) {
-            pos[b * 3 + 0] -= sx * wb;
-            pos[b * 3 + 1] -= sy * wb;
-            pos[b * 3 + 2] -= sz * wb;
+        } else {
+          for (let ry = 0; ry < ROWS; ry++) {
+            rowAnimAx[ry] = 0;
+            rowAnimAy[ry] = 0;
+            rowAnimAz[ry] = 0;
           }
         }
 
-        // keep top row pinned
-        for (let cx = 0; cx < COLS; cx++) {
-          const i = idx(cx, 0);
-          pos[i * 3 + 0] = rest[i * 3 + 0];
-          pos[i * 3 + 1] = rest[i * 3 + 1];
-          pos[i * 3 + 2] = rest[i * 3 + 2];
+        if (!lowCost && rel > 0.0001) {
+          for (let ry = 0; ry < ROWS; ry++) {
+            const w = rel * SAFARI_RELEASE_MULT * (0.15 + 0.85 * rowT[ry]);
+            rowReleaseAx[ry] = Math.sin(time * 0.014 + rowNorm[ry] * 5.2) * 1400 * w;
+            rowReleaseAy[ry] = Math.sin(time * 0.010 + rowNorm[ry] * 3.1) * 900 * w;
+            rowReleaseAz[ry] = Math.cos(time * 0.013 + rowNorm[ry] * 4.1) * 38 * w;
+          }
+        } else {
+          for (let ry = 0; ry < ROWS; ry++) {
+            rowReleaseAx[ry] = 0;
+            rowReleaseAy[ry] = 0;
+            rowReleaseAz[ry] = 0;
+          }
         }
 
-        enforceGrab();
-      }
+        const grabActive = isGrab && grabRow >= 1;
 
-      // Smoothing to reduce “sharp points” when dragging/returning
-      const smoothK = isGrab ? 0.34 : isReturn ? lerp(0.18, 0.08, returnEase) : 0;
-      smoothPass(smoothK);
+        let rowSpeedMax = 0;
+        for (let ry = 0; ry < ROWS; ry++) {
+          const restI = idx(centerCol, ry);
+          const restX = rest[restI * 3 + 0];
+          const restY = rest[restI * 3 + 1];
+          const restZ = rest[restI * 3 + 2];
 
-      if (isReturn && returnAlpha >= 1) {
-        let maxD = 0;
-        for (let i = 0; i < COUNT; i++) {
-          if (pinned(i)) continue;
-          const dx = pos[i * 3 + 0] - rest[i * 3 + 0];
-          const dy = pos[i * 3 + 1] - rest[i * 3 + 1];
-          const dz = pos[i * 3 + 2] - rest[i * 3 + 2];
-          const d = Math.hypot(dx, dy, dz);
-          if (d > maxD) maxD = d;
+          if (ry === 0) {
+            rowPos[0] = restX;
+            rowPos[1] = restY;
+            rowPos[2] = restZ;
+            rowPrev[0] = restX;
+            rowPrev[1] = restY;
+            rowPrev[2] = restZ;
+            continue;
+          }
+
+          const i = ry * 3;
+          const x = rowPos[i + 0];
+          const y = rowPos[i + 1];
+          const z = rowPos[i + 2];
+
+          const px = rowPrev[i + 0];
+          const py = rowPrev[i + 1];
+          const pz = rowPrev[i + 2];
+
+          const vx = (x - px) * damping;
+          const vy = (y - py) * damping;
+          const vz = (z - pz) * damping;
+          const vAbs = Math.abs(vx) + Math.abs(vy) + Math.abs(vz);
+          if (vAbs > rowSpeedMax) rowSpeedMax = vAbs;
+
+          const tRow = rowT[ry];
+          const restPull = isGrab ? lerp(0.7, SAFARI_GRAB_REST_MIN, tRow) : 1;
+
+          let ax = (restX - x) * tether * restPull;
+          let ay = gravity + (restY - y) * tether * restPull;
+          let az = (restZ - z) * zTether * restPull;
+
+          if (pointerActive) {
+            const dx = x - p.x;
+            const dy = y - p.y;
+            const r2 = dx * dx + dy * dy;
+            const fall = 1 / (1 + r2 / (28 * 28));
+
+            ax += p.vx * windStrength * fall * (0.25 + 0.75 * tRow);
+            ay += p.vy * windStrength * fall * (0.25 + 0.75 * tRow);
+            az += -liftStrength * fall * (0.2 + 0.8 * tRow);
+          }
+
+          if (Math.abs(scrollV) > 0.0001) {
+            ax -= scrollV * scrollWindStrength * (0.2 + 0.8 * tRow);
+          }
+
+          const tug = pull.current.v * (lowCost ? 0.5 : 1);
+          if (tug > 0.0001) {
+            ay += tug * 9000 * tRow;
+            az += -tug * 260 * tRow;
+          }
+
+          const rev = reveal.current.v * (lowCost ? 0.6 : 1);
+          if (rev > 0.0001) {
+            ay += rev * REVEAL_KICK_PULL * tRow;
+            az += -rev * 340 * tRow;
+          }
+
+          ax += rowFlutterAx[ry] + rowAnimAx[ry] + rowReleaseAx[ry];
+          ay += rowAnimAy[ry] + rowReleaseAy[ry];
+          az += rowFlutterAz[ry] + rowAnimAz[ry] + rowReleaseAz[ry];
+
+          rowPrev[i + 0] = x;
+          rowPrev[i + 1] = y;
+          rowPrev[i + 2] = z;
+
+          rowPos[i + 0] = x + vx + ax * dt * dt;
+          rowPos[i + 1] = y + vy + ay * dt * dt;
+          rowPos[i + 2] = z + vz + az * dt * dt;
         }
 
-        if (maxD < RETURN_SETTLE_DIST) {
-          drag.mode = "idle";
-          isReturn = false;
+        if (grabActive) {
+          const gi = grabRow * 3;
+          rowPos[gi + 0] = grabX;
+          rowPos[gi + 1] = grabY;
+          rowPrev[gi + 0] = grabX;
+          rowPrev[gi + 1] = grabY;
         }
-      }
 
-      // Clamps
-      if (ENABLE_FABRIC_DRAG && isGrab) {
-        for (let i = 0; i < COUNT; i++) {
-          if (pinned(i)) continue;
-          pos[i * 3 + 0] = clamp(pos[i * 3 + 0], -VIEWPORT_PAD, fullW + VIEWPORT_PAD);
-          pos[i * 3 + 1] = clamp(pos[i * 3 + 1], -VIEWPORT_PAD, fullH + VIEWPORT_PAD);
-          pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
-        }
-      } else if (isReturn) {
-        const minX = -RETURN_PAD_X;
-        const maxX = fullW + RETURN_PAD_X;
-        const minY = lerp(-RETURN_PAD, startY - 8, returnEase);
-        const maxY = lerp(fullH + RETURN_PAD, startY + stripHeight + 14, returnEase);
+        const settling = rowSpeedMax / Math.max(dt, 0.008) > SETTLE_SPEED;
+        if (settling) lastActiveAt = time;
 
-        for (let i = 0; i < COUNT; i++) {
-          if (pinned(i)) continue;
-          pos[i * 3 + 0] = clamp(pos[i * 3 + 0], minX, maxX);
-          pos[i * 3 + 1] = clamp(pos[i * 3 + 1], minY, maxY);
-          pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
+        const isPinnedRow = (r: number) => r === 0 || (grabActive && r === grabRow);
+
+        const iterRow = perfLite ? 2 : 3;
+        for (let it = 0; it < iterRow; it++) {
+          for (let ry = 1; ry < ROWS; ry++) {
+            const a = ry - 1;
+            const b = ry;
+            const ai = a * 3;
+            const bi = b * 3;
+
+            const restA = idx(centerCol, a);
+            const restB = idx(centerCol, b);
+            const restLen = Math.hypot(
+              rest[restB * 3 + 0] - rest[restA * 3 + 0],
+              rest[restB * 3 + 1] - rest[restA * 3 + 1],
+              rest[restB * 3 + 2] - rest[restA * 3 + 2]
+            );
+
+            const L = restLen * (grabActive ? SAFARI_GRAB_STRETCH : 1);
+            const dx = rowPos[bi + 0] - rowPos[ai + 0];
+            const dy = rowPos[bi + 1] - rowPos[ai + 1];
+            const dz = rowPos[bi + 2] - rowPos[ai + 2];
+            const d = Math.hypot(dx, dy, dz) || 1;
+            const diff = (d - L) / d;
+
+            const aPinned = isPinnedRow(a);
+            const bPinned = isPinnedRow(b);
+            if (aPinned && bPinned) continue;
+
+            if (aPinned) {
+              rowPos[bi + 0] -= dx * diff;
+              rowPos[bi + 1] -= dy * diff;
+              rowPos[bi + 2] -= dz * diff;
+            } else if (bPinned) {
+              rowPos[ai + 0] += dx * diff;
+              rowPos[ai + 1] += dy * diff;
+              rowPos[ai + 2] += dz * diff;
+            } else {
+              rowPos[ai + 0] += dx * diff * 0.5;
+              rowPos[ai + 1] += dy * diff * 0.5;
+              rowPos[ai + 2] += dz * diff * 0.5;
+              rowPos[bi + 0] -= dx * diff * 0.5;
+              rowPos[bi + 1] -= dy * diff * 0.5;
+              rowPos[bi + 2] -= dz * diff * 0.5;
+            }
+          }
         }
-      } else {
+
         const minX = -RETURN_PAD_X;
         const maxX = fullW + RETURN_PAD_X;
         const minY = -RETURN_PAD;
         const maxY = fullH + RETURN_PAD;
+        for (let ry = 1; ry < ROWS; ry++) {
+          const i = ry * 3;
+          rowPos[i + 0] = clamp(rowPos[i + 0], minX, maxX);
+          rowPos[i + 1] = clamp(rowPos[i + 1], minY, maxY);
+          rowPos[i + 2] = clamp(rowPos[i + 2], -18, 18);
+        }
 
+        for (let ry = 0; ry < ROWS; ry++) {
+          const baseI = ry * 3;
+          const baseX = rowPos[baseI + 0];
+          const baseY = rowPos[baseI + 1];
+          const baseZ = rowPos[baseI + 2];
+
+          const dxRow = rowPos[baseI + 0] - rowPrev[baseI + 0];
+          const dyRow = rowPos[baseI + 1] - rowPrev[baseI + 1];
+          const dzRow = rowPos[baseI + 2] - rowPrev[baseI + 2];
+
+          for (let cx = 0; cx < COLS; cx++) {
+            const t = cx / (COLS - 1) - 0.5;
+            const i = idx(cx, ry);
+            const x = baseX + t * STRIP_W;
+
+            pos[i * 3 + 0] = x;
+            pos[i * 3 + 1] = baseY;
+            pos[i * 3 + 2] = baseZ;
+
+            prev[i * 3 + 0] = x - dxRow;
+            prev[i * 3 + 1] = baseY - dyRow;
+            prev[i * 3 + 2] = baseZ - dzRow;
+          }
+        }
+
+        busy =
+          dropActive ||
+          isTransitioning ||
+          pointerActive ||
+          drag.mode !== "idle" ||
+          Math.abs(scrollWindRef.current.vx) > 0.002 ||
+          animWind.current.v > 0.001 ||
+          reveal.current.v > 0.001 ||
+          pull.current.v > 0.001 ||
+          release.current.v > 0.001 ||
+          Math.abs(sizeMotionRef.current.vel) > 0.01;
+        if (time - lastActiveAt < SETTLE_HOLD_MS) busy = true;
+      } else {
+        const drag = dragRef.current;
+        busy = dropActive;
+        const isGrab = drag.mode === "grab";
+        let isReturn = drag.mode === "return";
+
+        // Return progress
+        const returnAlpha = isReturn ? clamp((time - drag.returnT0) / RETURN_MS, 0, 1) : 0;
+        const returnEase = easeOutCubic(returnAlpha);
+
+        // Physics
+        const damping = 0.975;
+        const gravity = 1400;
+
+        // grabbing: very low shape pull so it can travel across the window
+        // returning: ramp back up so it "falls back" naturally
+        const tether = isGrab ? 9 : isReturn ? lerp(9, 26, returnEase) : 26;
+        const zTether = isGrab ? 12 : isReturn ? lerp(12, 34, returnEase) : 34;
+
+        const p = pointer;
+
+        if (ENABLE_FABRIC_DRAG && isGrab && drag.dragIndex < 0) {
+          drag.dragIndex = pickNearestVertexUnpinned(p.x, p.y);
+        }
+
+        // intro flutter (decays to 0)
+        const introActive = introRef.current.active;
+        const introAge = introActive ? time - introRef.current.t0 : 0;
+        let flutter = 0;
+        if (introActive) {
+          const flutterMs = safariDesktop ? INTRO_FLUTTER_MS * 0.55 : INTRO_FLUTTER_MS;
+          flutter = clamp(1 - introAge / flutterMs, 0, 1);
+          if (flutter <= 0.0001) introRef.current.active = false;
+        }
+        if (lowCost && flutter > 0) flutter = 0;
+
+        const perfDrop = safariDesktop && (dropActive || (introAge > 0 && introAge < 520));
+        const perfLite = lowCost || perfDrop;
+
+        const windStrength = perfLite ? 1200 : safariDesktop ? 1600 : 1800;
+        const liftStrength = perfLite ? 90 : safariDesktop ? 120 : 140;
+        const scrollWindStrength = SCROLL_WIND_STRENGTH * (perfLite ? 0.25 : 1);
+
+        // wind during show/size animations
+        const anim = clamp(animWind.current.v, 0, 1);
+        const velAbs = Math.abs(sizeMotionRef.current.vel);
+        const velNorm = velAbs < 0.06 ? 0 : clamp(velAbs / 6, 0, 1);
+
+        // extra “release” flutter at the start of return
+        const rel = release.current.v;
+        const scrollV = scrollWindRef.current.vx;
+
+        if (flutter > 0.0001) {
+          for (let ry = 0; ry < ROWS; ry++) {
+            const w = flutter * INTRO_FLUTTER_SCALE * (0.2 + 0.8 * rowT[ry]);
+            rowFlutterAx[ry] = Math.sin(time * 0.01 + rowNorm[ry] * 5.5) * 2400 * w;
+            rowFlutterAz[ry] = Math.cos(time * 0.013 + rowNorm[ry] * 4.2) * 55 * w;
+          }
+        } else {
+          for (let ry = 0; ry < ROWS; ry++) {
+            rowFlutterAx[ry] = 0;
+            rowFlutterAz[ry] = 0;
+          }
+        }
+
+        const motion = !perfLite ? Math.max(anim, velNorm * SIZE_VEL_TURBULENCE) : 0;
+        if (motion > 0.0001) {
+          for (let ry = 0; ry < ROWS; ry++) {
+            const w = motion * (0.25 + 0.75 * rowT[ry]);
+            rowAnimAx[ry] = Math.sin(time * 0.012 + rowNorm[ry] * 6.0) * 1650 * w;
+            rowAnimAz[ry] = Math.cos(time * 0.015 + rowNorm[ry] * 4.7) * 42 * w;
+            rowAnimAy[ry] = Math.sin(time * 0.009 + rowNorm[ry] * 3.3) * 620 * w;
+          }
+        } else {
+          for (let ry = 0; ry < ROWS; ry++) {
+            rowAnimAx[ry] = 0;
+            rowAnimAy[ry] = 0;
+            rowAnimAz[ry] = 0;
+          }
+        }
+
+        if (!lowCost && rel > 0.0001) {
+          for (let ry = 0; ry < ROWS; ry++) {
+            const w = rel * (0.15 + 0.85 * rowT[ry]);
+            rowReleaseAx[ry] = Math.sin(time * 0.014 + rowNorm[ry] * 5.2) * 1400 * w;
+            rowReleaseAy[ry] = Math.sin(time * 0.010 + rowNorm[ry] * 3.1) * 900 * w;
+            rowReleaseAz[ry] = Math.cos(time * 0.013 + rowNorm[ry] * 4.1) * 38 * w;
+          }
+        } else {
+          for (let ry = 0; ry < ROWS; ry++) {
+            rowReleaseAx[ry] = 0;
+            rowReleaseAy[ry] = 0;
+            rowReleaseAz[ry] = 0;
+          }
+        }
+
+        let speedMax = 0;
         for (let i = 0; i < COUNT; i++) {
-          if (pinned(i)) continue;
-          pos[i * 3 + 0] = clamp(pos[i * 3 + 0], minX, maxX);
-          pos[i * 3 + 1] = clamp(pos[i * 3 + 1], minY, maxY);
-          pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
+          if (pinned(i)) {
+            pos[i * 3 + 0] = rest[i * 3 + 0];
+            pos[i * 3 + 1] = rest[i * 3 + 1];
+            pos[i * 3 + 2] = rest[i * 3 + 2];
+
+            prev[i * 3 + 0] = rest[i * 3 + 0];
+            prev[i * 3 + 1] = rest[i * 3 + 1];
+            prev[i * 3 + 2] = rest[i * 3 + 2];
+            continue;
+          }
+
+          // grabbed vertex hard-pins to cursor (no spikes)
+          if (ENABLE_FABRIC_DRAG && isGrab && drag.dragIndex === i) {
+            const clamped = clampGrabTarget(i, drag.targetX, drag.targetY);
+            pos[i * 3 + 0] = clamped.x;
+            pos[i * 3 + 1] = clamped.y;
+            pos[i * 3 + 2] = -10;
+
+            prev[i * 3 + 0] = pos[i * 3 + 0];
+            prev[i * 3 + 1] = pos[i * 3 + 1];
+            prev[i * 3 + 2] = pos[i * 3 + 2];
+            continue;
+          }
+
+          const x = pos[i * 3 + 0];
+          const y = pos[i * 3 + 1];
+          const z = pos[i * 3 + 2];
+
+          const px = prev[i * 3 + 0];
+          const py = prev[i * 3 + 1];
+          const pz = prev[i * 3 + 2];
+
+          const vx = (x - px) * damping;
+          const vy = (y - py) * damping;
+          const vz = (z - pz) * damping;
+          const vAbs = Math.abs(vx) + Math.abs(vy) + Math.abs(vz);
+          if (vAbs > speedMax) speedMax = vAbs;
+
+          let ax = 0;
+          let ay = gravity;
+          let az = 0;
+
+          // return-to-shape
+          ax += (rest[i * 3 + 0] - x) * tether;
+          ay += (rest[i * 3 + 1] - y) * tether;
+          az += (rest[i * 3 + 2] - z) * zTether;
+
+          const ry = Math.floor(i / COLS);
+          const tRow = rowT[ry];
+
+          if (pointerActive) {
+            const dx = x - p.x;
+            const dy = y - p.y;
+            const r2 = dx * dx + dy * dy;
+            const fall = 1 / (1 + r2 / (28 * 28));
+
+            ax += p.vx * windStrength * fall * (0.25 + 0.75 * tRow);
+            ay += p.vy * windStrength * fall * (0.25 + 0.75 * tRow);
+            az += -liftStrength * fall * (0.2 + 0.8 * tRow);
+          }
+
+          if (Math.abs(scrollV) > 0.0001) {
+            ax -= scrollV * scrollWindStrength * (0.2 + 0.8 * tRow);
+          }
+
+          const tug = pull.current.v * (lowCost ? 0.5 : 1);
+          if (tug > 0.0001) {
+            ay += tug * 9000 * tRow;
+            az += -tug * 260 * tRow;
+          }
+
+          const rev = reveal.current.v * (lowCost ? 0.6 : 1);
+          if (rev > 0.0001) {
+            ay += rev * REVEAL_KICK_PULL * tRow;
+            az += -rev * 340 * tRow;
+          }
+
+          // intro flutter
+          ax += rowFlutterAx[ry];
+          az += rowFlutterAz[ry];
+
+          // animation wind
+          ax += rowAnimAx[ry];
+          ay += rowAnimAy[ry];
+          az += rowAnimAz[ry];
+
+          // release “settle” (helps the return feel like a fall, not a snap)
+          ax += rowReleaseAx[ry];
+          ay += rowReleaseAy[ry];
+          az += rowReleaseAz[ry];
+
+          prev[i * 3 + 0] = x;
+          prev[i * 3 + 1] = y;
+          prev[i * 3 + 2] = z;
+
+          pos[i * 3 + 0] = x + vx + ax * dt * dt;
+          pos[i * 3 + 1] = y + vy + ay * dt * dt;
+          pos[i * 3 + 2] = z + vz + az * dt * dt;
+        }
+
+        const settling = speedMax / Math.max(dt, 0.008) > SETTLE_SPEED;
+        if (settling) lastActiveAt = time;
+
+        busy =
+          isTransitioning ||
+          pointerActive ||
+          drag.mode !== "idle" ||
+          Math.abs(scrollWindRef.current.vx) > 0.002 ||
+          animWind.current.v > 0.001 ||
+          reveal.current.v > 0.001 ||
+          pull.current.v > 0.001 ||
+          release.current.v > 0.001 ||
+          Math.abs(sizeMotionRef.current.vel) > 0.01;
+        if (time - lastActiveAt < SETTLE_HOLD_MS) busy = true;
+
+        // Solve constraints more during grabbing/return to smooth kinks
+        const introWarm = safariDesktop && introAge > 0 && introAge < 420;
+        const scrollWarm = safariDesktop && scrollActive;
+        const constraintsList = scrollWarm || perfDrop || lowCost ? constraintsBase : constraintsAll;
+        const ITER = busy
+          ? safariDesktop
+            ? (isGrab ? 12 : isReturn ? 8 : isTransitioning ? 5 : scrollWarm || perfDrop ? 4 : introWarm ? 5 : 6)
+            : (isGrab ? 22 : isReturn ? 14 : isTransitioning ? 8 : 10)
+          : safariDesktop
+            ? 4
+            : 6;
+
+        for (let it = 0; it < ITER; it++) {
+          for (let c = 0; c < constraintsList.length; c++) {
+            const { a, b, rest: L } = constraintsList[c];
+
+            const axp = pos[a * 3 + 0];
+            const ayp = pos[a * 3 + 1];
+            const azp = pos[a * 3 + 2];
+
+            const bxp = pos[b * 3 + 0];
+            const byp = pos[b * 3 + 1];
+            const bzp = pos[b * 3 + 2];
+
+            const dx = bxp - axp;
+            const dy = byp - ayp;
+            const dz = bzp - azp;
+
+            const d = Math.hypot(dx, dy, dz) || 1;
+            const diff = (d - L) / d;
+
+            const aPinned = pinned(a);
+            const bPinned = pinned(b);
+
+            const wa = aPinned ? 0 : 0.5;
+            const wb = bPinned ? 0 : 0.5;
+
+            const sx = dx * diff;
+            const sy = dy * diff;
+            const sz = dz * diff;
+
+            if (!aPinned) {
+              pos[a * 3 + 0] += sx * wa;
+              pos[a * 3 + 1] += sy * wa;
+              pos[a * 3 + 2] += sz * wa;
+            }
+            if (!bPinned) {
+              pos[b * 3 + 0] -= sx * wb;
+              pos[b * 3 + 1] -= sy * wb;
+              pos[b * 3 + 2] -= sz * wb;
+            }
+          }
+
+          // keep top row pinned
+          for (let cx = 0; cx < COLS; cx++) {
+            const i = idx(cx, 0);
+            pos[i * 3 + 0] = rest[i * 3 + 0];
+            pos[i * 3 + 1] = rest[i * 3 + 1];
+            pos[i * 3 + 2] = rest[i * 3 + 2];
+          }
+
+          enforceGrab();
+        }
+
+        // Smoothing to reduce “sharp points” when dragging/returning
+        const smoothK = busy
+          ? safariDesktop
+            ? 0
+            : isGrab
+              ? 0.3
+              : isReturn
+                ? lerp(0.16, 0.06, returnEase)
+                : 0
+          : 0;
+        smoothPass(smoothK);
+
+        if (isReturn && returnAlpha >= 1) {
+          let maxD = 0;
+          for (let i = 0; i < COUNT; i++) {
+            if (pinned(i)) continue;
+            const dx = pos[i * 3 + 0] - rest[i * 3 + 0];
+            const dy = pos[i * 3 + 1] - rest[i * 3 + 1];
+            const dz = pos[i * 3 + 2] - rest[i * 3 + 2];
+            const d = Math.hypot(dx, dy, dz);
+            if (d > maxD) maxD = d;
+          }
+
+          if (maxD < RETURN_SETTLE_DIST) {
+            drag.mode = "idle";
+            isReturn = false;
+          }
+        }
+
+        // Clamps
+        if (ENABLE_FABRIC_DRAG && isGrab) {
+          for (let i = 0; i < COUNT; i++) {
+            if (pinned(i)) continue;
+            pos[i * 3 + 0] = clamp(pos[i * 3 + 0], -VIEWPORT_PAD, fullW + VIEWPORT_PAD);
+            pos[i * 3 + 1] = clamp(pos[i * 3 + 1], -VIEWPORT_PAD, fullH + VIEWPORT_PAD);
+            pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
+          }
+        } else if (isReturn) {
+          const minX = -RETURN_PAD_X;
+          const maxX = fullW + RETURN_PAD_X;
+          const minY = lerp(-RETURN_PAD, startY - 8, returnEase);
+          const maxY = lerp(fullH + RETURN_PAD, startY + stripHeight + 14, returnEase);
+
+          for (let i = 0; i < COUNT; i++) {
+            if (pinned(i)) continue;
+            pos[i * 3 + 0] = clamp(pos[i * 3 + 0], minX, maxX);
+            pos[i * 3 + 1] = clamp(pos[i * 3 + 1], minY, maxY);
+            pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
+          }
+        } else {
+          const minX = -RETURN_PAD_X;
+          const maxX = fullW + RETURN_PAD_X;
+          const minY = -RETURN_PAD;
+          const maxY = fullH + RETURN_PAD;
+
+          for (let i = 0; i < COUNT; i++) {
+            if (pinned(i)) continue;
+            pos[i * 3 + 0] = clamp(pos[i * 3 + 0], minX, maxX);
+            pos[i * 3 + 1] = clamp(pos[i * 3 + 1], minY, maxY);
+            pos[i * 3 + 2] = clamp(pos[i * 3 + 2], -18, 18);
+          }
         }
       }
-
-      enforceGrab();
 
       // draw
       gl.clearColor(0, 0, 0, 0);
@@ -1814,9 +2806,59 @@ export default function BookmarkLinkFabric({
 
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
       gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+
+      scheduleNext(busy ? 0 : safariDesktop ? 120 : 80);
+
+      if ((window as any).__bookmarkDebug) {
+        if (!debugEl) {
+          debugEl = document.getElementById("bookmark-debug") as HTMLDivElement | null;
+          if (!debugEl) {
+            debugEl = document.createElement("div");
+            debugEl.id = "bookmark-debug";
+            debugEl.style.position = "fixed";
+            debugEl.style.right = "12px";
+            debugEl.style.bottom = "12px";
+            debugEl.style.zIndex = "10050";
+            debugEl.style.padding = "8px 10px";
+            debugEl.style.borderRadius = "8px";
+            debugEl.style.background = "rgba(0,0,0,0.65)";
+            debugEl.style.color = "#fff";
+            debugEl.style.font = "12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace";
+            debugEl.style.pointerEvents = "none";
+            document.body.appendChild(debugEl);
+          }
+        }
+
+        if (time >= debugNextAt && debugEl) {
+          const d = debugStateRef.current;
+          debugEl.textContent = [
+            `bookmark-debug`,
+            `targetH ${d.targetH.toFixed(1)}  appliedH ${d.appliedH.toFixed(1)}`,
+            `stripH ${d.stripH.toFixed(1)}  anchorY ${d.anchorY.toFixed(1)}`,
+            `scrollVx ${d.scrollVx.toFixed(3)}  dt ${(dt * 1000).toFixed(1)}ms`,
+            `lastApply ${(time - d.lastApplyAt).toFixed(0)}ms`,
+          ].join("\n");
+          debugNextAt = time + 240;
+        }
+      } else if (debugEl) {
+        debugEl.remove();
+        debugEl = null;
+      }
     };
 
-    raf = window.requestAnimationFrame(draw);
+    scheduleNext(0);
+
+    const onNavStart = () => {
+      if (!safariDesktop) return;
+      setPaused(true);
+    };
+    const onNavEnd = () => {
+      if (!safariDesktop) return;
+      setPaused(false);
+    };
+
+    window.addEventListener(APP_EVENTS.NAV_START, onNavStart);
+    window.addEventListener(APP_EVENTS.NAV_END, onNavEnd);
 
     const onResize = () => resize();
     window.addEventListener("resize", onResize);
@@ -1824,16 +2866,25 @@ export default function BookmarkLinkFabric({
     return () => {
       isActive = false;
       window.removeEventListener("resize", onResize);
+      window.removeEventListener(APP_EVENTS.NAV_START, onNavStart);
+      window.removeEventListener(APP_EVENTS.NAV_END, onNavEnd);
       window.cancelAnimationFrame(raf);
+      if (timeoutId) window.clearTimeout(timeoutId);
+      timeoutId = null;
 
       simApiRef.current = null;
+
+      if (debugEl) {
+        debugEl.remove();
+        debugEl = null;
+      }
 
       gl.deleteBuffer(posBuf);
       gl.deleteBuffer(uvBuf);
       gl.deleteBuffer(idxBuf);
       gl.deleteProgram(prog);
     };
-  }, [overlayEl]);
+  }, [overlayEl, simEnabled]);
 
   const fallbackBookmark = useMemo(() => {
     return (
@@ -1856,8 +2907,8 @@ export default function BookmarkLinkFabric({
   }, []);
 
   const ariaLabel = isHome ? homeLabel ?? "Project index" : "Back";
-  const fallbackVisible = !webglOk || !canvasReady;
-  const canvasVisible = webglOk && canvasReady;
+  const fallbackVisible = !simEnabled || !webglOk || !canvasReady;
+  const canvasVisible = simEnabled && webglOk && canvasReady && isShown;
 
   return (
     <>

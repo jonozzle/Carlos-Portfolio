@@ -170,18 +170,9 @@ body {
 @media (pointer: fine) {
 
   /* Only hide OS cursor when custom cursor is ACTIVE */
-  .has-custom-cursor.custom-cursor-active {
+  .has-custom-cursor.custom-cursor-active,
+  .has-custom-cursor.custom-cursor-active * {
     cursor: none;
-  }
-
-  .has-custom-cursor.custom-cursor-active a,
-  .has-custom-cursor.custom-cursor-active button,
-  .has-custom-cursor.custom-cursor-active [role="button"],
-  .has-custom-cursor.custom-cursor-active label,
-  .has-custom-cursor.custom-cursor-active summary,
-  .has-custom-cursor.custom-cursor-active .cursor-pointer,
-  .has-custom-cursor.custom-cursor-active [data-cursor] {
-    cursor: none !important;
   }
 
   /* Keep I-beam where you type (even while custom cursor is active) */

@@ -6,7 +6,6 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
-import { SplitText } from "gsap/SplitText";
 import ScrollSmoother from "gsap/ScrollSmoother";
 import { useLoader } from "@/components/loader/loader-context";
 import { preloadAndDecodeImages } from "@/lib/preload-images";
@@ -14,8 +13,14 @@ import { setCurrentScrollY } from "@/lib/scroll-state";
 import { consumeNavIntent } from "@/lib/nav-intent";
 import { scheduleScrollTriggerRefresh } from "@/lib/refresh-manager";
 
-if (typeof window !== "undefined") {
-  gsap.registerPlugin(SplitText);
+function isDesktopSafari() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+  const isApple = /Apple/i.test(vendor);
+  const isMobile = /Mobile|iP(ad|hone|od)/i.test(ua);
+  return isSafari && isApple && !isMobile;
 }
 
 type Props = {
@@ -209,8 +214,28 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       if (!root || !nameRow || !bigC || !smallC || !restFirst || !restSecond) return;
 
       const isMobile = window.matchMedia("(max-width: 767px)").matches;
+      const safariDesktop = isDesktopSafari();
+      const cGpu = safariDesktop
+        ? { force3D: true, backfaceVisibility: "hidden" as const, transformOrigin: "50% 50%" }
+        : { transformOrigin: "50% 50%" };
+
+      let resumeSmoother = () => {};
+
+      if (safariDesktop) {
+        const smoother = ScrollSmoother.get();
+        const hasPausedFn = typeof (smoother as any)?.paused === "function";
+        const prevPaused = hasPausedFn ? (smoother as any).paused() : null;
+        if (hasPausedFn) (smoother as any).paused(true);
+
+        resumeSmoother = () => {
+          if (!hasPausedFn || !smoother) return;
+          (smoother as any).paused(!!prevPaused);
+        };
+
+      }
 
       const markDone = () => {
+        resumeSmoother();
         setDone(true);
         setAllowed(false);
         setLoaderDone(true);
@@ -241,7 +266,13 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         // ignore
       }
 
-      gsap.set(root, { autoAlpha: 1, xPercent: 0, yPercent: 0 });
+      gsap.set(root, {
+        autoAlpha: 1,
+        xPercent: 0,
+        yPercent: 0,
+        willChange: "transform",
+        ...(safariDesktop ? { force3D: true, backfaceVisibility: "hidden" as const } : {}),
+      });
 
       // Put page off-canvas, then loader will slide it in.
       if (pageRoot) {
@@ -250,21 +281,28 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
           yPercent: isMobile ? 100 : 0,
           opacity: 1,
           willChange: "transform",
+          ...(safariDesktop ? { force3D: true, backfaceVisibility: "hidden" as const } : {}),
         });
       }
+
+      // Hide the C's immediately so we don't flash the pre-font layout while waiting.
+      gsap.set([bigC, smallC], { opacity: 0, scale: 0, willChange: "transform,opacity", ...cGpu });
 
       // Allow the app to paint once we’ve established initial states.
       openFoucGateNow();
 
-      // Split for opacity-stagger reveal only.
-      const splitFirst = new SplitText(restFirst, { type: "chars" });
-      const splitSecond = new SplitText(restSecond, { type: "chars" });
-
-      const firstChars = splitFirst.chars;
-      const secondChars = splitSecond.chars;
+      const firstChars = Array.from(
+        restFirst.querySelectorAll<HTMLElement>("[data-loader-char='first']")
+      );
+      const secondChars = Array.from(
+        restSecond.querySelectorAll<HTMLElement>("[data-loader-char='second']")
+      );
 
       gsap.set([restFirst, restSecond], { opacity: 1 });
-      gsap.set([...firstChars, ...secondChars], { opacity: 0, willChange: "opacity" });
+      gsap.set(
+        [...firstChars, ...secondChars],
+        safariDesktop ? { opacity: 0 } : { opacity: 0, willChange: "opacity" }
+      );
 
       const collectPreloadUrls = () => {
         const scope = pageRoot ?? document;
@@ -280,7 +318,10 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
         const urls = collectPreloadUrls();
-        await preloadAndDecodeImages(urls, { concurrency: 6, timeoutMs: 8000 });
+        await preloadAndDecodeImages(urls, {
+          concurrency: safariDesktop ? 2 : 6,
+          timeoutMs: 8000,
+        });
 
         (window as any).__imagesPreloaded = true;
         try {
@@ -290,103 +331,152 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         }
       };
 
-      // Compute the “C” move-to-center offsets.
-      const screenW = window.innerWidth;
-      const screenH = window.innerHeight;
+      let killed = false;
+      let tl: gsap.core.Timeline | null = null;
 
-      const bigRect = bigC.getBoundingClientRect();
-      const smallRect = smallC.getBoundingClientRect();
+      const waitForFonts = async () => {
+        if (!safariDesktop) return;
+        const fonts = (document as any).fonts;
+        if (!fonts?.ready) return;
+        if (fonts.status === "loaded") return;
+        await Promise.race([
+          fonts.ready,
+          new Promise<void>((r) => window.setTimeout(r, 1200)),
+        ]);
+      };
 
-      const centerX = screenW / 2;
-      const centerY = screenH / 2;
+      const startTimeline = async () => {
+        await waitForFonts();
+        if (killed) return;
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        if (killed) return;
 
-      const bigCenterX = bigRect.left + bigRect.width / 2;
-      const bigCenterY = bigRect.top + bigRect.height / 2;
-      const smallCenterX = smallRect.left + smallRect.width / 2;
-      const smallCenterY = smallRect.top + smallRect.height / 2;
+        // Compute the “C” move-to-center offsets.
+        const screenW = window.innerWidth;
+        const screenH = window.innerHeight;
 
-      const bigDx = centerX - bigCenterX;
-      const bigDy = centerY - bigCenterY;
-      const smallDx = centerX - smallCenterX;
-      const smallDy = centerY - smallCenterY;
+        const bigRect = bigC.getBoundingClientRect();
+        const smallRect = smallC.getBoundingClientRect();
 
-      gsap.set(bigC, { x: bigDx, y: bigDy, rotation: 0 });
-      gsap.set(smallC, { x: smallDx - 6, y: smallDy + 6, rotation: -185 });
-      gsap.set([bigC, smallC], { opacity: 0, scale: 0, willChange: "transform" });
+        const centerX = screenW / 2;
+        const centerY = screenH / 2;
 
-      const REVEAL_DUR = 1.0;
-      const TRANSITION_DUR = 1.35;
-      const AFTER_REVEAL_DELAY = 0.25;
+        const bigCenterX = bigRect.left + bigRect.width / 2;
+        const bigCenterY = bigRect.top + bigRect.height / 2;
+        const smallCenterX = smallRect.left + smallRect.width / 2;
+        const smallCenterY = smallRect.top + smallRect.height / 2;
 
-      const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
+        const bigDx = centerX - bigCenterX;
+        const bigDy = centerY - bigCenterY;
+        const smallDx = centerX - smallCenterX;
+        const smallDy = centerY - smallCenterY;
 
-      // Bring C’s in and settle to their natural positions.
-      tl.to(bigC, { opacity: 1, duration: 0.5, scale: 1, ease: "power2.inOut" }, 0);
-      tl.to(smallC, { opacity: 1, duration: 0.5, scale: 1, ease: "power2.inOut" }, "+=0.2");
-      tl.to([bigC, smallC], { x: 0, y: 0, rotation: 0, duration: 1.4, ease: "power2.inOut" }, "-=0.5");
+        gsap.set(bigC, { x: bigDx, y: bigDy, rotation: 0, ...cGpu });
+        gsap.set(smallC, { x: smallDx - 6, y: smallDy + 6, rotation: -185, ...cGpu });
+        gsap.set([bigC, smallC], { opacity: 0, scale: 0, willChange: "transform,opacity", ...cGpu });
 
-      // Preload BEFORE text reveal + page transition.
-      tl.add(() => {
-        tl.pause();
-        runPreloadGate()
-          .catch(() => { })
-          .finally(() => tl.resume());
-      });
+        const REVEAL_DUR = 1.0;
+        const TRANSITION_DUR = 1.35;
+        const AFTER_REVEAL_DELAY = 0.25;
 
-      tl.addLabel("reveal");
+        tl = gsap.timeline({ defaults: { ease: "power3.out" } });
 
-      // Stagger opacity ON (left-to-right by DOM order).
-      tl.to(
-        firstChars,
-        { opacity: 1, duration: REVEAL_DUR, stagger: 0.055, ease: "power2.inOut" },
-        "reveal"
-      );
-
-      tl.to(
-        secondChars,
-        { opacity: 1, duration: REVEAL_DUR, stagger: 0.055, ease: "power2.inOut" },
-        "reveal+=0.18"
-      );
-
-      tl.addLabel("transition", `reveal+=${REVEAL_DUR + AFTER_REVEAL_DELAY}`);
-
-      // Swipe loader out as the page swipes in.
-      tl.to(
-        root,
-        {
-          xPercent: isMobile ? 0 : -100,
-          yPercent: isMobile ? -100 : 0,
-          duration: TRANSITION_DUR,
-          ease: "power3.inOut",
-        },
-        "transition"
-      );
-
-      if (pageRoot) {
+        // Bring C’s in and settle to their natural positions.
         tl.to(
-          pageRoot,
+          bigC,
+          { opacity: 1, duration: 0.5, scale: 1, ease: "power2.inOut", ...(safariDesktop ? { force3D: true } : {}) },
+          0
+        );
+        tl.to(
+          smallC,
+          { opacity: 1, duration: 0.5, scale: 1, ease: "power2.inOut", ...(safariDesktop ? { force3D: true } : {}) },
+          "+=0.2"
+        );
+        tl.to(
+          [bigC, smallC],
+          { x: 0, y: 0, rotation: 0, duration: 1.4, ease: "power2.inOut", ...(safariDesktop ? { force3D: true } : {}) },
+          "-=0.5"
+        );
+
+        const deferPreload = () => {
+          const w = window as any;
+          const run = () => runPreloadGate().catch(() => { });
+          if (typeof w.requestIdleCallback === "function") {
+            w.requestIdleCallback(run, { timeout: 1500 });
+          } else {
+            window.setTimeout(run, 300);
+          }
+        };
+
+        // Preload BEFORE text reveal + page transition (skip blocking on Safari desktop).
+        if (!safariDesktop) {
+          tl.add(() => {
+            tl.pause();
+            runPreloadGate()
+              .catch(() => { })
+              .finally(() => tl.resume());
+          });
+        }
+
+        tl.addLabel("reveal");
+
+        // Stagger opacity ON (left-to-right by DOM order).
+        tl.to(
+          firstChars,
+          { opacity: 1, duration: REVEAL_DUR, stagger: 0.055, ease: "power2.inOut" },
+          "reveal"
+        );
+
+        tl.to(
+          secondChars,
+          { opacity: 1, duration: REVEAL_DUR, stagger: 0.055, ease: "power2.inOut" },
+          "reveal+=0.18"
+        );
+
+        tl.addLabel("transition", `reveal+=${REVEAL_DUR + AFTER_REVEAL_DELAY}`);
+
+        // Swipe loader out as the page swipes in.
+        tl.to(
+          root,
           {
-            xPercent: 0,
-            yPercent: 0,
+            xPercent: isMobile ? 0 : -100,
+            yPercent: isMobile ? -100 : 0,
             duration: TRANSITION_DUR,
             ease: "power3.inOut",
-            clearProps: "transform,willChange",
-            onComplete: () => {
-              gsap.set(root, { autoAlpha: 0 });
-              markDone();
-            },
           },
           "transition"
         );
-      } else {
-        tl.set(root, { autoAlpha: 0 }, `transition+=${TRANSITION_DUR}`);
-        tl.add(markDone, `transition+=${TRANSITION_DUR}`);
-      }
+
+        if (pageRoot) {
+          tl.to(
+            pageRoot,
+            {
+              xPercent: 0,
+              yPercent: 0,
+              duration: TRANSITION_DUR,
+              ease: "power3.inOut",
+              clearProps: "transform,willChange",
+              onComplete: () => {
+                gsap.set(root, { autoAlpha: 0 });
+                if (safariDesktop) deferPreload();
+                markDone();
+              },
+            },
+            "transition"
+          );
+        } else {
+          tl.set(root, { autoAlpha: 0 }, `transition+=${TRANSITION_DUR}`);
+          if (safariDesktop) tl.add(deferPreload, `transition+=${TRANSITION_DUR}`);
+          tl.add(markDone, `transition+=${TRANSITION_DUR}`);
+        }
+      };
+
+      startTimeline();
 
       return () => {
-        tl.kill();
-        splitFirst.revert();
-        splitSecond.revert();
+        killed = true;
+        resumeSmoother();
+        tl?.kill();
       };
     },
     { scope: rootRef, dependencies: [allowed, enable, positionOnly, setLoaderDone] }
@@ -402,16 +492,32 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
           C
         </span>
 
-        <span ref={restFirstRef} className="font-serif text-[48px] md:text-[78px] leading-none tracking-tight inline-block ml-0">
-          arlos
+        <span
+          ref={restFirstRef}
+          aria-label="arlos"
+          className="font-serif text-[48px] md:text-[78px] leading-none tracking-tight inline-block ml-0"
+        >
+          {"arlos".split("").map((ch, i) => (
+            <span key={`first-${i}`} data-loader-char="first" aria-hidden="true">
+              {ch}
+            </span>
+          ))}
         </span>
 
         <span ref={smallCRef} className="font-serif text-[64px] md:text-[110px] leading-none inline-block ml-5">
           C
         </span>
 
-        <span ref={restSecondRef} className="font-serif text-[48px] md:text-[78px] leading-none tracking-tight inline-block ml-0">
-          astrosin
+        <span
+          ref={restSecondRef}
+          aria-label="astrosin"
+          className="font-serif text-[48px] md:text-[78px] leading-none tracking-tight inline-block ml-0"
+        >
+          {"astrosin".split("").map((ch, i) => (
+            <span key={`second-${i}`} data-loader-char="second" aria-hidden="true">
+              {ch}
+            </span>
+          ))}
         </span>
       </div>
     </div>

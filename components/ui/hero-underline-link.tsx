@@ -298,9 +298,12 @@ export default function HeroUnderlineLink({
   const content = React.useMemo(() => {
     if (!wrapper) return titleWithUnderline;
 
+    const titleWithKey = React.cloneElement(titleWithUnderline, { key: "hero-title" });
+    const detailNodes = React.Children.toArray(details ?? []);
+
     // Rebuild the original wrapper (keeps layout classes like inline-flex flex-col items-start)
     // but replace its first child (title) with our title+underline, and append the details under it.
-    return React.cloneElement(wrapper, wrapper.props, [titleWithUnderline, ...(details ?? [])]);
+    return React.cloneElement(wrapper, wrapper.props, [titleWithKey, ...detailNodes]);
   }, [details, titleWithUnderline, wrapper]);
 
   const { onMouseEnter, onMouseLeave, onFocus, onBlur, ...linkProps } = rest as any;

@@ -44,6 +44,16 @@ function isOverlayBusy(overlay: HTMLDivElement) {
   return overlay.dataset?.heroTweening === "1" || overlay.dataset?.heroParked === "1";
 }
 
+function isDesktopSafari() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+  const isApple = /Apple/i.test(vendor);
+  const isMobile = /Mobile|iP(ad|hone|od)/i.test(ua);
+  return isSafari && isApple && !isMobile;
+}
+
 function rectLooksValid(r: DOMRect) {
   return (
     Number.isFinite(r.left) &&
@@ -510,6 +520,35 @@ export function completeHeroTransition({
         (window as any).__heroPending = { slug, overlay, targetEl: t, overlayImg };
         dispatchHeroDone();
         onDone?.();
+
+        // Safari desktop: if finalize doesn't run, force-remove the overlay.
+        if (isDesktopSafari()) {
+          window.setTimeout(() => {
+            const cur = (window as any).__heroPending as PendingHero | undefined;
+            if (cur?.overlay !== overlay) return;
+            if (typeof document === "undefined" || !document.body.contains(overlay)) return;
+
+            try {
+              gsap.killTweensOf(overlay);
+            } catch {
+              // ignore
+            }
+            try {
+              overlay.remove();
+            } catch {
+              // ignore
+            }
+
+            try {
+              gsap.set(t, { opacity: 1, clearProps: "visibility,pointerEvents" });
+            } catch {
+              // ignore
+            }
+
+            (window as any).__heroPending = undefined;
+            (window as any).__heroDone = true;
+          }, 2000);
+        }
       });
 
       return;

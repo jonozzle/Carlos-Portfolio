@@ -34,7 +34,8 @@ export default function UiRevealCoordinator() {
         emit(APP_EVENTS.UI_CURSOR_SHOW);
         emit(APP_EVENTS.UI_BOOKMARK_SHOW);
       } else {
-        emit(APP_EVENTS.UI_CURSOR_HIDE);
+        // Keep custom cursor active during the loader; only hide bookmark UI.
+        emit(APP_EVENTS.UI_CURSOR_SHOW);
         emit(APP_EVENTS.UI_BOOKMARK_HIDE);
       }
     };

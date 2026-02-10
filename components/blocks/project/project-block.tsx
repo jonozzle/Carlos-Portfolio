@@ -366,7 +366,46 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         const match = !!pending && pending.slug === slug;
         if (!match) return;
 
+        const safariDesktop = (() => {
+            const ua = navigator.userAgent;
+            const vendor = navigator.vendor || "";
+            const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+            const isApple = /Apple/i.test(vendor);
+            const isMobile = /Mobile|iP(ad|hone|od)/i.test(ua);
+            return isSafari && isApple && !isMobile;
+        })();
+
         hardResetScale();
+
+        if (safariDesktop) {
+            const el = tileRef.current;
+            if (!el) return;
+
+            const run = () => {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        completeHeroTransition({
+                            slug,
+                            targetEl: el,
+                            mode: "parkThenPage",
+                        });
+                    });
+                });
+            };
+
+            if ((window as any).__homeHsRestored) {
+                window.setTimeout(run, 160);
+            } else {
+                const onHomeRestored = () => {
+                    window.setTimeout(run, 160);
+                };
+                window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored, { once: true });
+                return () => {
+                    window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored as any);
+                };
+            }
+            return;
+        }
 
         let raf = 0;
         let frames = 0;
@@ -375,9 +414,9 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         let lastRect: { left: number; top: number; width: number; height: number } | null = null;
         let stableCount = 0;
 
-        const EPS = 0.75;
-        const STABLE_FRAMES = 4;
-        const MAX_FRAMES = 360;
+        const EPS = safariDesktop ? 2.5 : 0.75;
+        const STABLE_FRAMES = safariDesktop ? 2 : 4;
+        const MAX_FRAMES = safariDesktop ? 180 : 360;
 
         let nudged = false;
 
@@ -478,7 +517,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 return;
             }
 
-            if (inView && stableCount >= STABLE_FRAMES) {
+            if ((safariDesktop || inView) && stableCount >= STABLE_FRAMES) {
                 raf = requestAnimationFrame(() => requestAnimationFrame(run));
                 return;
             }

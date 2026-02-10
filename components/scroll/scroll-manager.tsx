@@ -130,6 +130,7 @@ export default function ScrollManager() {
     if (pathname !== "/") return;
 
     const dispatchHomeRestored = () => {
+      if ((window as any).__homeHsRestored) return;
       (window as any).__homeHsRestored = true;
 
       // RELEASE the CSS hold now that the section is restored
@@ -169,7 +170,20 @@ export default function ScrollManager() {
       };
 
       restoreWithFrames(run, () => {
-        scheduleScrollTriggerRefresh(() => dispatchHomeRestored());
+        let fired = false;
+        let fallbackId: number | null = null;
+
+        const fire = () => {
+          if (fired) return;
+          fired = true;
+          if (fallbackId) window.clearTimeout(fallbackId);
+          dispatchHomeRestored();
+        };
+
+        scheduleScrollTriggerRefresh(() => fire());
+
+        // Safety: if refresh is deferred (hero overlay busy), still release restore after a beat.
+        fallbackId = window.setTimeout(fire, 1200);
       });
     };
 
