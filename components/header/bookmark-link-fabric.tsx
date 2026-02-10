@@ -105,26 +105,28 @@ const SCROLL_WIND_MAX = 1.2;
 const SCROLL_WIND_SMOOTH = 0.12;
 const SAFARI_SCROLL_WIND_MULT = 0.7;
 const SAFARI_SCROLL_WIND_SMOOTH = 0.14;
-const SAFARI_DAMPING_SCROLLING = 0.82;
-const SAFARI_DAMPING_IDLE = 0.8;
-const SAFARI_WIND_MULT = 0.6;
-const SAFARI_LIFT_MULT = 0.6;
+const SAFARI_DAMPING_SCROLLING = 0.78;
+const SAFARI_DAMPING_IDLE = 0.76;
+const SAFARI_WIND_MULT = 0.55;
+const SAFARI_LIFT_MULT = 0.5;
 const SAFARI_FLUTTER_MULT = 0.0;
 const SAFARI_RELEASE_MULT = 0.12;
-const SAFARI_ANIM_MULT = 0.3;
+const SAFARI_ANIM_MULT = 0.2;
 const SAFARI_GRAVITY = 1050;
-const SAFARI_TETHER_MULT = 1.25;
-const SAFARI_Z_TETHER_MULT = 1.1;
+const SAFARI_TETHER_MULT = 1.05;
+const SAFARI_Z_TETHER_MULT = 1.0;
 const SAFARI_GRAB_STRETCH = 1.3;
 const SAFARI_GRAB_REST_MIN = 0.05;
 const SAFARI_GRAB_TETHER_MULT = 0.45;
 const SAFARI_GRAB_Z_TETHER_MULT = 0.5;
+const SAFARI_REVEAL_MULT = 0.35;
 
 const SETTLE_SPEED = 6;
 const SETTLE_HOLD_MS = 180;
 const SIZE_EPS = 2;
 const SIZE_TWEEN_DUR = 0.7;
 const VIEWPORT_HEIGHT_EPS = 8;
+const SAFARI_HEIGHT_SKIP_THRESHOLD = 80;
 
 // Grab smoothing (softly pull a patch to avoid vertex points)
 const GRAB_SOFT_RADIUS = 3;
@@ -322,6 +324,10 @@ export default function BookmarkLinkFabric({
   const pathname = usePathname();
   const isHome = pathname === "/";
   const safariDesktop = useMemo(() => isDesktopSafari(), []);
+  const [safariWebglReady, setSafariWebglReady] = useState(
+    () => !safariDesktop || loaderDone
+  );
+  const safariIntroSuppressedRef = useRef(false);
 
   const linkRef = useRef<HTMLAnchorElement | null>(null);
   const innerWrapRef = useRef<HTMLDivElement | null>(null);
@@ -332,6 +338,8 @@ export default function BookmarkLinkFabric({
   const createdOverlayRef = useRef(false);
 
   const shownRef = useRef(false);
+  const safariShowWaitingRef = useRef(false);
+  const safariShowRafRef = useRef<number | null>(null);
 
   const stored0 = getStoredSize();
   const sizeProxyRef = useRef({
@@ -386,6 +394,54 @@ export default function BookmarkLinkFabric({
   useEffect(() => {
     isShownRef.current = isShown;
   }, [isShown]);
+
+  const cancelSafariShowWait = useCallback(() => {
+    safariShowWaitingRef.current = false;
+    if (safariShowRafRef.current != null) {
+      window.cancelAnimationFrame(safariShowRafRef.current);
+      safariShowRafRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!safariDesktop) {
+      setSafariWebglReady(true);
+      return;
+    }
+
+    if (!loaderDone) {
+      safariIntroSuppressedRef.current = true;
+      setSafariWebglReady(false);
+      return;
+    }
+
+    if (!safariIntroSuppressedRef.current) {
+      setSafariWebglReady(true);
+      return;
+    }
+
+    let cancelled = false;
+    const enable = () => {
+      if (cancelled) return;
+      safariIntroSuppressedRef.current = false;
+      setSafariWebglReady(true);
+    };
+
+    const w = window as any;
+    if (typeof w?.requestIdleCallback === "function") {
+      const id = w.requestIdleCallback(enable, { timeout: 800 });
+      return () => {
+        cancelled = true;
+        if (typeof w.cancelIdleCallback === "function") w.cancelIdleCallback(id);
+      };
+    }
+
+    const t = window.setTimeout(enable, 320);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [loaderDone, safariDesktop]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -510,7 +566,8 @@ export default function BookmarkLinkFabric({
       .to(release.current, { v: 0, duration: 0.55, ease: "power2.out" });
   }, []);
 
-  const applySize = useCallback((height: number, extra: number) => {
+  const applySize = useCallback(
+    (height: number, extra: number, opts?: { skipElHeight?: boolean }) => {
     const el = linkRef.current;
     if (!el) return;
 
@@ -523,7 +580,9 @@ export default function BookmarkLinkFabric({
     sizeMotionRef.current.lastH = height;
     sizeMotionRef.current.vel = sizeMotionRef.current.vel * 0.75 + dhSafe * 0.25;
 
-    gsap.set(el, { height });
+    if (!opts?.skipElHeight) {
+      gsap.set(el, { height });
+    }
     el.style.setProperty("--bookmark-total", `${height}px`);
     el.style.setProperty("--bookmark-extra", `${extra}px`);
 
@@ -547,8 +606,17 @@ export default function BookmarkLinkFabric({
   }, [isHome]);
 
   const tweenSizeTo = useCallback(
-    (height: number, extra: number, duration = SIZE_TWEEN_DUR) => {
+    (
+      height: number,
+      extra: number,
+      duration = SIZE_TWEEN_DUR,
+      opts?: { skipElHeight?: boolean }
+    ) => {
       sizeTweenRef.current?.kill();
+      if (opts?.skipElHeight) {
+        const el = linkRef.current;
+        if (el) gsap.set(el, { height });
+      }
       const proxy = sizeProxyRef.current;
       sizeTweenRef.current = gsap.to(proxy, {
         height,
@@ -556,7 +624,10 @@ export default function BookmarkLinkFabric({
         duration,
         ease: "power2.out",
         overwrite: "auto",
-        onUpdate: () => applySize(proxy.height, proxy.extra),
+        onUpdate: () => applySize(proxy.height, proxy.extra, opts),
+        onComplete: () => {
+          if (opts?.skipElHeight) applySize(proxy.height, proxy.extra);
+        },
       });
     },
     [applySize]
@@ -564,8 +635,10 @@ export default function BookmarkLinkFabric({
 
   const animateToTargetSize = useCallback(() => {
     const { height, extra } = computeTargetSize();
-    tweenSizeTo(height, extra, SIZE_TWEEN_DUR);
-  }, [computeTargetSize, tweenSizeTo]);
+    const shouldSkipElHeight =
+      safariDesktop && Math.abs(height - sizeProxyRef.current.height) > SAFARI_HEIGHT_SKIP_THRESHOLD;
+    tweenSizeTo(height, extra, SIZE_TWEEN_DUR, { skipElHeight: shouldSkipElHeight });
+  }, [computeTargetSize, safariDesktop, tweenSizeTo]);
 
   const flushPendingSize = useCallback(
     (opts?: { force?: boolean; animate?: boolean }) => {
@@ -574,12 +647,14 @@ export default function BookmarkLinkFabric({
       const { height, extra } = pendingSizeRef.current;
       pendingSizeRef.current = null;
       if (opts?.animate) {
-        tweenSizeTo(height, extra, SIZE_TWEEN_DUR);
+        const shouldSkipElHeight =
+          safariDesktop && Math.abs(height - sizeProxyRef.current.height) > SAFARI_HEIGHT_SKIP_THRESHOLD;
+        tweenSizeTo(height, extra, SIZE_TWEEN_DUR, { skipElHeight: shouldSkipElHeight });
         return;
       }
       applySize(height, extra);
     },
-    [applySize, tweenSizeTo]
+    [applySize, safariDesktop, tweenSizeTo]
   );
 
   const scheduleDeferredSize = useCallback(() => {
@@ -654,8 +729,10 @@ export default function BookmarkLinkFabric({
       }
 
       if (safariDesktop) {
-        // Always tween on Safari for smooth height changes
-        tweenSizeTo(targetHeight, targetExtra, SIZE_TWEEN_DUR);
+        // Always tween on Safari for smooth height changes, but avoid layout thrash on large deltas
+        const shouldSkipElHeight =
+          Math.abs(targetHeight - proxy.height) > SAFARI_HEIGHT_SKIP_THRESHOLD;
+        tweenSizeTo(targetHeight, targetExtra, SIZE_TWEEN_DUR, { skipElHeight: shouldSkipElHeight });
         return;
       }
 
@@ -780,6 +857,8 @@ export default function BookmarkLinkFabric({
     const el = linkRef.current;
     if (!el) return;
 
+    cancelSafariShowWait();
+
     if (showDelayRef.current) {
       window.clearTimeout(showDelayRef.current);
       showDelayRef.current = null;
@@ -812,6 +891,8 @@ export default function BookmarkLinkFabric({
     const inner = innerWrapRef.current;
     if (!el || !inner) return;
 
+    cancelSafariShowWait();
+
     const wasShown = shownRef.current;
     shownRef.current = true;
     setIsShown(true);
@@ -827,8 +908,18 @@ export default function BookmarkLinkFabric({
     if (!wasShown) {
       gsap.killTweensOf(inner, "y");
       gsap.set(inner, { y: DROP_INNER_Y });
-      const dropDur = shouldPlainDrop ? FIRST_DROP_DUR : DRAWER_SYNC_DUR;
-      const dropEase = shouldPlainDrop ? "none" : DRAWER_SYNC_EASE;
+      const dropDur = safariDesktop
+        ? shouldPlainDrop
+          ? 0.4
+          : 0.7
+        : shouldPlainDrop
+          ? FIRST_DROP_DUR
+          : DRAWER_SYNC_DUR;
+      const dropEase = safariDesktop
+        ? "power2.out"
+        : shouldPlainDrop
+          ? "none"
+          : DRAWER_SYNC_EASE;
       gsap.to(inner, { y: 0, duration: dropDur, ease: dropEase, overwrite: "auto" });
 
       const scheduleReveal = (
@@ -845,7 +936,8 @@ export default function BookmarkLinkFabric({
       };
 
       if (safariDesktop) {
-        scheduleReveal(REVEAL_LIFT_PX * 0.25, { randomizeZ: false });
+        const silentReveal = !safariWebglReady || safariIntroSuppressedRef.current;
+        scheduleReveal(REVEAL_LIFT_PX * 0.25, { randomizeZ: false, silent: silentReveal });
         dropActiveRef.current = true;
         if (dropTimerRef.current) window.clearTimeout(dropTimerRef.current);
         dropTimerRef.current = window.setTimeout(() => {
@@ -857,7 +949,16 @@ export default function BookmarkLinkFabric({
         scheduleReveal(REVEAL_LIFT_PX);
       }
     }
-  }, [isHome, kickAnimWind, kickReveal, prewarm, safariDesktop, updateSize]);
+  }, [
+    cancelSafariShowWait,
+    isHome,
+    kickAnimWind,
+    kickReveal,
+    prewarm,
+    safariDesktop,
+    safariWebglReady,
+    updateSize,
+  ]);
 
   const showWithPrewarm = useCallback(() => {
     if (!safariDesktop) {
@@ -865,18 +966,48 @@ export default function BookmarkLinkFabric({
       return;
     }
 
+    if (!safariWebglReady) {
+      setPrewarm(true);
+      safariShowWaitingRef.current = true;
+      return;
+    }
+
     if (!simApiRef.current || !canvasReadyRef.current) {
       setPrewarm(true);
-      if (showDelayRef.current) window.clearTimeout(showDelayRef.current);
-      showDelayRef.current = window.setTimeout(() => {
-        showDelayRef.current = null;
-        show();
-      }, 120);
+      safariShowWaitingRef.current = true;
+      if (safariShowRafRef.current == null) {
+        const start = performance.now();
+        const tick = () => {
+          safariShowRafRef.current = window.requestAnimationFrame(() => {
+            safariShowRafRef.current = null;
+            if (!safariShowWaitingRef.current) return;
+            if (simApiRef.current && canvasReadyRef.current) {
+              safariShowWaitingRef.current = false;
+              show();
+              return;
+            }
+            if (performance.now() - start > 1200) {
+              safariShowWaitingRef.current = false;
+              show();
+              return;
+            }
+            tick();
+          });
+        };
+        tick();
+      }
       return;
     }
 
     show();
-  }, [safariDesktop, show]);
+  }, [safariDesktop, safariWebglReady, show]);
+
+  useEffect(() => {
+    if (!safariDesktop) return;
+    if (!safariWebglReady) return;
+    if (!safariShowWaitingRef.current) return;
+    showWithPrewarm();
+  }, [safariDesktop, safariWebglReady, showWithPrewarm]);
 
   // Follow drawer
   const followActive = !!(isHome && homeFollow && homeFollowRef?.current && !transitionBusy);
@@ -1239,8 +1370,9 @@ export default function BookmarkLinkFabric({
   useEffect(() => {
     return () => {
       detachWindowPointerListeners();
+      cancelSafariShowWait();
     };
-  }, [detachWindowPointerListeners]);
+  }, [cancelSafariShowWait, detachWindowPointerListeners]);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLAnchorElement>) => {
@@ -1333,7 +1465,7 @@ export default function BookmarkLinkFabric({
     pointerRef.current.vy *= 0.25;
   }, []);
 
-  const simEnabled = loaderDone && (isShown || prewarm);
+  const simEnabled = loaderDone && (isShown || prewarm) && (!safariDesktop || safariWebglReady);
 
   // WebGL cloth
   useEffect(() => {
@@ -2178,7 +2310,7 @@ export default function BookmarkLinkFabric({
         flutter *= SAFARI_FLUTTER_MULT;
         if (lowCost && flutter > 0) flutter = 0;
 
-        const perfDrop = dropActive || (introAge > 0 && introAge < 520);
+        const perfDrop = dropActive || (introAge > 0 && introAge < 900);
         const perfLite = lowCost || perfDrop;
 
         const windStrength = (perfLite ? 1200 : 1600) * SAFARI_WIND_MULT;
@@ -2318,11 +2450,11 @@ export default function BookmarkLinkFabric({
             az += -tug * 260 * tRow;
           }
 
-          const rev = reveal.current.v * (lowCost ? 0.6 : 1);
-          if (rev > 0.0001) {
-            ay += rev * REVEAL_KICK_PULL * tRow;
-            az += -rev * 340 * tRow;
-          }
+        const rev = reveal.current.v * SAFARI_REVEAL_MULT * (perfLite ? 0.5 : 1);
+        if (rev > 0.0001) {
+          ay += rev * REVEAL_KICK_PULL * tRow;
+          az += -rev * 340 * tRow;
+        }
 
           ax += rowFlutterAx[ry] + rowAnimAx[ry] + rowReleaseAx[ry];
           ay += rowAnimAy[ry] + rowReleaseAy[ry];
@@ -2350,7 +2482,7 @@ export default function BookmarkLinkFabric({
 
         const isPinnedRow = (r: number) => r === 0 || (grabActive && r === grabRow);
 
-        const iterRow = perfLite ? 2 : 3;
+        const iterRow = perfLite ? 1 : 2;
         for (let it = 0; it < iterRow; it++) {
           for (let ry = 1; ry < ROWS; ry++) {
             const a = ry - 1;

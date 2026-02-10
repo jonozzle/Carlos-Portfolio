@@ -85,7 +85,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                                 </div>
                             </div>
 
-                            <div className="mt-8 md:mt-10">
+                            <div className="mt-8 md:mt-10 px-6">
                                 <ProjectDetails details={project.details ?? []} />
                             </div>
 

@@ -25,6 +25,7 @@ import {
   installMouseTrackerOnce,
   isHoverLocked,
 } from "@/lib/hover-lock";
+import { useHoverCapable } from "@/lib/use-hover-capable";
 
 type Theme = { bg?: string | null; text?: string | null } | null;
 
@@ -107,6 +108,7 @@ type TileProps = {
   setActiveIndex: React.Dispatch<React.SetStateAction<number | null>>;
   isScrollingRef: React.MutableRefObject<boolean>;
   themeActions: ReturnType<typeof useThemeActions>;
+  hoverCapable: boolean;
 };
 
 const PageLinkTile = React.memo(function PageLinkTile({
@@ -117,6 +119,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
   setActiveIndex,
   isScrollingRef,
   themeActions,
+  hoverCapable,
 }: TileProps) {
   const imgTileRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
@@ -188,6 +191,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
   }, []);
 
   const isPointerInside = useCallback(() => {
+    if (!hoverCapable) return false;
     const el = imgTileRef.current;
     if (!el) return false;
 
@@ -198,9 +202,10 @@ const PageLinkTile = React.memo(function PageLinkTile({
     }
 
     return el.matches(":hover");
-  }, []);
+  }, [hoverCapable]);
 
   const isPointerOverAnyCell = useCallback(() => {
+    if (!hoverCapable) return false;
     if (typeof document === "undefined") return false;
     const pos = getLastMouse();
     if (pos) {
@@ -208,7 +213,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
       return !!(hit && hit.closest("[data-page-link-cell]"));
     }
     return !!document.querySelector("[data-page-link-cell]:hover");
-  }, []);
+  }, [hoverCapable]);
 
   const clearHover = useCallback(
     (forceAnim?: boolean) => {
@@ -225,6 +230,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
   const applyHover = useCallback(
     (allowIdle?: boolean, skipScale?: boolean) => {
+      if (!hoverCapable) return;
       if (navLockedRef.current) return;
       if (isScrollingRef.current) return;
       if (isHoverLocked()) return;
@@ -236,11 +242,21 @@ const PageLinkTile = React.memo(function PageLinkTile({
       setActiveIndex(index);
       if (!skipScale) animateScale(1.1);
     },
-    [animateScale, hasTheme, index, isScrollingRef, previewTheme, setActiveIndex, theme]
+    [
+      animateScale,
+      hasTheme,
+      hoverCapable,
+      index,
+      isScrollingRef,
+      previewTheme,
+      setActiveIndex,
+      theme,
+    ]
   );
 
   const applyHoverUnderPointer = useCallback(
     (allowIdle?: boolean) => {
+      if (!hoverCapable) return;
       const el = imgTileRef.current;
       if (!el) return;
       if (!isPointerInside()) return;
@@ -254,15 +270,17 @@ const PageLinkTile = React.memo(function PageLinkTile({
       if (!isScaled) hardResetScale();
       requestAnimationFrame(() => applyHover(allowIdle, isScaled));
     },
-    [applyHover, hardResetScale, isPointerInside]
+    [applyHover, hardResetScale, isPointerInside, hoverCapable]
   );
 
   const handleEnter = useCallback(() => {
+    if (!hoverCapable) return;
     cancelPendingLeave();
     applyHover();
-  }, [cancelPendingLeave, applyHover]);
+  }, [cancelPendingLeave, applyHover, hoverCapable]);
 
   const handleLeave = useCallback(() => {
+    if (!hoverCapable) return;
     if (navLockedRef.current) return;
     if (isHoverLocked()) return;
 
@@ -280,6 +298,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
   }, [
     cancelPendingLeave,
     clearHover,
+    hoverCapable,
     isPointerInside,
     isPointerOverAnyCell,
     isScrollingRef,
@@ -694,6 +713,7 @@ export default function PageLinkSection(props: Props) {
   const theme = useThemeActions();
   const items = useMemo(() => props.items ?? [], [props.items]);
   const sectionRef = useRef<HTMLElement | null>(null);
+  const hoverCapable = useHoverCapable();
 
   const isHalf = props.width === "half";
 
@@ -709,8 +729,9 @@ export default function PageLinkSection(props: Props) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!hoverCapable) return;
     installMouseTrackerOnce();
-  }, []);
+  }, [hoverCapable]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -780,6 +801,7 @@ export default function PageLinkSection(props: Props) {
   );
 
   const isPointerOverCell = useCallback(() => {
+    if (!hoverCapable) return false;
     if (typeof document === "undefined") return false;
 
     const pos = getLastMouse();
@@ -789,7 +811,7 @@ export default function PageLinkSection(props: Props) {
     }
 
     return !!document.querySelector("[data-page-link-cell]:hover");
-  }, []);
+  }, [hoverCapable]);
 
   // On scroll end, re-sync hover/theme with the element under the pointer.
   useEffect(() => {
@@ -845,6 +867,7 @@ export default function PageLinkSection(props: Props) {
                 setActiveIndex={setActiveIndex}
                 isScrollingRef={isScrollingRef}
                 themeActions={theme}
+                hoverCapable={hoverCapable}
               />
             );
           })

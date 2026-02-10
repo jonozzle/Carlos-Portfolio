@@ -20,6 +20,7 @@ import { APP_EVENTS } from "@/lib/app-events";
 import { HOVER_EVENTS, isHoverLocked, getLastMouse } from "@/lib/hover-lock";
 import SectionScrollLine from "@/components/ui/section-scroll-line";
 import { getCurrentScrollY, setCurrentScrollY } from "@/lib/scroll-state";
+import { useHoverCapable } from "@/lib/use-hover-capable";
 
 if (typeof window !== "undefined") {
     gsap.registerPlugin(ScrollTrigger);
@@ -89,6 +90,7 @@ type CellProps = {
     slot: Slot;
     mobileLayout: MobileLayout;
     themeCtx: ThemeContext;
+    hoverCapable: boolean;
     index: number;
     activeIndex: number | null;
     setActiveIndex: React.Dispatch<React.SetStateAction<number | null>>;
@@ -122,6 +124,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     slot,
     mobileLayout,
     themeCtx,
+    hoverCapable,
     index,
     activeIndex,
     setActiveIndex,
@@ -231,6 +234,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     }, [hasTheme, clearPreview, setActiveIndex, index, animateScale]);
 
     const applyHover = useCallback((allowIdle?: boolean, skipScale?: boolean) => {
+        if (!hoverCapable) return;
         if (navLockedRef.current) return;
         if (isScrollingRef.current) return;
         if (isHoverLocked()) return;
@@ -239,7 +243,16 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         if (hasTheme) previewTheme(theme, opts);
         setActiveIndex(index);
         if (!skipScale) animateScale(1.1);
-    }, [hasTheme, previewTheme, theme, setActiveIndex, index, isScrollingRef, animateScale]);
+    }, [
+        hoverCapable,
+        hasTheme,
+        previewTheme,
+        theme,
+        setActiveIndex,
+        index,
+        isScrollingRef,
+        animateScale,
+    ]);
 
     const cancelPendingLeave = useCallback(() => {
         if (leaveRafRef.current !== null) {
@@ -249,6 +262,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     }, []);
 
     const isPointerOverAnyCell = useCallback(() => {
+        if (!hoverCapable) return false;
         if (typeof document === "undefined") return false;
         const pos = getLastMouse();
         if (pos) {
@@ -256,14 +270,16 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             return !!(hit && hit.closest("[data-project-block-cell]"));
         }
         return !!document.querySelector("[data-project-block-cell]:hover");
-    }, []);
+    }, [hoverCapable]);
 
     const handleEnter = useCallback(() => {
+        if (!hoverCapable) return;
         cancelPendingLeave();
         applyHover();
-    }, [applyHover, cancelPendingLeave]);
+    }, [applyHover, cancelPendingLeave, hoverCapable]);
 
     const isPointerInside = useCallback(() => {
+        if (!hoverCapable) return false;
         const el = tileRef.current;
         if (!el) return false;
 
@@ -274,9 +290,10 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         }
 
         return el.matches(":hover");
-    }, []);
+    }, [hoverCapable]);
 
     const handleLeave = useCallback(() => {
+        if (!hoverCapable) return;
         if (navLockedRef.current) return;
         if (isHoverLocked()) return;
 
@@ -291,10 +308,18 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             if (isPointerOverAnyCell()) return;
             clearHover(isAppScrolling());
         });
-    }, [cancelPendingLeave, clearHover, isPointerInside, isPointerOverAnyCell, isScrollingRef]);
+    }, [
+        hoverCapable,
+        cancelPendingLeave,
+        clearHover,
+        isPointerInside,
+        isPointerOverAnyCell,
+        isScrollingRef,
+    ]);
 
     const applyHoverUnderPointer = useCallback(
         (allowIdle?: boolean) => {
+            if (!hoverCapable) return;
             const el = tileRef.current;
             if (!el) return;
 
@@ -311,7 +336,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                 requestAnimationFrame(() => applyHover(allowIdle, isScaled));
             }
         },
-        [applyHover, hardResetScale, isPointerInside]
+        [applyHover, hardResetScale, isPointerInside, hoverCapable]
     );
 
     const handleNavLockCapture = useCallback(() => {
@@ -714,6 +739,7 @@ export default function ProjectBlock(props: Props) {
     const { clearPreview } = themeCtx;
 
     const sectionRef = useRef<HTMLElement | null>(null);
+    const hoverCapable = useHoverCapable();
 
     const isScrollingRef = useRef(false);
     const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -722,6 +748,7 @@ export default function ProjectBlock(props: Props) {
     const width = props.width || "50vw";
 
     const isPointerOverCell = useCallback(() => {
+        if (!hoverCapable) return false;
         if (typeof document === "undefined") return false;
 
         const pos = getLastMouse();
@@ -731,7 +758,7 @@ export default function ProjectBlock(props: Props) {
         }
 
         return !!document.querySelector("[data-project-block-cell]:hover");
-    }, []);
+    }, [hoverCapable]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -972,6 +999,7 @@ export default function ProjectBlock(props: Props) {
                             slot={slot}
                             mobileLayout={entry.mobileLayout}
                             themeCtx={themeCtx}
+                            hoverCapable={hoverCapable}
                             index={index}
                             activeIndex={activeIndex}
                             setActiveIndex={setActiveIndex}

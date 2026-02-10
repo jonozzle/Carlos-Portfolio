@@ -46,7 +46,7 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
     const smoother = ScrollSmoother.create({
       wrapper: wrapperRef.current!,
       content: contentRef.current!,
-      smooth: safariDesktop ? 0.35 : 0.5,
+      smooth: safariDesktop ? 0.1 : 0.5,
       smoothTouch: safariDesktop ? 0.1 : 0.2,
       effects: !safariDesktop,
       normalizeScroll: !safariDesktop,

@@ -107,6 +107,7 @@ body {
   --bg-color: #ffffff;
   --text-color: #000000;
   --theme-dur: 0ms;
+  --cursor-hover-scale: 1.8;
 }
 
 html,
@@ -184,6 +185,17 @@ body {
   .has-custom-cursor.custom-cursor-active [contenteditable="true"] {
     cursor: text !important;
   }
+}
+
+.cursor-dot {
+  background: red;
+  transform: scale(1);
+  transition: transform 140ms ease;
+  will-change: transform;
+}
+
+.cursor-wrap[data-hovered="true"] .cursor-dot {
+  transform: scale(var(--cursor-hover-scale));
 }
 
 
