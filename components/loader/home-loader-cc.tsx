@@ -348,7 +348,9 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       const startTimeline = async () => {
         await waitForFonts();
         if (killed) return;
-        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        await new Promise<void>((r) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => r()))
+        );
         if (killed) return;
 
         // Compute the “C” move-to-center offsets.
@@ -379,20 +381,20 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         const TRANSITION_DUR = 1.35;
         const AFTER_REVEAL_DELAY = 0.25;
 
-        tl = gsap.timeline({ defaults: { ease: "power3.out" } });
+        const timeline = (tl = gsap.timeline({ defaults: { ease: "power3.out" } }));
 
         // Bring C’s in and settle to their natural positions.
-        tl.to(
+        timeline.to(
           bigC,
           { opacity: 1, duration: 0.5, scale: 1, ease: "power2.inOut", ...(safariDesktop ? { force3D: true } : {}) },
           0
         );
-        tl.to(
+        timeline.to(
           smallC,
           { opacity: 1, duration: 0.5, scale: 1, ease: "power2.inOut", ...(safariDesktop ? { force3D: true } : {}) },
           "+=0.2"
         );
-        tl.to(
+        timeline.to(
           [bigC, smallC],
           { x: 0, y: 0, rotation: 0, duration: 1.4, ease: "power2.inOut", ...(safariDesktop ? { force3D: true } : {}) },
           "-=0.5"
@@ -410,33 +412,33 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
 
         // Preload BEFORE text reveal + page transition (skip blocking on Safari desktop).
         if (!safariDesktop) {
-          tl.add(() => {
-            tl.pause();
+          timeline.add(() => {
+            timeline.pause();
             runPreloadGate()
               .catch(() => { })
-              .finally(() => tl.resume());
+              .finally(() => timeline.resume());
           });
         }
 
-        tl.addLabel("reveal");
+        timeline.addLabel("reveal");
 
         // Stagger opacity ON (left-to-right by DOM order).
-        tl.to(
+        timeline.to(
           firstChars,
           { opacity: 1, duration: REVEAL_DUR, stagger: 0.055, ease: "power2.inOut" },
           "reveal"
         );
 
-        tl.to(
+        timeline.to(
           secondChars,
           { opacity: 1, duration: REVEAL_DUR, stagger: 0.055, ease: "power2.inOut" },
           "reveal+=0.18"
         );
 
-        tl.addLabel("transition", `reveal+=${REVEAL_DUR + AFTER_REVEAL_DELAY}`);
+        timeline.addLabel("transition", `reveal+=${REVEAL_DUR + AFTER_REVEAL_DELAY}`);
 
         // Swipe loader out as the page swipes in.
-        tl.to(
+        timeline.to(
           root,
           {
             xPercent: isMobile ? 0 : -100,
@@ -448,7 +450,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         );
 
         if (pageRoot) {
-          tl.to(
+          timeline.to(
             pageRoot,
             {
               xPercent: 0,
@@ -465,9 +467,9 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
             "transition"
           );
         } else {
-          tl.set(root, { autoAlpha: 0 }, `transition+=${TRANSITION_DUR}`);
-          if (safariDesktop) tl.add(deferPreload, `transition+=${TRANSITION_DUR}`);
-          tl.add(markDone, `transition+=${TRANSITION_DUR}`);
+          timeline.set(root, { autoAlpha: 0 }, `transition+=${TRANSITION_DUR}`);
+          if (safariDesktop) timeline.add(deferPreload, `transition+=${TRANSITION_DUR}`);
+          timeline.add(markDone, `transition+=${TRANSITION_DUR}`);
         }
       };
 
