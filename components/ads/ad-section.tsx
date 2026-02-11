@@ -11,6 +11,7 @@ import VerticalImageSlider from "@/components/ads/vertical-image-slider";
 import { useThemeActions } from "@/components/theme-provider";
 import { APP_EVENTS } from "@/lib/app-events";
 import { getLastMouse, HOVER_EVENTS, isHoverLocked } from "@/lib/hover-lock";
+import { useHoverCapable } from "@/lib/use-hover-capable";
 
 type Block = NonNullable<NonNullable<PAGE_QUERYResult>["blocks"]>[number];
 type AdBlock = Extract<Block, { _type: "ad-section" }>;
@@ -78,6 +79,7 @@ function mobileHeightStyle(opt: MobileHeight | null | undefined): React.CSSPrope
 export default function AdSection({ images, title, theme, desktop, mobile }: Props) {
     const themeActions = useThemeActions();
     const hasTheme = !!(theme?.bg || theme?.text);
+    const hoverCapable = useHoverCapable();
 
     const sectionRef = useRef<HTMLElement | null>(null);
 
@@ -146,6 +148,7 @@ export default function AdSection({ images, title, theme, desktop, mobile }: Pro
     );
 
     const isPointerInside = useCallback(() => {
+        if (!hoverCapable) return false;
         if (typeof document === "undefined") return false;
         const el = sectionRef.current;
         if (!el) return false;
@@ -157,31 +160,36 @@ export default function AdSection({ images, title, theme, desktop, mobile }: Pro
         }
 
         return el.matches(":hover");
-    }, []);
+    }, [hoverCapable]);
 
     useEffect(() => {
         if (typeof window === "undefined" || !hasTheme) return;
 
         const onScrollEnd = () => {
             if (isHoverLocked()) return;
+            if (!hoverCapable) {
+                clearTheme();
+                return;
+            }
             if (isPointerInside()) applyTheme(true);
             else clearTheme();
         };
 
         window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
         return () => window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
-    }, [applyTheme, clearTheme, hasTheme, isPointerInside]);
+    }, [applyTheme, clearTheme, hasTheme, hoverCapable, isPointerInside]);
 
     useEffect(() => {
         if (typeof window === "undefined" || !hasTheme) return;
 
         const onUnlocked = () => {
+            if (!hoverCapable) return;
             if (isPointerInside()) applyTheme(true);
         };
 
         window.addEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked);
         return () => window.removeEventListener(HOVER_EVENTS.UNLOCKED, onUnlocked as any);
-    }, [applyTheme, hasTheme, isPointerInside]);
+    }, [applyTheme, hasTheme, hoverCapable, isPointerInside]);
 
     const isVertical = effectiveOrientation === "vertical";
 

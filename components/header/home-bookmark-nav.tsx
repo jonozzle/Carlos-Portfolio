@@ -12,6 +12,8 @@ import type { ProjectIndexDrawerData } from "@/components/header/project-index-d
 const DRAWER_ID = "home-project-index";
 const BOOKMARK_FOLLOWS_DRAWER = true;
 const DRAWER_CLOSE_MS = 900;
+const SHOW_BOOKMARK_LABEL = false;
+const PRINT_BOOKMARK_LABEL = true;
 
 type HomeBookmarkNavProps = {
   drawer?: ProjectIndexDrawerData;
@@ -65,11 +67,16 @@ export default function HomeBookmarkNav({ drawer }: HomeBookmarkNavProps) {
     setOpen((prev) => !prev);
   }, [isHome]);
 
+  const bookmarkLabel = isHome ? (open ? "Close" : "Index") : "Home";
+
   return (
     <>
       <BookmarkLink
         href="/"
         side="left"
+        bookmarkLabel={bookmarkLabel}
+        showBookmarkLabel={SHOW_BOOKMARK_LABEL}
+        printBookmarkLabel={PRINT_BOOKMARK_LABEL}
         onHomeToggle={toggle}
         ariaControls={isHome ? DRAWER_ID : undefined}
         ariaExpanded={isHome ? open : undefined}

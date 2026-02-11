@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function readHoverCapable(): boolean {
   if (typeof window === "undefined" || !window.matchMedia) return false;
@@ -15,6 +15,16 @@ function readHoverCapable(): boolean {
 
 export function useHoverCapable() {
   const [capable, setCapable] = useState(false);
+  const lastPointerTypeRef = useRef<string | null>(null);
+
+  const compute = () => {
+    const base = readHoverCapable();
+    if (!base) return false;
+
+    const pt = lastPointerTypeRef.current;
+    if (!pt) return true;
+    return pt === "mouse" || pt === "pen";
+  };
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
@@ -24,7 +34,7 @@ export function useHoverCapable() {
     const finePointerMq = window.matchMedia("(pointer: fine)");
     const anyFinePointerMq = window.matchMedia("(any-pointer: fine)");
 
-    const update = () => setCapable(readHoverCapable());
+    const update = () => setCapable(compute());
     update();
 
     const bind = (mq: MediaQueryList) => {
@@ -43,10 +53,21 @@ export function useHoverCapable() {
       }
     };
 
+    const onPointer = (e: PointerEvent) => {
+      const pt = e.pointerType || null;
+      if (pt) lastPointerTypeRef.current = pt;
+      update();
+    };
+
+    window.addEventListener("pointerdown", onPointer, { passive: true });
+    window.addEventListener("pointermove", onPointer, { passive: true });
+
     [hoverMq, anyHoverMq, finePointerMq, anyFinePointerMq].forEach(bind);
 
     return () => {
       [hoverMq, anyHoverMq, finePointerMq, anyFinePointerMq].forEach(unbind);
+      window.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("pointermove", onPointer);
     };
   }, []);
 

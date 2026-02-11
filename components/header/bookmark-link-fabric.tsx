@@ -45,6 +45,9 @@ type BookmarkLinkFabricProps = {
   heroImgUrl?: string;
   onHomeToggle?: () => void;
   homeLabel?: string;
+  bookmarkLabel?: string;
+  showBookmarkLabel?: boolean;
+  printBookmarkLabel?: boolean;
   ariaControls?: string;
   ariaExpanded?: boolean;
   homeFollowRef?: React.RefObject<HTMLElement | null>;
@@ -103,10 +106,17 @@ const SCROLL_WIND_STRENGTH = 950;
 const SCROLL_WIND_NORM = 1200;
 const SCROLL_WIND_MAX = 1.2;
 const SCROLL_WIND_SMOOTH = 0.12;
+const SCROLL_WIND_DEADZONE = 0.12;
+const SCROLL_WIND_PROGRESS_EPS = 0.0025;
+const SCROLL_WIND_PX_EPS = 1.5;
+const SCROLL_WIND_INPUT_WINDOW_MS = 120;
+const SCROLL_INPUT_EPS = 1.2;
 const SAFARI_SCROLL_WIND_MULT = 0.7;
 const SAFARI_SCROLL_WIND_SMOOTH = 0.14;
 const SAFARI_DAMPING_SCROLLING = 0.78;
 const SAFARI_DAMPING_IDLE = 0.76;
+const ACTIVE_DAMPING = 0.975;
+const IDLE_DAMPING = 0.85;
 const SAFARI_WIND_MULT = 0.55;
 const SAFARI_LIFT_MULT = 0.5;
 const SAFARI_FLUTTER_MULT = 0.0;
@@ -122,6 +132,9 @@ const SAFARI_GRAB_Z_TETHER_MULT = 0.5;
 const SAFARI_REVEAL_MULT = 0.35;
 
 const SETTLE_SPEED = 6;
+const SLEEP_SPEED = 1.4;
+const SLEEP_FRAMES = 3;
+const SLEEP_OFFSET_PX = 2.5;
 const SETTLE_HOLD_MS = 180;
 const SIZE_EPS = 2;
 const SIZE_TWEEN_DUR = 0.7;
@@ -136,6 +149,16 @@ const GRAB_OVERDRAG = 0.05;
 
 // Target brand red
 const RED_500 = { r: 251 / 255, g: 44 / 255, b: 54 / 255 };
+
+const LABEL_FONT_PX = 11;
+const LABEL_TRACK_EM = 0.3;
+const LABEL_OFFSET_PX = 14;
+const LABEL_CENTER_SHIFT_PX = 1.2;
+const LABEL_TEX_SCALE = 2;
+const LABEL_EMBOSS_STRENGTH = 0.18;
+const LABEL_BEVEL_STRENGTH = 0.12;
+const LABEL_FONT_WEIGHT = 500;
+const LABEL_FONT_FAMILY = 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif';
 
 type StoredSize = { height: number; extra: number };
 
@@ -314,6 +337,9 @@ export default function BookmarkLinkFabric({
   heroImgUrl: heroImgUrlProp,
   onHomeToggle,
   homeLabel,
+  bookmarkLabel,
+  showBookmarkLabel = false,
+  printBookmarkLabel = false,
   ariaControls,
   ariaExpanded,
   homeFollowRef,
@@ -367,6 +393,24 @@ export default function BookmarkLinkFabric({
   const canvasReadyRef = useRef(false);
   const isShownRef = useRef(isShown);
 
+  const resolvedBookmarkLabel = useMemo(() => {
+    const raw = bookmarkLabel ?? (isHome ? "Index" : "Home");
+    const next = raw.trim();
+    return next || (isHome ? "Index" : "Home");
+  }, [bookmarkLabel, isHome]);
+  const [activeLabel, setActiveLabel] = useState(resolvedBookmarkLabel);
+  const [nextLabel, setNextLabel] = useState<string | null>(null);
+  const [labelSwap, setLabelSwap] = useState(false);
+  const labelSwapTimerRef = useRef<number | null>(null);
+  const labelTextRef = useRef(resolvedBookmarkLabel);
+  const labelFadeRef = useRef({ v: printBookmarkLabel ? 1 : 0 });
+  const labelFadeTweenRef = useRef<gsap.core.Tween | null>(null);
+  const labelTextureDirtyRef = useRef(true);
+  const labelTexSizeRef = useRef({ w: 1, h: 1, scale: 1 });
+  const labelCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const labelCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const printLabelRef = useRef(printBookmarkLabel);
+
   const debugStateRef = useRef({
     targetH: 0,
     targetExtra: 0,
@@ -395,6 +439,66 @@ export default function BookmarkLinkFabric({
     isShownRef.current = isShown;
   }, [isShown]);
 
+  useEffect(() => {
+    if (!showBookmarkLabel) return;
+    if (resolvedBookmarkLabel === activeLabel) return;
+    if (labelSwapTimerRef.current) {
+      window.clearTimeout(labelSwapTimerRef.current);
+      labelSwapTimerRef.current = null;
+    }
+
+    setNextLabel(resolvedBookmarkLabel);
+    setLabelSwap(true);
+
+    labelSwapTimerRef.current = window.setTimeout(() => {
+      setActiveLabel(resolvedBookmarkLabel);
+      setNextLabel(null);
+      setLabelSwap(false);
+      labelSwapTimerRef.current = null;
+    }, 220);
+
+    return () => {
+      if (labelSwapTimerRef.current) {
+        window.clearTimeout(labelSwapTimerRef.current);
+        labelSwapTimerRef.current = null;
+      }
+    };
+  }, [activeLabel, resolvedBookmarkLabel, showBookmarkLabel]);
+
+  useEffect(() => {
+    printLabelRef.current = printBookmarkLabel;
+    if (!printBookmarkLabel) {
+      labelFadeTweenRef.current?.kill();
+      labelFadeRef.current.v = 0;
+      return;
+    }
+
+    labelFadeRef.current.v = 1;
+    labelTextRef.current = resolvedBookmarkLabel;
+    labelTextureDirtyRef.current = true;
+  }, [printBookmarkLabel, resolvedBookmarkLabel]);
+
+  useEffect(() => {
+    if (!printBookmarkLabel) return;
+    if (resolvedBookmarkLabel === labelTextRef.current) return;
+
+    labelFadeTweenRef.current?.kill();
+    labelFadeTweenRef.current = gsap.to(labelFadeRef.current, {
+      v: 0,
+      duration: 0.16,
+      ease: "power2.out",
+      onComplete: () => {
+        labelTextRef.current = resolvedBookmarkLabel;
+        labelTextureDirtyRef.current = true;
+        labelFadeTweenRef.current = gsap.to(labelFadeRef.current, {
+          v: 1,
+          duration: 0.2,
+          ease: "power2.out",
+        });
+      },
+    });
+  }, [printBookmarkLabel, resolvedBookmarkLabel]);
+
   const cancelSafariShowWait = useCallback(() => {
     safariShowWaitingRef.current = false;
     if (safariShowRafRef.current != null) {
@@ -402,6 +506,71 @@ export default function BookmarkLinkFabric({
       safariShowRafRef.current = null;
     }
   }, []);
+
+  const readLabelOffset = useCallback(() => {
+    if (typeof window === "undefined") return LABEL_OFFSET_PX;
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(
+      "--bookmark-label-offset"
+    );
+    const parsed = parseFloat(raw);
+    return Number.isFinite(parsed) ? parsed : LABEL_OFFSET_PX;
+  }, []);
+
+  const getLabelScale = useCallback(() => {
+    if (typeof window === "undefined") return 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    return Math.max(1, dpr * LABEL_TEX_SCALE);
+  }, []);
+
+  const drawLabelTexture = useCallback(
+    (text: string, width: number, height: number, scale: number) => {
+      let canvas = labelCanvasRef.current;
+      if (!canvas) {
+        canvas = document.createElement("canvas");
+        labelCanvasRef.current = canvas;
+      }
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      let ctx = labelCtxRef.current;
+      if (!ctx) {
+        ctx = canvas.getContext("2d");
+        labelCtxRef.current = ctx;
+      }
+      if (!ctx) return null;
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+
+      const label = text.trim().toUpperCase();
+      if (!label) return canvas;
+
+      const fontPx = LABEL_FONT_PX * scale;
+      const trackingPx = LABEL_TRACK_EM * fontPx;
+      const offsetPx = readLabelOffset() * scale;
+
+      ctx.save();
+      ctx.translate(Math.round(width / 2 + LABEL_CENTER_SHIFT_PX * scale), height - offsetPx);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(0,0,0,1)";
+      ctx.font = `${LABEL_FONT_WEIGHT} ${fontPx}px ${LABEL_FONT_FAMILY}`;
+
+      let x = 0;
+      for (let i = 0; i < label.length; i++) {
+        const ch = label[i];
+        ctx.fillText(ch, x, 0);
+        x += ctx.measureText(ch).width + trackingPx;
+      }
+      ctx.restore();
+
+      return canvas;
+    },
+    [readLabelOffset]
+  );
 
   useEffect(() => {
     if (!safariDesktop) {
@@ -454,6 +623,73 @@ export default function BookmarkLinkFabric({
     return () => {
       window.removeEventListener(APP_EVENTS.NAV_START, onStart);
       window.removeEventListener(APP_EVENTS.NAV_END, onEnd);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const markScrollInput = () => {
+      scrollInputRef.current = performance.now();
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      const mag = Math.abs(e.deltaX) + Math.abs(e.deltaY);
+      if (mag < SCROLL_INPUT_EPS) return;
+      markScrollInput();
+    };
+
+    let lastTouchX: number | null = null;
+    let lastTouchY: number | null = null;
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      lastTouchX = t.clientX;
+      lastTouchY = t.clientY;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t || lastTouchX == null || lastTouchY == null) return;
+      const dx = lastTouchX - t.clientX;
+      const dy = lastTouchY - t.clientY;
+      lastTouchX = t.clientX;
+      lastTouchY = t.clientY;
+      const mag = Math.abs(dx) + Math.abs(dy);
+      if (mag < SCROLL_INPUT_EPS) return;
+      markScrollInput();
+    };
+    const onTouchEnd = () => {
+      lastTouchX = null;
+      lastTouchY = null;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        e.key === "ArrowDown" ||
+        e.key === "ArrowUp" ||
+        e.key === "PageDown" ||
+        e.key === "PageUp" ||
+        e.key === " " ||
+        e.key === "Home" ||
+        e.key === "End"
+      ) {
+        markScrollInput();
+      }
+    };
+
+    window.addEventListener("wheel", onWheel, { passive: true });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("touchend", onTouchEnd, { passive: true });
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", markScrollInput, { passive: true });
+
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", markScrollInput);
     };
   }, []);
 
@@ -513,8 +749,12 @@ export default function BookmarkLinkFabric({
     lastT: 0,
     lastProgress: 0,
     lastX: 0,
+    lastY: 0,
     lastMoveT: 0,
   });
+  const scrollInputRef = useRef(0);
+  const sleepRef = useRef(false);
+  const sleepFramesRef = useRef(0);
 
   // Overlay container (portal) so it’s not clipped/affected by transformed ancestors
   useEffect(() => {
@@ -568,30 +808,30 @@ export default function BookmarkLinkFabric({
 
   const applySize = useCallback(
     (height: number, extra: number, opts?: { skipElHeight?: boolean }) => {
-    const el = linkRef.current;
-    if (!el) return;
+      const el = linkRef.current;
+      if (!el) return;
 
-    sizeProxyRef.current.height = height;
-    sizeProxyRef.current.extra = extra;
+      sizeProxyRef.current.height = height;
+      sizeProxyRef.current.extra = extra;
 
-    const lastH = sizeMotionRef.current.lastH;
-    const dh = height - lastH;
-    const dhSafe = Math.abs(dh) < 1 ? 0 : dh;
-    sizeMotionRef.current.lastH = height;
-    sizeMotionRef.current.vel = sizeMotionRef.current.vel * 0.75 + dhSafe * 0.25;
+      const lastH = sizeMotionRef.current.lastH;
+      const dh = height - lastH;
+      const dhSafe = Math.abs(dh) < 1 ? 0 : dh;
+      sizeMotionRef.current.lastH = height;
+      sizeMotionRef.current.vel = sizeMotionRef.current.vel * 0.75 + dhSafe * 0.25;
 
-    if (!opts?.skipElHeight) {
-      gsap.set(el, { height });
-    }
-    el.style.setProperty("--bookmark-total", `${height}px`);
-    el.style.setProperty("--bookmark-extra", `${extra}px`);
+      if (!opts?.skipElHeight) {
+        gsap.set(el, { height });
+      }
+      el.style.setProperty("--bookmark-total", `${height}px`);
+      el.style.setProperty("--bookmark-extra", `${extra}px`);
 
-    setStoredSize({ height, extra });
+      setStoredSize({ height, extra });
 
-    debugStateRef.current.appliedH = height;
-    debugStateRef.current.appliedExtra = extra;
-    debugStateRef.current.lastApplyAt = performance.now();
-  }, []);
+      debugStateRef.current.appliedH = height;
+      debugStateRef.current.appliedExtra = extra;
+      debugStateRef.current.lastApplyAt = performance.now();
+    }, []);
 
   const computeTargetSize = useCallback(() => {
     if (typeof window === "undefined") {
@@ -1536,6 +1776,9 @@ export default function BookmarkLinkFabric({
       uniform float u_totalH;
       uniform float u_topH;
       uniform float u_tailH;
+      uniform sampler2D u_labelTex;
+      uniform vec2 u_labelTexSize;
+      uniform float u_labelAlpha;
 
       float aaWidth(float v) {
       #if HAS_DERIV
@@ -1573,7 +1816,19 @@ export default function BookmarkLinkFabric({
         float alpha = sat(side * notch);
         if (alpha <= 0.001) discard;
 
-        gl_FragColor = vec4(u_color, alpha);
+        vec3 color = u_color;
+        if (u_labelAlpha > 0.001) {
+          vec2 texel = vec2(1.0) / u_labelTexSize;
+          float mask = texture2D(u_labelTex, v_uv).a * u_labelAlpha;
+          float hi = texture2D(u_labelTex, v_uv + texel * vec2(-0.8, -0.8)).a * u_labelAlpha;
+          float lo = texture2D(u_labelTex, v_uv + texel * vec2(0.8, 0.8)).a * u_labelAlpha;
+          float bevel = (hi - lo) * ${LABEL_BEVEL_STRENGTH.toFixed(2)};
+          color += bevel;
+          color *= 1.0 - mask * ${LABEL_EMBOSS_STRENGTH.toFixed(2)};
+          color = clamp(color, 0.0, 1.0);
+        }
+
+        gl_FragColor = vec4(color, alpha);
       }
     `;
 
@@ -1592,11 +1847,26 @@ export default function BookmarkLinkFabric({
     const uTotalH = gl.getUniformLocation(prog, "u_totalH");
     const uTopH = gl.getUniformLocation(prog, "u_topH");
     const uTailH = gl.getUniformLocation(prog, "u_tailH");
+    const uLabelTex = gl.getUniformLocation(prog, "u_labelTex");
+    const uLabelTexSize = gl.getUniformLocation(prog, "u_labelTexSize");
+    const uLabelAlpha = gl.getUniformLocation(prog, "u_labelAlpha");
 
     const posBuf = gl.createBuffer();
     const uvBuf = gl.createBuffer();
     const idxBuf = gl.createBuffer();
-    if (!posBuf || !uvBuf || !idxBuf || !uCanvas || !uColor || !uTotalH || !uTopH || !uTailH) {
+    if (
+      !posBuf ||
+      !uvBuf ||
+      !idxBuf ||
+      !uCanvas ||
+      !uColor ||
+      !uTotalH ||
+      !uTopH ||
+      !uTailH ||
+      !uLabelTex ||
+      !uLabelTexSize ||
+      !uLabelAlpha
+    ) {
       setWebglOk(false);
       gl.deleteProgram(prog);
       return;
@@ -1774,6 +2044,15 @@ export default function BookmarkLinkFabric({
       updateConstraintRest();
       stripHeight = safeNext;
       debugStateRef.current.stripH = stripHeight;
+      if (printLabelRef.current) {
+        const scale = getLabelScale();
+        const nextH = Math.max(1, Math.round(stripHeight * scale));
+        const delta = Math.abs(nextH - labelTexSizeRef.current.h);
+        const threshold = Math.max(6 * scale, nextH * 0.04);
+        if (delta > threshold) {
+          labelTextureDirtyRef.current = true;
+        }
+      }
     };
 
     // neighbors for smoothing
@@ -1832,6 +2111,31 @@ export default function BookmarkLinkFabric({
     gl.disable(gl.CULL_FACE);
     gl.disable(gl.DEPTH_TEST);
 
+    const labelTex = gl.createTexture();
+    if (!labelTex) {
+      setWebglOk(false);
+      gl.deleteProgram(prog);
+      return;
+    }
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, labelTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      1,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      new Uint8Array([0, 0, 0, 0])
+    );
+    gl.uniform1i(uLabelTex, 0);
+
     const pinned = (i: number) => Math.floor(i / COLS) === 0;
 
     const resetCloth = (liftPx: number, opts?: { randomizeZ?: boolean }) => {
@@ -1881,6 +2185,22 @@ export default function BookmarkLinkFabric({
 
     simApiRef.current = { reset: resetCloth };
 
+    const updateLabelTexture = () => {
+      if (!printLabelRef.current) return;
+      const text = labelTextRef.current ?? "";
+      const scale = getLabelScale();
+      const width = Math.max(1, Math.round(STRIP_W * scale));
+      const height = Math.max(1, Math.round(stripHeight * scale));
+      const canvas = drawLabelTexture(text, width, height, scale);
+      if (!canvas) return;
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, labelTex);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+      labelTexSizeRef.current = { w: width, h: height, scale };
+    };
+
     if (pendingResetLiftRef.current != null) {
       resetCloth(pendingResetLiftRef.current.lift, {
         randomizeZ: pendingResetLiftRef.current.randomizeZ,
@@ -1921,6 +2241,7 @@ export default function BookmarkLinkFabric({
       typeof window !== "undefined"
         ? window.scrollX || document.documentElement.scrollLeft || 0
         : 0;
+    scrollWind.lastY = getRawScrollY();
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -1945,80 +2266,52 @@ export default function BookmarkLinkFabric({
 
       gl.useProgram(prog);
       gl.uniform2f(uCanvas, fullW, fullH);
+      labelTextureDirtyRef.current = true;
     };
 
-    const updateScrollWind = (time: number, isScrolling: boolean) => {
+    const updateScrollWind = (time: number) => {
       if (typeof window === "undefined") return;
 
-      const isMdUp = fullW >= 768;
-      const mode = (window as any).__hsMode as "horizontal" | "vertical" | undefined;
-      const st =
-        mode === "horizontal"
-          ? (ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null)
-          : null;
+      const currentX = window.scrollX || document.documentElement.scrollLeft || 0;
+      const currentY = getRawScrollY();
+      const recentlyInput = time - scrollInputRef.current < SCROLL_WIND_INPUT_WINDOW_MS;
 
-      if (!isScrolling) {
+      if (!recentlyInput) {
         scrollWind.vx = 0;
         scrollWind.lastT = time;
-        if (mode === "horizontal" && st) scrollWind.lastProgress = st.progress ?? 0;
-        else scrollWind.lastX = window.scrollX || document.documentElement.scrollLeft || 0;
+        scrollWind.lastX = currentX;
+        scrollWind.lastY = currentY;
         return;
       }
 
+      const dx = currentX - scrollWind.lastX;
+      const dy = currentY - scrollWind.lastY;
+      scrollWind.lastX = currentX;
+      scrollWind.lastY = currentY;
+
       if (!scrollWind.lastT) {
         scrollWind.lastT = time;
-        if (mode === "horizontal" && st) scrollWind.lastProgress = st.progress ?? 0;
-        else scrollWind.lastX = window.scrollX || document.documentElement.scrollLeft || 0;
+        scrollWind.vx = 0;
         return;
       }
 
       const dt = clamp((time - scrollWind.lastT) / 1000, 0.008, 0.05);
       scrollWind.lastT = time;
 
-      if (!isMdUp) {
+      const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+      if (Math.abs(delta) < SCROLL_WIND_PX_EPS) {
         scrollWind.vx = 0;
-        if (mode === "horizontal" && st) scrollWind.lastProgress = st.progress ?? 0;
-        else scrollWind.lastX = window.scrollX || document.documentElement.scrollLeft || 0;
         return;
       }
 
-      if (mode === "vertical") {
-        scrollWind.vx *= 0.9;
-        if (Math.abs(scrollWind.vx) < 0.01) scrollWind.vx = 0;
-        scrollWind.lastX = window.scrollX || document.documentElement.scrollLeft || 0;
-        return;
-      }
-
-      let vx = 0;
-      if (mode === "horizontal" && st) {
-        const progress = st.progress ?? 0;
-        const delta = progress - scrollWind.lastProgress;
-        if (Math.abs(delta) < 0.0004) {
-          scrollWind.lastProgress = progress;
-          scrollWind.vx = 0;
-          return;
-        }
-        const amount = Math.max(1, (st.end ?? 0) - (st.start ?? 0));
-        vx = delta * amount / dt;
-        scrollWind.lastProgress = progress;
-      } else {
-        const x = window.scrollX || document.documentElement.scrollLeft || 0;
-        const dx = x - scrollWind.lastX;
-        if (Math.abs(dx) < 0.5) {
-          scrollWind.lastX = x;
-          scrollWind.vx = 0;
-          return;
-        }
-        vx = dx / dt;
-        scrollWind.lastX = x;
-      }
-
+      const vx = delta / dt;
       const norm = clamp(vx / SCROLL_WIND_NORM, -SCROLL_WIND_MAX, SCROLL_WIND_MAX);
       const normScaled = safariDesktop ? norm * SAFARI_SCROLL_WIND_MULT : norm;
       const smooth = safariDesktop ? SAFARI_SCROLL_WIND_SMOOTH : SCROLL_WIND_SMOOTH;
       scrollWind.vx = scrollWind.vx * (1 - smooth) + normScaled * smooth;
-      if (Math.abs(scrollWind.vx) < 0.01) scrollWind.vx = 0;
-      if (Math.abs(scrollWind.vx) > 0.01) scrollWind.lastMoveT = time;
+
+      if (Math.abs(scrollWind.vx) < SCROLL_WIND_DEADZONE) scrollWind.vx = 0;
+      else scrollWind.lastMoveT = time;
 
       debugStateRef.current.scrollVx = scrollWind.vx;
       debugStateRef.current.lastWindAt = time;
@@ -2249,12 +2542,10 @@ export default function BookmarkLinkFabric({
       lastT = time;
 
       resize();
-      updateAnchor();
-      updateStripHeight(sizeProxyRef.current.height || BASE_SHAPE_HEIGHT);
-      updateScrollWind(time, isScrolling);
+      updateScrollWind(time);
       const scrollSettling = time - scrollWindRef.current.lastMoveT < 220;
       const scrollActive = isScrolling
-        ? scrollSettling || Math.abs(scrollWindRef.current.vx) > 0.002
+        ? scrollSettling || Math.abs(scrollWindRef.current.vx) > SCROLL_WIND_DEADZONE
         : scrollSettling;
       if (scrollActive) lastActiveAt = time;
       if (!sizeTweenRef.current || !sizeTweenRef.current.isActive()) {
@@ -2265,9 +2556,6 @@ export default function BookmarkLinkFabric({
       if (reveal.current.v < 0.0005) reveal.current.v = 0;
       if (pull.current.v < 0.0005) pull.current.v = 0;
       if (release.current.v < 0.0005) release.current.v = 0;
-
-      const extra = Math.max(0, stripHeight - BASE_SHAPE_HEIGHT);
-      const topH = BASE_RECT_HEIGHT + extra;
 
       const dropActive = safariDesktop && dropActiveRef.current;
       let busy = false;
@@ -2281,8 +2569,50 @@ export default function BookmarkLinkFabric({
         if (Math.abs(pointer.vy) < 0.001) pointer.vy = 0;
       }
       const pointerActive = pointer.active && !pointerIdle;
+      const sizeTweenActive = !!sizeTweenRef.current && sizeTweenRef.current.isActive();
+      const activeForces =
+        dropActive ||
+        pointerActive ||
+        dragRef.current.mode !== "idle" ||
+        isTransitioning ||
+        sizeTweenActive ||
+        animWind.current.v >= 0.0005 ||
+        reveal.current.v >= 0.0005 ||
+        pull.current.v >= 0.0005 ||
+        release.current.v >= 0.0005 ||
+        Math.abs(sizeMotionRef.current.vel) >= 0.01 ||
+        Math.abs(scrollWindRef.current.vx) > SCROLL_WIND_DEADZONE;
+      const allowSleep = !activeForces;
 
-      if (safariDesktop) {
+      if (!allowSleep) {
+        sleepRef.current = false;
+        sleepFramesRef.current = 0;
+      }
+
+      const sleepFrame = sleepRef.current && allowSleep;
+
+      if (!sleepFrame) {
+        updateAnchor();
+      }
+      updateStripHeight(sizeProxyRef.current.height || BASE_SHAPE_HEIGHT);
+
+      const extra = Math.max(0, stripHeight - BASE_SHAPE_HEIGHT);
+      const topH = BASE_RECT_HEIGHT + extra;
+
+      if (sleepFrame) {
+        for (let i = 0; i < COUNT; i++) {
+          prev[i * 3 + 0] = pos[i * 3 + 0];
+          prev[i * 3 + 1] = pos[i * 3 + 1];
+          prev[i * 3 + 2] = pos[i * 3 + 2];
+        }
+        for (let ry = 0; ry < ROWS; ry++) {
+          const i = ry * 3;
+          rowPrev[i + 0] = rowPos[i + 0];
+          rowPrev[i + 1] = rowPos[i + 1];
+          rowPrev[i + 2] = rowPos[i + 2];
+        }
+        busy = false;
+      } else if (safariDesktop) {
         const drag = dragRef.current;
         const isGrab = drag.mode === "grab";
         const isReturn = drag.mode === "return";
@@ -2391,6 +2721,7 @@ export default function BookmarkLinkFabric({
         const grabActive = isGrab && grabRow >= 1;
 
         let rowSpeedMax = 0;
+        let rowOffsetMax = 0;
         for (let ry = 0; ry < ROWS; ry++) {
           const restI = idx(centerCol, ry);
           const restX = rest[restI * 3 + 0];
@@ -2421,6 +2752,11 @@ export default function BookmarkLinkFabric({
           const vz = (z - pz) * damping;
           const vAbs = Math.abs(vx) + Math.abs(vy) + Math.abs(vz);
           if (vAbs > rowSpeedMax) rowSpeedMax = vAbs;
+          const ox = x - restX;
+          const oy = y - restY;
+          const oz = z - restZ;
+          const off = Math.hypot(ox, oy, oz);
+          if (off > rowOffsetMax) rowOffsetMax = off;
 
           const tRow = rowT[ry];
           const restPull = isGrab ? lerp(0.7, SAFARI_GRAB_REST_MIN, tRow) : 1;
@@ -2450,11 +2786,11 @@ export default function BookmarkLinkFabric({
             az += -tug * 260 * tRow;
           }
 
-        const rev = reveal.current.v * SAFARI_REVEAL_MULT * (perfLite ? 0.5 : 1);
-        if (rev > 0.0001) {
-          ay += rev * REVEAL_KICK_PULL * tRow;
-          az += -rev * 340 * tRow;
-        }
+          const rev = reveal.current.v * SAFARI_REVEAL_MULT * (perfLite ? 0.5 : 1);
+          if (rev > 0.0001) {
+            ay += rev * REVEAL_KICK_PULL * tRow;
+            az += -rev * 340 * tRow;
+          }
 
           ax += rowFlutterAx[ry] + rowAnimAx[ry] + rowReleaseAx[ry];
           ay += rowAnimAy[ry] + rowReleaseAy[ry];
@@ -2564,12 +2900,34 @@ export default function BookmarkLinkFabric({
           }
         }
 
+        const rowSpeed = rowSpeedMax / Math.max(dt, 0.008);
+        if (allowSleep && rowSpeed < SLEEP_SPEED && rowOffsetMax < SLEEP_OFFSET_PX) {
+          sleepFramesRef.current += 1;
+          if (sleepFramesRef.current >= SLEEP_FRAMES) sleepRef.current = true;
+        } else {
+          sleepFramesRef.current = 0;
+        }
+
+        if (sleepRef.current) {
+          for (let i = 0; i < COUNT; i++) {
+            prev[i * 3 + 0] = pos[i * 3 + 0];
+            prev[i * 3 + 1] = pos[i * 3 + 1];
+            prev[i * 3 + 2] = pos[i * 3 + 2];
+          }
+          for (let ry = 0; ry < ROWS; ry++) {
+            const i = ry * 3;
+            rowPrev[i + 0] = rowPos[i + 0];
+            rowPrev[i + 1] = rowPos[i + 1];
+            rowPrev[i + 2] = rowPos[i + 2];
+          }
+        }
+
         busy =
           dropActive ||
           isTransitioning ||
           pointerActive ||
           drag.mode !== "idle" ||
-          Math.abs(scrollWindRef.current.vx) > 0.002 ||
+          Math.abs(scrollWindRef.current.vx) > SCROLL_WIND_DEADZONE ||
           animWind.current.v > 0.001 ||
           reveal.current.v > 0.001 ||
           pull.current.v > 0.001 ||
@@ -2587,7 +2945,17 @@ export default function BookmarkLinkFabric({
         const returnEase = easeOutCubic(returnAlpha);
 
         // Physics
-        const damping = 0.975;
+        const idleDamping =
+          !pointerActive &&
+          drag.mode === "idle" &&
+          !isTransitioning &&
+          Math.abs(scrollWindRef.current.vx) <= SCROLL_WIND_DEADZONE &&
+          animWind.current.v < 0.0005 &&
+          reveal.current.v < 0.0005 &&
+          pull.current.v < 0.0005 &&
+          release.current.v < 0.0005 &&
+          Math.abs(sizeMotionRef.current.vel) < 0.01;
+        const damping = idleDamping ? IDLE_DAMPING : ACTIVE_DAMPING;
         const gravity = 1400;
 
         // grabbing: very low shape pull so it can travel across the window
@@ -2673,6 +3041,7 @@ export default function BookmarkLinkFabric({
         }
 
         let speedMax = 0;
+        let offsetMax = 0;
         for (let i = 0; i < COUNT; i++) {
           if (pinned(i)) {
             pos[i * 3 + 0] = rest[i * 3 + 0];
@@ -2711,6 +3080,11 @@ export default function BookmarkLinkFabric({
           const vz = (z - pz) * damping;
           const vAbs = Math.abs(vx) + Math.abs(vy) + Math.abs(vz);
           if (vAbs > speedMax) speedMax = vAbs;
+          const ox = x - rest[i * 3 + 0];
+          const oy = y - rest[i * 3 + 1];
+          const oz = z - rest[i * 3 + 2];
+          const off = Math.hypot(ox, oy, oz);
+          if (off > offsetMax) offsetMax = off;
 
           let ax = 0;
           let ay = gravity;
@@ -2774,14 +3148,30 @@ export default function BookmarkLinkFabric({
           pos[i * 3 + 2] = z + vz + az * dt * dt;
         }
 
-        const settling = speedMax / Math.max(dt, 0.008) > SETTLE_SPEED;
+        const speedNorm = speedMax / Math.max(dt, 0.008);
+        const settling = speedNorm > SETTLE_SPEED;
         if (settling) lastActiveAt = time;
+
+        if (allowSleep && speedNorm < SLEEP_SPEED && offsetMax < SLEEP_OFFSET_PX) {
+          sleepFramesRef.current += 1;
+          if (sleepFramesRef.current >= SLEEP_FRAMES) sleepRef.current = true;
+        } else {
+          sleepFramesRef.current = 0;
+        }
+
+        if (sleepRef.current) {
+          for (let i = 0; i < COUNT; i++) {
+            prev[i * 3 + 0] = pos[i * 3 + 0];
+            prev[i * 3 + 1] = pos[i * 3 + 1];
+            prev[i * 3 + 2] = pos[i * 3 + 2];
+          }
+        }
 
         busy =
           isTransitioning ||
           pointerActive ||
           drag.mode !== "idle" ||
-          Math.abs(scrollWindRef.current.vx) > 0.002 ||
+          Math.abs(scrollWindRef.current.vx) > SCROLL_WIND_DEADZONE ||
           animWind.current.v > 0.001 ||
           reveal.current.v > 0.001 ||
           pull.current.v > 0.001 ||
@@ -2918,6 +3308,11 @@ export default function BookmarkLinkFabric({
       }
 
       // draw
+      if (labelTextureDirtyRef.current && printLabelRef.current) {
+        labelTextureDirtyRef.current = false;
+        updateLabelTexture();
+      }
+
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
@@ -2926,6 +3321,10 @@ export default function BookmarkLinkFabric({
       gl.uniform1f(uTotalH, stripHeight);
       gl.uniform1f(uTopH, topH);
       gl.uniform1f(uTailH, TAIL_HEIGHT);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, labelTex);
+      gl.uniform1f(uLabelAlpha, printLabelRef.current ? labelFadeRef.current.v : 0);
+      gl.uniform2f(uLabelTexSize, labelTexSizeRef.current.w, labelTexSizeRef.current.h);
 
       gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, pos);
@@ -3014,9 +3413,10 @@ export default function BookmarkLinkFabric({
       gl.deleteBuffer(posBuf);
       gl.deleteBuffer(uvBuf);
       gl.deleteBuffer(idxBuf);
+      gl.deleteTexture(labelTex);
       gl.deleteProgram(prog);
     };
-  }, [overlayEl, simEnabled]);
+  }, [drawLabelTexture, getLabelScale, overlayEl, simEnabled]);
 
   const fallbackBookmark = useMemo(() => {
     return (
@@ -3106,6 +3506,44 @@ export default function BookmarkLinkFabric({
             >
               {fallbackBookmark}
             </div>
+            {showBookmarkLabel ? (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute left-1/2"
+                style={{ bottom: "var(--bookmark-label-offset, 14px)" }}
+              >
+                <div className="relative -translate-x-1/2 rotate-[-90deg] origin-bottom-left">
+                  <span
+                    className={cn(
+                      "block text-[11px] uppercase font-serif tracking-[0.3em] leading-none transition-opacity duration-200",
+                      labelSwap ? "opacity-0" : "opacity-100"
+                    )}
+                    style={{
+                      color: "#fb2c36",
+                      textShadow:
+                        "-0.6px -0.6px 0 rgba(255,255,255,0.5), 0.6px 0.6px 0 rgba(0,0,0,0.28)",
+                    }}
+                  >
+                    {activeLabel}
+                  </span>
+                  {nextLabel ? (
+                    <span
+                      className={cn(
+                        "absolute inset-0 block text-[11px] uppercase font-serif tracking-[0.3em] leading-none transition-opacity duration-200",
+                        labelSwap ? "opacity-100" : "opacity-0"
+                      )}
+                      style={{
+                        color: "#fb2c36",
+                        textShadow:
+                          "-0.6px -0.6px 0 rgba(255,255,255,0.5), 0.6px 0.6px 0 rgba(0,0,0,0.28)",
+                      }}
+                    >
+                      {nextLabel}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </a>
