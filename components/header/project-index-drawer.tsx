@@ -202,8 +202,10 @@ export default function ProjectIndexDrawer({
         style={{ height: TOP_FILL_HEIGHT, top: -TOP_FILL_HEIGHT }}
       />
       <div className="mx-auto flex w-full  flex-col gap-6 px-6 py-6">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] uppercase tracking-[0.3em] text-neutral-500">{title}</p>
+        <div className="flex justify-center">
+
+          <p className="text-[11px] uppercase text-neutral-500 font-serif">{title}</p>
+
         </div>
 
         <div className="w-full">
@@ -213,24 +215,24 @@ export default function ProjectIndexDrawer({
             style={
               isMobileLayout
                 ? {
-                    display: "grid",
-                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                    gridAutoRows: "auto",
-                    alignItems: "start",
-                    justifyItems: "start",
-                    columnGap: "1.25rem",
-                    rowGap: "0.75rem",
-                    minHeight: "auto",
-                    maxHeight: mobileHeight || "none",
-                  }
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                  gridAutoRows: "auto",
+                  alignItems: "start",
+                  justifyItems: "start",
+                  columnGap: "1.25rem",
+                  rowGap: "0.75rem",
+                  minHeight: "auto",
+                  maxHeight: mobileHeight || "none",
+                }
                 : {
-                    display: "grid",
-                    gridTemplateColumns: `repeat(${DRAWER_GRID_COLS}, minmax(0, 1fr))`,
-                    gridTemplateRows: `repeat(${DRAWER_GRID_ROWS}, minmax(0, 1fr))`,
-                    alignItems: "start",
-                    justifyItems: "start",
-                    ...(desktopHeight ? { maxHeight: desktopHeight } : {}),
-                  }
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${DRAWER_GRID_COLS}, minmax(0, 1fr))`,
+                  gridTemplateRows: `repeat(${DRAWER_GRID_ROWS}, minmax(0, 1fr))`,
+                  alignItems: "start",
+                  justifyItems: "start",
+                  ...(desktopHeight ? { maxHeight: desktopHeight } : {}),
+                }
             }
           >
             {items.length ? (
@@ -243,9 +245,9 @@ export default function ProjectIndexDrawer({
                 const placementStyle = isMobileLayout
                   ? undefined
                   : {
-                      gridColumn: `${colStart} / span ${DRAWER_GRID_ITEM_COL_SPAN}`,
-                      gridRowStart: rowStart,
-                    };
+                    gridColumn: `${colStart} / span ${DRAWER_GRID_ITEM_COL_SPAN}`,
+                    gridRowStart: rowStart,
+                  };
 
                 return (
                   <div
