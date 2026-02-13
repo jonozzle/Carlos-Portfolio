@@ -102,11 +102,13 @@ export function fadeOutPageRoot(opts: FadeOpts = {}): Promise<void> {
                     gsap.set(layer, {
                         opacity: 1,
                         background: currentBgColor(),
-                        willChange: "opacity",
+                        willChange: "opacity,transform",
+                        transform: "translate3d(0,0,0)",
+                        backfaceVisibility: "hidden",
                         pointerEvents: "none",
                     });
                 }
-                if (pageRoot) gsap.set(pageRoot, { opacity: 0 });
+                if (pageRoot) gsap.set(pageRoot, { opacity: 0, willChange: "opacity" });
             } finally {
                 done();
             }
@@ -121,7 +123,9 @@ export function fadeOutPageRoot(opts: FadeOpts = {}): Promise<void> {
             gsap.set(layer, {
                 opacity: 0,
                 background: currentBgColor(),
-                willChange: "opacity",
+                willChange: "opacity,transform",
+                transform: "translate3d(0,0,0)",
+                backfaceVisibility: "hidden",
                 pointerEvents: "none",
             });
         }
@@ -129,7 +133,7 @@ export function fadeOutPageRoot(opts: FadeOpts = {}): Promise<void> {
         // Prep page root
         if (pageRoot) {
             gsap.killTweensOf(pageRoot);
-            gsap.set(pageRoot, { opacity: 1 });
+            gsap.set(pageRoot, { opacity: 1, willChange: "opacity" });
         }
 
         // Crossfade: page -> 0 while overlay -> 1

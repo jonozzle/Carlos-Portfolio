@@ -47,6 +47,10 @@
   position: fixed;
   inset: 0;
   pointer-events: none;
+  will-change: opacity, transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
 /* Opt out fixed UI */
@@ -80,6 +84,9 @@ body {
 
 #smooth-content {
   will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   width: 100%;
   overflow: visible;
 }

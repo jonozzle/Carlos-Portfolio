@@ -54,6 +54,13 @@ function isDesktopSafari() {
   return isSafari && isApple && !isMobile;
 }
 
+function isSafariBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  return /Safari/i.test(ua) && /Apple/i.test(vendor) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+}
+
 function rectLooksValid(r: DOMRect) {
   return (
     Number.isFinite(r.left) &&
@@ -160,6 +167,10 @@ function ensureOverlayImage(sourceEl: HTMLElement, fallbackUrl: string) {
   img.style.display = "block";
   img.style.transformOrigin = "50% 50%";
   img.style.filter = "none";
+  img.style.willChange = "transform,opacity";
+  img.style.transform = "translate3d(0,0,0)";
+  img.style.backfaceVisibility = "hidden";
+  img.style.webkitBackfaceVisibility = "hidden";
 
   img.decoding = "async";
   (img as any).fetchPriority = "high";
@@ -167,7 +178,7 @@ function ensureOverlayImage(sourceEl: HTMLElement, fallbackUrl: string) {
 
   const hoverScale = findHoverScale(sourceEl);
   if (Math.abs(hoverScale - 1) > 0.001) {
-    img.style.transform = `scale(${hoverScale})`;
+    img.style.transform = `translate3d(0,0,0) scale(${hoverScale})`;
     (img as any).__startScale = hoverScale;
   }
 
@@ -287,6 +298,7 @@ function fadeOutAndRemoveOverlay(overlay: HTMLDivElement, onRemoved?: () => void
     duration: 0.14,
     ease: "power1.out",
     overwrite: "auto",
+    force3D: true,
     onComplete: () => {
       try {
         overlay.remove();
@@ -325,7 +337,9 @@ export function startHeroTransition({
   overlay.style.zIndex = "10000";
   overlay.style.pointerEvents = "none";
   overlay.style.willChange = "left, top, width, height, transform, opacity";
-  overlay.style.transform = "translateZ(0)";
+  overlay.style.transform = "translate3d(0,0,0)";
+  overlay.style.backfaceVisibility = "hidden";
+  overlay.style.webkitBackfaceVisibility = "hidden";
   overlay.style.background = bgFromSource(sourceEl);
 
   const overlayImg = ensureOverlayImage(sourceEl, imgUrl);
@@ -458,6 +472,8 @@ export function completeHeroTransition({
       scaleX: 1,
       scaleY: 1,
       opacity: 1,
+      willChange: "left,top,width,height,transform,opacity",
+      force3D: true,
     });
 
     // Hide target during flight.
@@ -472,7 +488,7 @@ export function completeHeroTransition({
 
     markOverlayTweening(overlay, true);
 
-    const D = 0.9;
+    const D = isSafariBrowser() ? 0.82 : 0.9;
     const tl = gsap.timeline({ defaults: { duration: D, ease: "power3.inOut" } });
 
     tl.to(
@@ -482,6 +498,7 @@ export function completeHeroTransition({
         top: toRect.top,
         width: toRect.width,
         height: toRect.height,
+        force3D: true,
       },
       0
     );
@@ -494,6 +511,7 @@ export function completeHeroTransition({
           {
             scale: 1,
             ease: "power2.out",
+            force3D: true,
           },
           0
         );
@@ -558,6 +576,7 @@ export function completeHeroTransition({
       markOverlayTweening(overlay, false);
 
       gsap.set(t, { opacity: 1 });
+      gsap.set(overlay, { willChange: "auto" });
 
       dispatchHeroDone();
       onDone?.();

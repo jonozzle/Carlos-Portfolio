@@ -46,6 +46,13 @@ const DRAWER_CLOSE_EASE = "power3.inOut";
 const TOP_FILL_HEIGHT = 240;
 const BOOKMARK_OFFSET_VAR = "--bookmark-offset";
 
+function isSafariBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  return /Safari/i.test(ua) && /Apple/i.test(vendor) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+}
+
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -74,6 +81,7 @@ export default function ProjectIndexDrawer({
   const showProjectDetails = drawer?.showProjectDetails ?? true;
   const desktopHeight = drawer?.heightDesktop?.trim();
   const mobileHeight = drawer?.heightMobile?.trim();
+  const [safariBrowser, setSafariBrowser] = useState(false);
 
   const items = useMemo(() => {
     const raw = drawer?.items ?? [];
@@ -83,7 +91,13 @@ export default function ProjectIndexDrawer({
   useLayoutEffect(() => {
     const panel = resolvedPanelRef.current;
     if (!panel) return;
-    gsap.set(panel, { yPercent: -100, autoAlpha: 1, pointerEvents: "none" });
+    gsap.set(panel, {
+      yPercent: -100,
+      autoAlpha: 1,
+      pointerEvents: "none",
+      willChange: "transform",
+      force3D: true,
+    });
     if (typeof document !== "undefined") {
       document.documentElement.style.setProperty(BOOKMARK_OFFSET_VAR, "0px");
       (window as any).__bookmarkOffset = 0;
@@ -101,6 +115,11 @@ export default function ProjectIndexDrawer({
     }
     mq.addListener(update);
     return () => mq.removeListener(update);
+  }, []);
+
+  useEffect(() => {
+    // Hydration-safe: compute browser-specific styles only after mount.
+    setSafariBrowser(isSafariBrowser());
   }, []);
 
   useEffect(() => {
@@ -133,18 +152,20 @@ export default function ProjectIndexDrawer({
 
     if (!open) {
       if (!wasOpenRef.current) {
-        gsap.set(panel, { yPercent: -100, pointerEvents: "none" });
+        gsap.set(panel, { yPercent: -100, pointerEvents: "none", willChange: "auto" });
         offsetProxy.v = 0;
         applyOffset();
         return;
       }
 
+      gsap.set(panel, { willChange: "transform", force3D: true });
       gsap.to(panel, {
         yPercent: -100,
         duration: DRAWER_CLOSE_DUR,
         ease: DRAWER_CLOSE_EASE,
+        force3D: true,
         onComplete: () => {
-          gsap.set(panel, { pointerEvents: "none" });
+          gsap.set(panel, { pointerEvents: "none", willChange: "auto" });
           offsetProxy.v = 0;
           applyOffset();
         },
@@ -163,7 +184,7 @@ export default function ProjectIndexDrawer({
       return;
     }
 
-    gsap.set(panel, { pointerEvents: "auto" });
+    gsap.set(panel, { pointerEvents: "auto", willChange: "transform", force3D: true });
     wasOpenRef.current = true;
 
     const tl = gsap.timeline({ defaults: { overwrite: "auto" } });
@@ -172,9 +193,11 @@ export default function ProjectIndexDrawer({
       yPercent: 0,
       duration: DRAWER_OPEN_DUR,
       ease: DRAWER_OPEN_EASE,
+      force3D: true,
       onComplete: () => {
         offsetProxy.v = panelHeight;
         applyOffset();
+        gsap.set(panel, { willChange: "auto" });
       },
     });
     if (root) {
@@ -194,10 +217,21 @@ export default function ProjectIndexDrawer({
     }
 
     if (itemEls.length) {
+      gsap.set(itemEls, { willChange: "transform,opacity", force3D: true });
       tl.fromTo(
         itemEls,
         { y: -12, autoAlpha: 0 },
-        { y: 0, autoAlpha: 1, duration: 0.35, ease: "power2.out", stagger: 0.035 },
+        {
+          y: 0,
+          autoAlpha: 1,
+          duration: 0.35,
+          ease: "power2.out",
+          stagger: 0.035,
+          force3D: true,
+          onComplete: () => {
+            gsap.set(itemEls, { willChange: "auto" });
+          },
+        },
         "-=0.25"
       );
     }
@@ -247,14 +281,21 @@ export default function ProjectIndexDrawer({
     <div
       id={id}
       ref={resolvedPanelRef}
-      className="fixed inset-x-0 top-0 z-[10020] w-full bg-neutral-50/95 text-neutral-900 backdrop-blur-md shadow-[0_20px_60px_rgba(0,0,0,0.12)]"
+      className={[
+        "fixed inset-x-0 top-0 z-[10020] w-full text-neutral-900 shadow-[0_20px_60px_rgba(0,0,0,0.12)]",
+        "will-change-transform [transform:translate3d(0,0,0)] [backface-visibility:hidden] [-webkit-backface-visibility:hidden]",
+        safariBrowser ? "bg-neutral-50/95 backdrop-blur-sm" : "bg-neutral-50/95 backdrop-blur-md",
+      ].join(" ")}
       role="dialog"
       aria-modal="true"
       aria-label={title}
     >
       <div
         aria-hidden
-        className="absolute left-0 right-0 pointer-events-none bg-neutral-50/95 backdrop-blur-md"
+        className={[
+          "absolute left-0 right-0 pointer-events-none bg-neutral-50/95",
+          safariBrowser ? "backdrop-blur-sm" : "backdrop-blur-md",
+        ].join(" ")}
         style={{ height: TOP_FILL_HEIGHT, top: -TOP_FILL_HEIGHT }}
       />
       <div className="mx-auto flex w-full  flex-col gap-6 px-6 py-6">
@@ -309,7 +350,7 @@ export default function ProjectIndexDrawer({
                   <div
                     key={it._key}
                     data-drawer-item
-                    className="pointer-events-auto"
+                    className="pointer-events-auto will-change-transform [transform:translate3d(0,0,0)]"
                     style={placementStyle}
                   >
                     <HeroUnderlineLink

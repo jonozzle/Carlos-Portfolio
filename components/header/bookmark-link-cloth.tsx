@@ -1156,6 +1156,10 @@ export default function BookmarkLinkCloth({
       el.style.pointerEvents = "none";
       el.style.background = "transparent";
       el.style.zIndex = "10009";
+      el.style.willChange = "transform,opacity";
+      el.style.transform = "translate3d(0,0,0)";
+      el.style.backfaceVisibility = "hidden";
+      el.style.webkitBackfaceVisibility = "hidden";
       document.body.appendChild(el);
       createdOverlayRef.current = true;
     }
@@ -1232,8 +1236,17 @@ export default function BookmarkLinkCloth({
       }
       shownSeqAnimatedRef.current = showSeq;
       gsap.killTweensOf(inner, "y");
-      gsap.set(inner, { y: DROP_INNER_Y });
-      gsap.to(inner, { y: 0, duration: 0.6, ease: "power2.out", overwrite: "auto" });
+      gsap.set(inner, { y: DROP_INNER_Y, willChange: "transform", force3D: true });
+      gsap.to(inner, {
+        y: 0,
+        duration: 0.6,
+        ease: "power2.out",
+        overwrite: "auto",
+        force3D: true,
+        onComplete: () => {
+          gsap.set(inner, { willChange: "auto" });
+        },
+      });
     };
     run();
     return () => window.cancelAnimationFrame(raf);
@@ -2445,6 +2458,10 @@ export default function BookmarkLinkCloth({
               opacity: isShown ? 1 : 0,
               transition: "opacity 150ms ease",
               display: "block",
+              willChange: "transform,opacity",
+              transform: "translate3d(0,0,0)",
+              backfaceVisibility: "hidden",
+              WebkitBackfaceVisibility: "hidden",
             }}
           />,
           overlayEl
@@ -2477,6 +2494,9 @@ export default function BookmarkLinkCloth({
               userSelect: "none",
               WebkitUserSelect: "none",
               touchAction: "none",
+              willChange: "transform",
+              backfaceVisibility: "hidden",
+              WebkitBackfaceVisibility: "hidden",
             }}
           />,
           hitPortalEl
@@ -2507,6 +2527,8 @@ export default function BookmarkLinkCloth({
             ? "translate3d(0, 0px, 0)"
             : "translate3d(0, var(--bookmark-offset, 0px), 0)",
           willChange: "transform",
+          backfaceVisibility: "hidden",
+          WebkitBackfaceVisibility: "hidden",
         }}
         className={cn(
           "group fixed top-0 z-[10010] overflow-visible origin-top",
@@ -2518,10 +2540,13 @@ export default function BookmarkLinkCloth({
           className
         )}
       >
-        <div ref={innerWrapRef} className="relative h-full w-full pointer-events-none">
+        <div
+          ref={innerWrapRef}
+          className="relative h-full w-full pointer-events-none will-change-transform [transform:translate3d(0,0,0)]"
+        >
           <div
             ref={clothHostRef}
-            className="absolute left-1/2 top-0 w-12 -translate-x-1/2 pointer-events-none"
+            className="absolute left-1/2 top-0 w-12 -translate-x-1/2 pointer-events-none will-change-transform [transform:translate3d(0,0,0)]"
             style={{ height: `var(--bookmark-total, ${defaultBookmarkHeight})` }}
           >
             {!webglOk ? (

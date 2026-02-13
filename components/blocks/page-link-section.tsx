@@ -827,6 +827,11 @@ export default function PageLinkSection(props: Props) {
     return () => window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
   }, [activeIndex, clearAll, isPointerOverCell]);
 
+  useEffect(() => {
+    if (hoverCapable) return;
+    clearAll({ force: true });
+  }, [hoverCapable, clearAll]);
+
   let paddingClass = "";
   const sectionStyle: CSSProperties = { containIntrinsicSize: "100vh 50vw" };
 

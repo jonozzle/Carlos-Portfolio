@@ -9,6 +9,15 @@ function readHoverCapable(): boolean {
   const anyHover = window.matchMedia("(any-hover: hover)").matches;
   const finePointer = window.matchMedia("(pointer: fine)").matches;
   const anyFinePointer = window.matchMedia("(any-pointer: fine)").matches;
+  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const anyCoarsePointer = window.matchMedia("(any-pointer: coarse)").matches;
+  const hasTouchPoints =
+    typeof navigator !== "undefined" &&
+    typeof navigator.maxTouchPoints === "number" &&
+    navigator.maxTouchPoints > 0;
+
+  // Treat any touch-capable environment as non-hover for theme previews.
+  if (coarsePointer || anyCoarsePointer || hasTouchPoints) return false;
 
   return (hover || anyHover) && (finePointer || anyFinePointer);
 }
@@ -33,6 +42,8 @@ export function useHoverCapable() {
     const anyHoverMq = window.matchMedia("(any-hover: hover)");
     const finePointerMq = window.matchMedia("(pointer: fine)");
     const anyFinePointerMq = window.matchMedia("(any-pointer: fine)");
+    const coarsePointerMq = window.matchMedia("(pointer: coarse)");
+    const anyCoarsePointerMq = window.matchMedia("(any-pointer: coarse)");
 
     const update = () => setCapable(compute());
     update();
@@ -62,10 +73,24 @@ export function useHoverCapable() {
     window.addEventListener("pointerdown", onPointer, { passive: true });
     window.addEventListener("pointermove", onPointer, { passive: true });
 
-    [hoverMq, anyHoverMq, finePointerMq, anyFinePointerMq].forEach(bind);
+    [
+      hoverMq,
+      anyHoverMq,
+      finePointerMq,
+      anyFinePointerMq,
+      coarsePointerMq,
+      anyCoarsePointerMq,
+    ].forEach(bind);
 
     return () => {
-      [hoverMq, anyHoverMq, finePointerMq, anyFinePointerMq].forEach(unbind);
+      [
+        hoverMq,
+        anyHoverMq,
+        finePointerMq,
+        anyFinePointerMq,
+        coarsePointerMq,
+        anyCoarsePointerMq,
+      ].forEach(unbind);
       window.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("pointermove", onPointer);
     };

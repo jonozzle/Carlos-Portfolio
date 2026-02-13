@@ -12,14 +12,19 @@ if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
 }
 
-function isDesktopSafari() {
-  if (typeof navigator === "undefined") return false;
+function getSafariFlags() {
+  if (typeof navigator === "undefined") {
+    return { isSafari: false, isDesktopSafari: false };
+  }
   const ua = navigator.userAgent;
   const vendor = navigator.vendor || "";
   const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
   const isApple = /Apple/i.test(vendor);
   const isMobile = /Mobile|iP(ad|hone|od)/i.test(ua);
-  return isSafari && isApple && !isMobile;
+  return {
+    isSafari: isSafari && isApple,
+    isDesktopSafari: isSafari && isApple && !isMobile,
+  };
 }
 
 export default function SmoothScroller({ children }: { children: React.ReactNode }) {
@@ -28,7 +33,7 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
-    const safariDesktop = isDesktopSafari();
+    const { isSafari, isDesktopSafari } = getSafariFlags();
 
     // Prevent “catch up” snapping.
     gsap.ticker.lagSmoothing(0);
@@ -46,13 +51,17 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
     const smoother = ScrollSmoother.create({
       wrapper: wrapperRef.current!,
       content: contentRef.current!,
-      smooth: safariDesktop ? 0.1 : 0.5,
-      smoothTouch: safariDesktop ? 0.1 : 0.2,
-      effects: !safariDesktop,
-      normalizeScroll: !safariDesktop,
+      smooth: isDesktopSafari ? 0.1 : isSafari ? 0.08 : 0.5,
+      smoothTouch: isSafari ? 0 : 0.2,
+      effects: !isSafari,
+      normalizeScroll: !isSafari,
     });
 
     if (contentRef.current) {
+      contentRef.current.style.willChange = "transform";
+      contentRef.current.style.transform = "translate3d(0,0,0)";
+      contentRef.current.style.backfaceVisibility = "hidden";
+      (contentRef.current.style as any).webkitBackfaceVisibility = "hidden";
       predecodeNextImages(contentRef.current, 10);
     }
 
@@ -122,6 +131,13 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
       idleCancel = null;
 
       smoother.kill();
+
+      if (contentRef.current) {
+        contentRef.current.style.willChange = "";
+        contentRef.current.style.transform = "";
+        contentRef.current.style.backfaceVisibility = "";
+        (contentRef.current.style as any).webkitBackfaceVisibility = "";
+      }
     };
   }, []);
 

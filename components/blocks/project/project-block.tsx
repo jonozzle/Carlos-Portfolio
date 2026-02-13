@@ -800,6 +800,12 @@ export default function ProjectBlock(props: Props) {
     }, [activeIndex, clearPreview, isPointerOverCell]);
 
     useEffect(() => {
+        if (hoverCapable) return;
+        clearPreview();
+        setActiveIndex(null);
+    }, [hoverCapable, clearPreview]);
+
+    useEffect(() => {
         if (typeof document === "undefined" || typeof window === "undefined") return;
 
         const root = document.documentElement as HTMLElement & { dataset: DOMStringMap };
