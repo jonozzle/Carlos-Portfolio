@@ -2201,6 +2201,18 @@ export default function BookmarkLinkCloth({
 
     let raf = 0;
     let lastT = 0;
+    let pinnedGrabIdx = -1;
+
+    const setPinnedGrabIndex = (nextIdx: number) => {
+      if (nextIdx === pinnedGrabIdx) return;
+      if (pinnedGrabIdx >= 0 && !cloth.isPermanentPinned(pinnedGrabIdx)) {
+        cloth.pointStatusSet(pinnedGrabIdx, 0);
+      }
+      if (nextIdx >= 0 && !cloth.isPermanentPinned(nextIdx)) {
+        cloth.pointStatusSet(nextIdx, 1);
+      }
+      pinnedGrabIdx = nextIdx;
+    };
 
     const step = (time: number) => {
       raf = requestAnimationFrame(step);
@@ -2289,6 +2301,7 @@ export default function BookmarkLinkCloth({
         }
 
         if (drag.index >= 0) {
+          setPinnedGrabIndex(drag.index);
           const clampedTarget = clampGrabTarget(drag.index, drag.targetX, drag.targetY);
           const grabTargetX = drag.targetX;
           const grabTargetY = drag.targetY;
@@ -2361,6 +2374,7 @@ export default function BookmarkLinkCloth({
           }
         }
       } else {
+        setPinnedGrabIndex(-1);
         drag.index = -1;
         drag.patch = null;
       }
@@ -2430,6 +2444,7 @@ export default function BookmarkLinkCloth({
 
     return () => {
       cancelAnimationFrame(raf);
+      setPinnedGrabIndex(-1);
       heightTweenRef.current?.kill();
       window.removeEventListener("resize", handleResize);
       window.visualViewport?.removeEventListener("resize", handleResize);
