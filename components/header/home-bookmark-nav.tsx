@@ -33,6 +33,10 @@ export default function HomeBookmarkNav({ drawer }: HomeBookmarkNavProps) {
     if (!isHome) setOpen(false);
   }, [isHome]);
 
+  const close = useCallback(() => {
+    setOpen(false);
+  }, []);
+
   useEffect(() => {
     if (closeTimerRef.current) {
       window.clearTimeout(closeTimerRef.current);
@@ -68,6 +72,31 @@ export default function HomeBookmarkNav({ drawer }: HomeBookmarkNavProps) {
     setOpen((prev) => !prev);
   }, [isHome]);
 
+  useEffect(() => {
+    if (!isHome || !open) return;
+
+    const onPointerUp = (e: PointerEvent) => {
+      const panel = drawerRef.current;
+      const target = e.target;
+      if (!panel || !(target instanceof Node)) return;
+      if (panel.contains(target)) return;
+      setOpen(false);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+    };
+
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isHome, open]);
+
   const bookmarkLabel = isHome ? (open ? "Close" : "Index") : "Home";
 
   return (
@@ -88,7 +117,13 @@ export default function HomeBookmarkNav({ drawer }: HomeBookmarkNavProps) {
         />
       ) : null}
       {isHome ? (
-        <ProjectIndexDrawer id={DRAWER_ID} open={open} panelRef={drawerRef} drawer={drawer} />
+        <ProjectIndexDrawer
+          id={DRAWER_ID}
+          open={open}
+          panelRef={drawerRef}
+          drawer={drawer}
+          onNavigate={close}
+        />
       ) : null}
       {isHome && bio ? (
         <div className="fixed right-3 top-3 z-[10020] md:hidden">
