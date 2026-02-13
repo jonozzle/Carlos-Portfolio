@@ -71,6 +71,7 @@ const SCROLL_WIND_NORM = 100;
 const SCROLL_WIND_MAX = 1.2;
 const SCROLL_WIND_SMOOTH = 0.12;
 const SCROLL_WIND_STRENGTH = 100;
+const MOBILE_SCROLL_WIND_QUERY = "(max-width: 767px), (hover: none) and (pointer: coarse)";
 
 // Pointer wind
 const POINTER_FORCE = 1200;
@@ -999,6 +1000,7 @@ export default function BookmarkLinkCloth({
 
   const scrollWindRef = useRef(0);
   const scrollLastRef = useRef({ y: 0, t: 0 });
+  const disableScrollWindRef = useRef(false);
 
   const pointerRef = useRef({
     active: false,
@@ -1322,9 +1324,33 @@ export default function BookmarkLinkCloth({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    const mq = window.matchMedia(MOBILE_SCROLL_WIND_QUERY);
+    const sync = () => {
+      disableScrollWindRef.current = mq.matches;
+      scrollWindRef.current = 0;
+      scrollLastRef.current = { y: getNativeScrollY(), t: performance.now() };
+    };
+    sync();
+
+    if (mq.addEventListener) {
+      mq.addEventListener("change", sync);
+      return () => mq.removeEventListener("change", sync);
+    }
+    mq.addListener(sync);
+    return () => mq.removeListener(sync);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const onScroll = () => {
       const now = performance.now();
       const y = getNativeScrollY();
+      if (disableScrollWindRef.current) {
+        scrollWindRef.current = 0;
+        scrollLastRef.current = { y, t: now };
+        return;
+      }
       const lastT = scrollLastRef.current.t || now;
       const dt = clamp((now - lastT) / 1000, 0.008, 0.05);
       const dy = y - scrollLastRef.current.y;
