@@ -205,6 +205,30 @@ function pickBestHeroTarget(slug: string): HTMLElement | null {
   return best;
 }
 
+function getHeroTargetsBySlug(slug: string): HTMLElement[] {
+  if (typeof document === "undefined") return [];
+  return Array.from(document.querySelectorAll<HTMLElement>(`[data-hero-slug="${slug}"]`));
+}
+
+function hideHeroTargets(slug: string) {
+  const targets = getHeroTargetsBySlug(slug);
+  if (!targets.length) return;
+  gsap.set(targets, { opacity: 0, visibility: "hidden", pointerEvents: "none" });
+}
+
+function showHeroTargets(slug: string) {
+  const targets = getHeroTargetsBySlug(slug);
+  if (!targets.length) return;
+  gsap.set(targets, { opacity: 1, clearProps: "visibility,pointerEvents" });
+}
+
+function setHomeHeroFlightMask(on: boolean) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (on) root.dataset.heroHomeFlight = "1";
+  else delete (root as any).dataset.heroHomeFlight;
+}
+
 function bgFromSource(sourceEl: HTMLElement) {
   try {
     const cs = getComputedStyle(sourceEl);
@@ -323,6 +347,7 @@ export function startHeroTransition({
     return;
   }
 
+  setHomeHeroFlightMask(false);
   (window as any).__heroDone = false;
 
   const fromRect = sourceEl.getBoundingClientRect();
@@ -394,9 +419,19 @@ export function completeHeroTransition({
     return;
   }
 
+  const safariHomeFlightMask = mode === "parkThenPage" && isSafariBrowser();
   const pending = (window as any).__heroPending as PendingHero | undefined;
+  const ensureTargetsVisible = () => {
+    try {
+      if (safariHomeFlightMask) setHomeHeroFlightMask(false);
+      showHeroTargets(slug);
+    } catch {
+      // ignore
+    }
+  };
 
   const cleanupHard = () => {
+    ensureTargetsVisible();
     try {
       pending?.overlay?.remove();
     } catch {
@@ -408,13 +443,15 @@ export function completeHeroTransition({
   };
 
   if (!pending) {
-    if (targetEl) gsap.set(targetEl, { opacity: 1 });
+    ensureTargetsVisible();
+    if (targetEl) gsap.set(targetEl, { opacity: 1, clearProps: "visibility,pointerEvents" });
     onDone?.();
     return;
   }
 
   if (pending.slug !== slug) {
-    if (targetEl) gsap.set(targetEl, { opacity: 1 });
+    ensureTargetsVisible();
+    if (targetEl) gsap.set(targetEl, { opacity: 1, clearProps: "visibility,pointerEvents" });
     onDone?.();
     return;
   }
@@ -476,8 +513,11 @@ export function completeHeroTransition({
       force3D: true,
     });
 
-    // Hide target during flight.
-    gsap.set(t, { opacity: 0 });
+    if (safariHomeFlightMask) setHomeHeroFlightMask(true);
+
+    // Hide every matching home target during flight to prevent duplicate tiles peeking through.
+    hideHeroTargets(slug);
+    gsap.set(t, { opacity: 0, visibility: "hidden", pointerEvents: "none" });
 
     try {
       gsap.killTweensOf(overlay);
@@ -520,9 +560,11 @@ export function completeHeroTransition({
 
     if (mode === "parkThenPage") {
       tl.eventCallback("onComplete", () => {
+        if (safariHomeFlightMask) setHomeHeroFlightMask(false);
+
         // Make target visible immediately under the overlay (helps mask tile image crossfades).
         try {
-          gsap.set(t, { opacity: 1 });
+          gsap.set(t, { opacity: 1, visibility: "visible" });
           t.style.pointerEvents = "none";
         } catch {
           // ignore
@@ -558,6 +600,8 @@ export function completeHeroTransition({
             }
 
             try {
+              if (safariHomeFlightMask) setHomeHeroFlightMask(false);
+              showHeroTargets(slug);
               gsap.set(t, { opacity: 1, clearProps: "visibility,pointerEvents" });
             } catch {
               // ignore
@@ -575,6 +619,8 @@ export function completeHeroTransition({
     tl.eventCallback("onComplete", () => {
       markOverlayTweening(overlay, false);
 
+      if (safariHomeFlightMask) setHomeHeroFlightMask(false);
+      showHeroTargets(slug);
       gsap.set(t, { opacity: 1 });
       gsap.set(overlay, { willChange: "auto" });
 
@@ -605,6 +651,7 @@ export function completeHeroTransition({
  */
 export function clearHeroPendingHard() {
   if (typeof window === "undefined") return;
+  setHomeHeroFlightMask(false);
 
   const pending = (window as any).__heroPending as PendingHero | undefined;
   if (!pending?.overlay) {

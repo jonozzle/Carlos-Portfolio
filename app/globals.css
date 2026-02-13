@@ -83,10 +83,6 @@ body {
 }
 
 #smooth-content {
-  will-change: transform;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
   width: 100%;
   overflow: visible;
 }
@@ -122,6 +118,16 @@ body {
   background-color: var(--bg-color);
   color: var(--text-color);
   transition: background-color var(--theme-dur) ease, color var(--theme-dur) ease;
+}
+
+/* Safari: avoid animating both html and body colors at once; keep duration on body only. */
+html[data-browser-safari="1"] {
+  transition: none;
+}
+
+html[data-browser-safari="1"] body {
+  transition: background-color var(--theme-dur) ease;
+  will-change: background-color;
 }
 
 /* Scoped dimming (only affects the section that opts in) */
@@ -197,12 +203,11 @@ body {
 .cursor-dot {
   background: red;
   transform: scale(1);
-  transition: transform 140ms ease;
   will-change: transform;
-}
-
-.cursor-wrap[data-hovered="true"] .cursor-dot {
-  transform: scale(var(--cursor-hover-scale));
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform-origin: 50% 50%;
+  border-radius: 9999px;
 }
 
 
@@ -225,6 +230,15 @@ html[data-dim-items="true"] [data-dim-item="active"] * {
   opacity: 1 !important;
 }
 
+/* Safari test mode: disable dimming to isolate hover/theme lag. */
+html[data-browser-safari="1"] [data-dim-item],
+html[data-browser-safari="1"][data-dim-items="true"] [data-dim-item],
+html[data-browser-safari="1"][data-dim-items="true"] [data-dim-item="active"],
+html[data-browser-safari="1"][data-dim-items="true"] [data-dim-item="active"] * {
+  opacity: 1 !important;
+  transition: none !important;
+}
+
 /*
   CRITICAL FIX (project -> home):
 
@@ -240,6 +254,13 @@ html[data-dim-items="true"] [data-dim-item="active"] * {
 */
 html[data-transitioning="true"] [data-hero-active-target="true"] {
   opacity: 0;
+}
+
+/* Safari hero-back flight mask: keep home hero targets hidden while overlay is in motion. */
+html[data-hero-home-flight="1"] [data-hero-target="home"] {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 html:not(.fouc-ready) [data-fouc] {

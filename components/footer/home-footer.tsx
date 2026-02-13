@@ -22,6 +22,16 @@ type Props = {
     footer: FooterData;
 };
 
+function isDesktopSafari() {
+    if (typeof navigator === "undefined") return false;
+    const ua = navigator.userAgent;
+    const vendor = navigator.vendor || "";
+    const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+    const isApple = /Apple/i.test(vendor);
+    const isMobile = /Mobile|iP(ad|hone|od)/i.test(ua);
+    return isSafari && isApple && !isMobile;
+}
+
 export default function HomeFooter({ footer }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const titleRef = useRef<HTMLHeadingElement>(null);
@@ -99,6 +109,7 @@ export default function HomeFooter({ footer }: Props) {
             const titleEl = titleRef.current;
             const track = marqueeTrackRef.current;
             if (!root) return;
+            const safariDesktop = isDesktopSafari();
 
             const prefersReduced =
                 window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
@@ -110,6 +121,7 @@ export default function HomeFooter({ footer }: Props) {
 
             let stTitle: ScrollTrigger | null = null;
             let stMarquee: ScrollTrigger | null = null;
+            let visListenerBound = false;
 
             const killScrollBits = () => {
                 try {
@@ -142,6 +154,16 @@ export default function HomeFooter({ footer }: Props) {
                 marqueeTween = null;
             };
 
+            const setTrackLayer = (active: boolean) => {
+                if (!track) return;
+                gsap.set(track, {
+                    willChange: active ? "transform" : "auto",
+                    force3D: true,
+                    backfaceVisibility: "hidden",
+                    z: 0,
+                });
+            };
+
             const getHsContainerAnimation = () => {
                 const hs = ScrollTrigger.getById("hs-horizontal") as ScrollTrigger | null;
                 return hs?.animation ?? null;
@@ -163,16 +185,22 @@ export default function HomeFooter({ footer }: Props) {
 
                 if (!hasImages || !track || prefersReduced) return;
 
-                gsap.set(track, { yPercent: 0, force3D: true });
+                gsap.set(track, {
+                    yPercent: 0,
+                    force3D: true,
+                    backfaceVisibility: "hidden",
+                    z: 0,
+                    willChange: "auto",
+                });
 
                 marqueeTween = gsap.to(track, {
                     yPercent: -50,
                     ease: "none",
-                    duration: 30,
+                    duration: safariDesktop ? 42 : 30,
                     repeat: -1,
                     paused: true,
                     force3D: true,
-                    autoRound: false,
+                    autoRound: safariDesktop,
                 });
             };
 
@@ -210,16 +238,22 @@ export default function HomeFooter({ footer }: Props) {
                     if (prefersReduced) {
                         gsap.set(titleEl, { clearProps: "opacity,transform" });
                     } else {
-                        gsap.set(titleEl, { opacity: 0, y: 18, force3D: true });
+                        gsap.set(titleEl, {
+                            opacity: 0,
+                            y: safariDesktop ? 12 : 18,
+                            force3D: true,
+                            backfaceVisibility: "hidden",
+                            willChange: "transform,opacity",
+                        });
 
                         titleTween = gsap.to(titleEl, {
                             opacity: 1,
                             y: 0,
-                            duration: 0.8,
+                            duration: safariDesktop ? 0.62 : 0.8,
                             ease: "power2.out",
                             paused: true,
                             force3D: true,
-                            autoRound: false,
+                            autoRound: safariDesktop,
                         });
 
                         stTitle = ScrollTrigger.create({
@@ -236,10 +270,22 @@ export default function HomeFooter({ footer }: Props) {
                 if (marqueeTween) {
                     stMarquee = ScrollTrigger.create({
                         ...base,
-                        onEnter: () => marqueeTween?.play(),
-                        onEnterBack: () => marqueeTween?.play(),
-                        onLeave: () => marqueeTween?.pause(),
-                        onLeaveBack: () => marqueeTween?.pause(),
+                        onEnter: () => {
+                            setTrackLayer(true);
+                            marqueeTween?.play();
+                        },
+                        onEnterBack: () => {
+                            setTrackLayer(true);
+                            marqueeTween?.play();
+                        },
+                        onLeave: () => {
+                            marqueeTween?.pause();
+                            setTrackLayer(false);
+                        },
+                        onLeaveBack: () => {
+                            marqueeTween?.pause();
+                            setTrackLayer(false);
+                        },
                     });
                 }
             };
@@ -252,6 +298,15 @@ export default function HomeFooter({ footer }: Props) {
             ensureMarqueeTween();
             scheduleBuild();
 
+            const onVisibility = () => {
+                if (!marqueeTween) return;
+                if (document.visibilityState === "visible") return;
+                marqueeTween.pause();
+                setTrackLayer(false);
+            };
+            document.addEventListener("visibilitychange", onVisibility);
+            visListenerBound = true;
+
             // HS lifecycle: rebuild triggers when the horizontal scroller announces readiness/rebuilds.
             window.addEventListener("hs-ready", scheduleBuild);
             window.addEventListener("hs-rebuilt", scheduleBuild);
@@ -263,6 +318,10 @@ export default function HomeFooter({ footer }: Props) {
                 if (raf) cancelAnimationFrame(raf);
                 killScrollBits();
                 killMarqueeTween();
+                setTrackLayer(false);
+                if (visListenerBound) {
+                    document.removeEventListener("visibilitychange", onVisibility);
+                }
             };
         },
         { scope: containerRef, dependencies: [hasImages, images.length, title] }

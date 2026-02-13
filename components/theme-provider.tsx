@@ -42,6 +42,8 @@ type ThemeContextValue = {
 
 const DEFAULT_THEME: Theme = { bg: "#ffffff", text: "#000000" };
 const ThemeContext = createContext<ThemeContextValue | null>(null);
+const POINTER_MOVE_THRESHOLD_MS = 160;
+const SAFARI_POINTER_MOVE_THRESHOLD_MS = 280;
 
 function resolveColor(value: string | ColorLike | null | undefined): string | undefined {
   if (!value) return undefined;
@@ -71,35 +73,94 @@ function isScrollLocked(): boolean {
   return (window as any).__appScrollLockCount > 0;
 }
 
-function applyThemeVars(theme: Theme, opts?: ThemeApplyOptions) {
+type AppliedThemeState = {
+  bg: string;
+  text: string;
+  dur: string;
+};
+
+let lastAppliedThemeState: AppliedThemeState | null = null;
+let themeWriteRafId: number | null = null;
+let pendingThemeState: AppliedThemeState | null = null;
+let safariBrowserCache: boolean | null = null;
+
+function isSafariBrowser() {
+  if (typeof navigator === "undefined") return false;
+  if (safariBrowserCache != null) return safariBrowserCache;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  safariBrowserCache =
+    /Safari/i.test(ua) && /Apple/i.test(vendor) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+  return safariBrowserCache;
+}
+
+function applyThemeState(next: AppliedThemeState) {
   if (typeof document === "undefined") return;
-
-  const animate = opts?.animate ?? true;
-  const force = opts?.force ?? false;
-  const durationMs = typeof opts?.durationMs === "number" ? opts.durationMs : 450;
-
-  const allowAnim = animate && (force || !isAppScrolling());
-  const dur = allowAnim ? `${durationMs}ms` : "0ms";
 
   const root = document.documentElement;
   const body = document.body;
 
-  root.style.setProperty("--bg-color", theme.bg);
-  root.style.setProperty("--text-color", theme.text);
-  root.style.setProperty("--theme-dur", dur);
+  root.style.setProperty("--bg-color", next.bg);
+  root.style.setProperty("--text-color", next.text);
+  root.style.setProperty("--theme-dur", next.dur);
 
   // Back-compat
-  root.style.setProperty("--bg", theme.bg);
-  root.style.setProperty("--text", theme.text);
+  root.style.setProperty("--bg", next.bg);
+  root.style.setProperty("--text", next.text);
+
+  // Safari: avoid extra direct color writes that force broader repaints.
+  if (isSafariBrowser()) return;
 
   try {
-    root.style.backgroundColor = theme.bg;
-    root.style.color = theme.text;
-    body.style.backgroundColor = theme.bg;
-    body.style.color = theme.text;
+    root.style.backgroundColor = next.bg;
+    root.style.color = next.text;
+    body.style.backgroundColor = next.bg;
+    body.style.color = next.text;
   } catch {
     // ignore
   }
+}
+
+function applyThemeVars(theme: Theme, opts?: ThemeApplyOptions) {
+  const animate = opts?.animate ?? true;
+  const force = opts?.force ?? false;
+  const inputDurationMs = typeof opts?.durationMs === "number" ? opts.durationMs : 450;
+
+  const allowAnim = animate && (force || !isAppScrolling());
+  const durationMs = inputDurationMs;
+  const dur = allowAnim ? `${durationMs}ms` : "0ms";
+  const next: AppliedThemeState = { bg: theme.bg, text: theme.text, dur };
+
+  if (
+    lastAppliedThemeState &&
+    lastAppliedThemeState.bg === next.bg &&
+    lastAppliedThemeState.text === next.text &&
+    lastAppliedThemeState.dur === next.dur
+  ) {
+    return;
+  }
+
+  if (!allowAnim) {
+    if (themeWriteRafId != null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(themeWriteRafId);
+      themeWriteRafId = null;
+    }
+    pendingThemeState = null;
+    applyThemeState(next);
+    lastAppliedThemeState = next;
+    return;
+  }
+
+  pendingThemeState = next;
+  if (themeWriteRafId != null || typeof window === "undefined") return;
+
+  themeWriteRafId = window.requestAnimationFrame(() => {
+    themeWriteRafId = null;
+    if (!pendingThemeState) return;
+    applyThemeState(pendingThemeState);
+    lastAppliedThemeState = pendingThemeState;
+    pendingThemeState = null;
+  });
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -111,6 +172,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     lockedRef.current = theme;
   }, [theme]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (isSafariBrowser()) root.dataset.browserSafari = "1";
+    else delete (root as any).dataset.browserSafari;
+
+    return () => {
+      if (themeWriteRafId != null && typeof window !== "undefined") {
+        window.cancelAnimationFrame(themeWriteRafId);
+        themeWriteRafId = null;
+      }
+      pendingThemeState = null;
+    };
+  }, []);
 
   // Boot apply:
   // If ThemeSetter already applied a theme on hydration, do not overwrite it here.
@@ -149,9 +225,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // - if pointer hasn’t moved recently (content sliding under stationary cursor)
     if (isHoverLocked()) return;
     if (isScrollLocked()) return;
-    if (!opts?.allowIdle && !hasRecentPointerMove()) return;
+    const pointerThreshold = isSafariBrowser()
+      ? SAFARI_POINTER_MOVE_THRESHOLD_MS
+      : POINTER_MOVE_THRESHOLD_MS;
+    if (!opts?.allowIdle && !hasRecentPointerMove(pointerThreshold)) return;
 
     const next = normalizeTheme(t ?? null, lockedRef.current);
+    if (
+      previewRef.current &&
+      previewRef.current.bg === next.bg &&
+      previewRef.current.text === next.text
+    ) {
+      return;
+    }
     previewRef.current = next;
     applyThemeVars(next, opts);
   }, []);

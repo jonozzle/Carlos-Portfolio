@@ -83,9 +83,12 @@ const GRAB_SOFT_STRENGTH = 0.82;
 const GRAB_MAX_STRETCH = 1.0;
 const GRAB_OVERDRAG = 0.0;
 
-const GRAB_MOVE_PX = 10;
+const GRAB_MOVE_PX = 2;
 const PASSIVE_DAMPING_PER_FRAME = 0.976;
 const DRAWER_SEAM_OVERLAP_PX = 1;
+const SAFARI_GSAP_BUSY_FPS = 32;
+const SAFARI_TRANSITION_BUSY_FPS = 28;
+const SAFARI_SCROLL_BUSY_FPS = 34;
 
 // Label
 const LABEL_FONT_FAMILY = `"Times New Roman", Times, serif`;
@@ -179,6 +182,31 @@ function clearAnyHeroPending() {
   }
   (window as any).__heroPending = undefined;
   (window as any).__heroDone = true;
+}
+
+function isSafariBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  return /Safari/i.test(ua) && /Apple/i.test(vendor) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+}
+
+function isHeroOverlayBusy() {
+  if (typeof window === "undefined") return false;
+  const pending = (window as any).__heroPending as { overlay?: HTMLElement } | undefined;
+  const overlay = pending?.overlay;
+  if (!overlay) return false;
+  return overlay.dataset?.heroTweening === "1" || overlay.dataset?.heroParked === "1";
+}
+
+function isTransitionBusy() {
+  if (typeof window === "undefined" || typeof document === "undefined") return false;
+  if (isHeroOverlayBusy()) return true;
+  if ((window as any).__pageTransitionPending) return true;
+  if ((window as any).__pageTransitionBusy) return true;
+  if ((document.documentElement as any).dataset?.pageTransitionBusy === "1") return true;
+  if ((document.documentElement as any).dataset?.homeHold === "1") return true;
+  return false;
 }
 
 function createShader(gl: WebGLRenderingContext, type: number, src: string) {
@@ -1084,6 +1112,9 @@ export default function BookmarkLinkCloth({
   const sizeChangedRef = useRef(false);
   const showSeqRef = useRef(0);
   const shownSeqAnimatedRef = useRef(0);
+  const dropAnimatingRef = useRef(false);
+  const safariScrollBusyRef = useRef(false);
+  const safariScrollIdleTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     isHomeRef.current = isHome;
@@ -1225,6 +1256,7 @@ export default function BookmarkLinkCloth({
 
     let raf = 0;
     let tries = 0;
+    const safariBrowser = isSafariBrowser();
     const run = () => {
       const inner = innerWrapRef.current;
       if (!inner) {
@@ -1236,20 +1268,29 @@ export default function BookmarkLinkCloth({
       }
       shownSeqAnimatedRef.current = showSeq;
       gsap.killTweensOf(inner, "y");
+      dropAnimatingRef.current = true;
       gsap.set(inner, { y: DROP_INNER_Y, willChange: "transform", force3D: true });
       gsap.to(inner, {
         y: 0,
-        duration: 0.6,
+        duration: safariBrowser ? 0.48 : 0.6,
         ease: "power2.out",
         overwrite: "auto",
         force3D: true,
         onComplete: () => {
+          dropAnimatingRef.current = false;
+          gsap.set(inner, { willChange: "auto" });
+        },
+        onInterrupt: () => {
+          dropAnimatingRef.current = false;
           gsap.set(inner, { willChange: "auto" });
         },
       });
     };
     run();
-    return () => window.cancelAnimationFrame(raf);
+    return () => {
+      dropAnimatingRef.current = false;
+      window.cancelAnimationFrame(raf);
+    };
   }, [isShown]);
 
   useEffect(() => {
@@ -1322,7 +1363,19 @@ export default function BookmarkLinkCloth({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const safariBrowser = isSafariBrowser();
     const onScroll = () => {
+      if (safariBrowser) {
+        safariScrollBusyRef.current = true;
+        if (safariScrollIdleTimerRef.current != null) {
+          window.clearTimeout(safariScrollIdleTimerRef.current);
+        }
+        safariScrollIdleTimerRef.current = window.setTimeout(() => {
+          safariScrollBusyRef.current = false;
+          safariScrollIdleTimerRef.current = null;
+        }, 140);
+      }
+
       const now = performance.now();
       const y = getNativeScrollY();
       const lastT = scrollLastRef.current.t || now;
@@ -1335,7 +1388,14 @@ export default function BookmarkLinkCloth({
       scrollWindRef.current = norm;
     };
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (safariScrollIdleTimerRef.current != null) {
+        window.clearTimeout(safariScrollIdleTimerRef.current);
+        safariScrollIdleTimerRef.current = null;
+      }
+      safariScrollBusyRef.current = false;
+    };
   }, []);
 
   const updatePointer = useCallback((clientX: number, clientY: number) => {
@@ -1998,6 +2058,9 @@ export default function BookmarkLinkCloth({
     let stripHeight = getTargetBookmarkHeight(isHomeRef.current);
     heightProxyRef.current.value = stripHeight;
     heightTargetRef.current = stripHeight;
+    const safariBrowser = isSafariBrowser();
+    let pendingHeight: number | null = null;
+    let deferHeightRaf = 0;
 
     let fullW = Math.max(1, window.innerWidth);
     let fullH = Math.max(1, window.innerHeight);
@@ -2064,12 +2127,12 @@ export default function BookmarkLinkCloth({
     };
     measureAnchorBase();
 
-    const readAnchor = () => {
+    const readAnchor = (forceMeasure = false) => {
       let nextBase = anchorBaseRef.current;
       if (followActiveRef.current && followAnchorRef.current.valid) {
         nextBase = followAnchorRef.current;
-      } else {
-        // Keep anchor live so first-load drop tween (inner y:-100 -> 0) doesn't freeze cloth too high.
+      } else if (forceMeasure) {
+        // Keep anchor live while local tweens/transitions can move it.
         measureAnchorBase();
         nextBase = anchorBaseRef.current;
       }
@@ -2084,7 +2147,7 @@ export default function BookmarkLinkCloth({
       };
     };
 
-    const anchor = readAnchor();
+    const anchor = readAnchor(true);
     const cloth = new Cloth(COLS, ROWS, STRIP_W, stripHeight, anchor.x, anchor.y);
     const clampGrabTarget = (grabIdx: number, targetX: number, targetY: number) => {
       const grabCol = grabIdx % cloth.cols;
@@ -2117,8 +2180,10 @@ export default function BookmarkLinkCloth({
       const X = cloth.X.data;
       const V = cloth.V.data;
       const rest = cloth.rest;
+      const grabIdx = dragRef.current.active ? dragRef.current.index : -1;
       for (let i = 0; i < cloth.count; i++) {
         if (cloth.isPermanentPinned(i)) continue;
+        if (i === grabIdx) continue;
         const i3 = i * 3;
         const col = i % cloth.cols;
         const topIdx = col;
@@ -2157,7 +2222,6 @@ export default function BookmarkLinkCloth({
       if (sizeChanged) {
         sizeChangedRef.current = true;
         updateHostMetrics(stripHeight);
-        measureAnchorBase();
         labelTextureDirtyRef.current = true;
       }
     };
@@ -2178,16 +2242,55 @@ export default function BookmarkLinkCloth({
       });
     };
 
+    const flushPendingHeight = (immediate = false) => {
+      if (pendingHeight == null) return;
+      if (safariBrowser && isTransitionBusy()) return;
+      const next = pendingHeight;
+      pendingHeight = null;
+      tweenToHeight(next, immediate);
+    };
+
+    const scheduleDeferredHeight = () => {
+      if (!safariBrowser || deferHeightRaf) return;
+      const tick = () => {
+        deferHeightRaf = 0;
+        if (pendingHeight == null) return;
+        if (isTransitionBusy()) {
+          deferHeightRaf = window.requestAnimationFrame(tick);
+          return;
+        }
+        flushPendingHeight();
+      };
+      deferHeightRaf = window.requestAnimationFrame(tick);
+    };
+
     const updateTargetHeight = (immediate = false) => {
       const vh = readViewportHeight();
       const raw = isHomeRef.current ? HOME_ANCHOR_HEIGHT : vh * BOOKMARK_TALL_VH;
       const next = Math.max(BASE_SHAPE_HEIGHT, raw);
       if (Math.abs(next - heightTargetRef.current) < 0.5) return;
       heightTargetRef.current = next;
+      if (safariBrowser && !immediate && isTransitionBusy()) {
+        heightTweenRef.current?.kill();
+        pendingHeight = next;
+        scheduleDeferredHeight();
+        return;
+      }
+      pendingHeight = null;
       tweenToHeight(next, immediate);
     };
 
     updateTargetHeight(true);
+
+    const onNavStart = () => {
+      if (!safariBrowser) return;
+      heightTweenRef.current?.kill();
+      pendingHeight = heightTargetRef.current;
+      scheduleDeferredHeight();
+    };
+    const onNavEnd = () => flushPendingHeight(false);
+    const onHeroDone = () => flushPendingHeight(false);
+    const onHomeRestored = () => flushPendingHeight(false);
 
     const handleResize = () => {
       updateTargetHeight(true);
@@ -2196,31 +2299,82 @@ export default function BookmarkLinkCloth({
     };
     window.addEventListener("resize", handleResize);
     window.visualViewport?.addEventListener("resize", handleResize);
+    window.addEventListener(APP_EVENTS.NAV_START, onNavStart);
+    window.addEventListener(APP_EVENTS.NAV_END, onNavEnd);
+    window.addEventListener(APP_EVENTS.HERO_TRANSITION_DONE, onHeroDone);
+    window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored);
 
     let raf = 0;
     let lastT = 0;
+    let lastFrameTime = 0;
+    let pinnedGrabIdx = -1;
+    const lastHitRect = { left: NaN, top: NaN, width: NaN, height: NaN };
+
+    const setPinnedGrabIndex = (nextIdx: number) => {
+      if (nextIdx === pinnedGrabIdx) return;
+      if (pinnedGrabIdx >= 0 && !cloth.isPermanentPinned(pinnedGrabIdx)) {
+        cloth.pointStatusSet(pinnedGrabIdx, 0);
+      }
+      if (nextIdx >= 0 && !cloth.isPermanentPinned(nextIdx)) {
+        cloth.pointStatusSet(nextIdx, 1);
+      }
+      pinnedGrabIdx = nextIdx;
+    };
 
     const step = (time: number) => {
       raf = requestAnimationFrame(step);
-      const dt = lastT ? clamp((time - lastT) / 1000, 0.008, 0.033) : SIM_OPTIONS.timeStep;
+      const pointer = pointerRef.current;
+      const drag = dragRef.current;
+      const hasDirectInteraction = drag.active || drag.down || pointer.active;
+      const transitionBusyNow = isTransitionBusy();
+      const scrollBusyNow = safariBrowser && safariScrollBusyRef.current;
+      const safariBusy = safariBrowser && (dropAnimatingRef.current || transitionBusyNow || scrollBusyNow);
+
+      if (safariBusy && !hasDirectInteraction) {
+        const targetFps = transitionBusyNow
+          ? SAFARI_TRANSITION_BUSY_FPS
+          : scrollBusyNow
+            ? SAFARI_SCROLL_BUSY_FPS
+            : SAFARI_GSAP_BUSY_FPS;
+        const frameInterval = 1000 / targetFps;
+        if (lastFrameTime > 0 && time - lastFrameTime < frameInterval) return;
+      }
+
+      lastFrameTime = time;
+      const maxDt = safariBusy ? 0.05 : 0.033;
+      const dt = lastT ? clamp((time - lastT) / 1000, 0.008, maxDt) : SIM_OPTIONS.timeStep;
       lastT = time;
 
-      const { x: nextX, y: nextY, rect: anchorRect } = readAnchor();
+      const { x: nextX, y: nextY, rect: anchorRect } = readAnchor(
+        dropAnimatingRef.current || transitionBusyNow || drag.active
+      );
       const anchorChanged = cloth.setAnchor(nextX, nextY);
       const hitEl = hitRef.current;
       if (hitEl) {
         const hitHeight = Math.max(stripHeight, BASE_SHAPE_HEIGHT) + HIT_PAD_BOTTOM;
-        hitEl.style.transform = `translate3d(${anchorRect.left}px, ${anchorRect.top}px, 0)`;
-        hitEl.style.width = `${Math.round(anchorRect.width)}px`;
-        hitEl.style.height = `${Math.round(hitHeight)}px`;
+        const width = Math.round(anchorRect.width);
+        const height = Math.round(hitHeight);
+        const left = anchorRect.left;
+        const top = anchorRect.top;
+        if (
+          Math.abs(lastHitRect.left - left) > 0.2 ||
+          Math.abs(lastHitRect.top - top) > 0.2 ||
+          Math.abs(lastHitRect.width - width) > 0.2 ||
+          Math.abs(lastHitRect.height - height) > 0.2
+        ) {
+          hitEl.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+          hitEl.style.width = `${width}px`;
+          hitEl.style.height = `${height}px`;
+          lastHitRect.left = left;
+          lastHitRect.top = top;
+          lastHitRect.width = width;
+          lastHitRect.height = height;
+        }
       }
 
       updateTargetHeight();
       const sizeChanged = sizeChangedRef.current;
       sizeChangedRef.current = false;
-
-      const pointer = pointerRef.current;
-      const drag = dragRef.current;
 
       const wind = scrollWindRef.current;
       scrollWindRef.current = lerp(scrollWindRef.current, 0, SCROLL_WIND_SMOOTH);
@@ -2287,9 +2441,12 @@ export default function BookmarkLinkCloth({
         }
 
         if (drag.index >= 0) {
+          setPinnedGrabIndex(drag.index);
           const clampedTarget = clampGrabTarget(drag.index, drag.targetX, drag.targetY);
-          const grabTargetX = clampedTarget.x;
-          const grabTargetY = clampedTarget.y;
+          const grabTargetX = drag.targetX;
+          const grabTargetY = drag.targetY;
+          const patchTargetX = clampedTarget.x;
+          const patchTargetY = clampedTarget.y;
 
           if (!drag.patch) {
             const grabIdx = drag.index;
@@ -2339,9 +2496,9 @@ export default function BookmarkLinkCloth({
               const j3 = idx * 3;
               const ox = offsets[i * 2 + 0];
               const oy = offsets[i * 2 + 1];
-              const targetX = grabTargetX + ox;
-              const targetY = grabTargetY + oy;
               const w = weights[i];
+              const targetX = idx === grabIdx ? grabTargetX : patchTargetX + ox;
+              const targetY = idx === grabIdx ? grabTargetY : patchTargetY + oy;
               if (idx === grabIdx || w >= 0.999) {
                 cloth.X.data[j3 + 0] = targetX;
                 cloth.X.data[j3 + 1] = targetY;
@@ -2357,6 +2514,7 @@ export default function BookmarkLinkCloth({
           }
         }
       } else {
+        setPinnedGrabIndex(-1);
         drag.index = -1;
         drag.patch = null;
       }
@@ -2426,9 +2584,15 @@ export default function BookmarkLinkCloth({
 
     return () => {
       cancelAnimationFrame(raf);
+      if (deferHeightRaf) cancelAnimationFrame(deferHeightRaf);
+      setPinnedGrabIndex(-1);
       heightTweenRef.current?.kill();
       window.removeEventListener("resize", handleResize);
       window.visualViewport?.removeEventListener("resize", handleResize);
+      window.removeEventListener(APP_EVENTS.NAV_START, onNavStart);
+      window.removeEventListener(APP_EVENTS.NAV_END, onNavEnd);
+      window.removeEventListener(APP_EVENTS.HERO_TRANSITION_DONE, onHeroDone);
+      window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, onHomeRestored);
       gl.deleteBuffer(posBuf);
       gl.deleteBuffer(uvBuf);
       gl.deleteBuffer(idxBuf);

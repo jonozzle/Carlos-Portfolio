@@ -9,6 +9,16 @@ if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
 }
 
+function isDesktopSafari() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+  const isApple = /Apple/i.test(vendor);
+  const isMobile = /Mobile|iP(ad|hone|od)/i.test(ua);
+  return isSafari && isApple && !isMobile;
+}
+
 type Props = {
   triggerRef: React.RefObject<HTMLElement | null>;
   enabled?: boolean | null;
@@ -53,9 +63,11 @@ export default function SectionScrollLine({
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     if (!enabled || !isMdUp) return;
+    const safariDesktop = isDesktopSafari();
 
     let st: ScrollTrigger | null = null;
     let checkId: number | null = null;
+    let tweenScale: ((value: number) => gsap.core.Tween) | null = null;
 
     const kill = () => {
       try {
@@ -69,6 +81,7 @@ export default function SectionScrollLine({
         window.clearTimeout(checkId);
         checkId = null;
       }
+      tweenScale = null;
     };
 
     const setup = () => {
@@ -85,7 +98,22 @@ export default function SectionScrollLine({
 
       kill();
 
-      gsap.set(progressEl, { scaleX: 0, transformOrigin: "left center" });
+      const setScaleX = gsap.quickSetter(progressEl, "scaleX");
+      tweenScale = safariDesktop
+        ? gsap.quickTo(progressEl, "scaleX", {
+            duration: 0.1,
+            ease: "power1.out",
+            overwrite: "auto",
+          })
+        : null;
+
+      gsap.set(progressEl, {
+        scaleX: 0,
+        transformOrigin: "left center",
+        force3D: true,
+        backfaceVisibility: "hidden",
+        willChange: "transform",
+      });
 
       st = ScrollTrigger.create({
         trigger: sectionEl,
@@ -94,7 +122,11 @@ export default function SectionScrollLine({
         end: "right 20%",
         scrub: true,
         onUpdate: (self) => {
-          gsap.set(progressEl, { scaleX: self.progress });
+          if (!safariDesktop || !tweenScale) {
+            setScaleX(self.progress);
+            return;
+          }
+          tweenScale(self.progress);
         },
       });
 
@@ -136,12 +168,12 @@ export default function SectionScrollLine({
 
   // identical markup/classes as before
   return (
-    <div className="pointer-events-none absolute left-0 right-0 bottom-10 px-2 md:px-4 will-change-transform transform-gpu">
+    <div className="pointer-events-none absolute left-0 right-0 bottom-10 px-2 md:px-4 will-change-transform transform-gpu [backface-visibility:hidden] [-webkit-backface-visibility:hidden]">
       <div className="relative h-px w-full">
         <div className="absolute inset-0 bg-current opacity-10" />
         <div
           ref={progressRef}
-          className="absolute inset-0 bg-current origin-left will-change-transform transform-gpu"
+          className="absolute inset-0 bg-current origin-left will-change-transform transform-gpu [backface-visibility:hidden] [-webkit-backface-visibility:hidden]"
           style={{ transform: "scaleX(0)" }}
         />
       </div>

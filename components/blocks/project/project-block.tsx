@@ -119,6 +119,13 @@ function isAppScrolling() {
     return !!(window as any).__appScrolling;
 }
 
+function isSafariBrowser() {
+    if (typeof navigator === "undefined") return false;
+    const ua = navigator.userAgent;
+    const vendor = navigator.vendor || "";
+    return /Safari/i.test(ua) && /Apple/i.test(vendor) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+}
+
 const ProjectBlockCell = React.memo(function ProjectBlockCell({
     item,
     slot,
@@ -685,7 +692,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
                         <div
                             ref={imgScaleRef}
                             data-hero-img-scale
-                            className="relative w-full h-full will-change-transform transform-gpu"
+                            className="relative w-full h-full transform-gpu"
                         >
                             {imgUrl ? (
                                 <SmoothImage
@@ -740,6 +747,7 @@ export default function ProjectBlock(props: Props) {
 
     const sectionRef = useRef<HTMLElement | null>(null);
     const hoverCapable = useHoverCapable();
+    const safariBrowser = useMemo(() => isSafariBrowser(), []);
 
     const isScrollingRef = useRef(false);
     const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -812,6 +820,17 @@ export default function ProjectBlock(props: Props) {
         const w = window as any;
         if (w.__dimItemsCount == null) w.__dimItemsCount = 0;
 
+        if (safariBrowser) {
+            if (dimParticipationRef.current) {
+                w.__dimItemsCount = Math.max(0, (w.__dimItemsCount || 1) - 1);
+                dimParticipationRef.current = false;
+            }
+            if (w.__dimItemsCount === 0) {
+                delete root.dataset.dimItems;
+            }
+            return;
+        }
+
         const currentlyActive = activeIndex !== null;
 
         if (currentlyActive && !dimParticipationRef.current) {
@@ -835,7 +854,7 @@ export default function ProjectBlock(props: Props) {
                 }
             }
         };
-    }, [activeIndex]);
+    }, [activeIndex, safariBrowser]);
 
     const entries: ProjectLayoutEntry[] = useMemo(() => {
         const raw = props.projects ?? [];

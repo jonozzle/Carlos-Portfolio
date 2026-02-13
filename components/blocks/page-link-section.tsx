@@ -77,6 +77,13 @@ function isMobileNow() {
   }
 }
 
+function isSafariBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  return /Safari/i.test(ua) && /Apple/i.test(vendor) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
+}
+
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
 }
@@ -157,7 +164,6 @@ const PageLinkTile = React.memo(function PageLinkTile({
   const animateScale = useCallback((to: number) => {
     const el = imgScaleRef.current;
     if (!el) return;
-
     gsap.killTweensOf(el);
     gsap.to(el, {
       scale: to,
@@ -577,7 +583,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
         <div
           ref={imgScaleRef}
           data-hero-img-scale
-          className="relative w-full h-full will-change-transform transform-gpu"
+          className="relative w-full h-full transform-gpu"
         >
           {imgUrl ? (
             <SmoothImage
@@ -714,6 +720,7 @@ export default function PageLinkSection(props: Props) {
   const items = useMemo(() => props.items ?? [], [props.items]);
   const sectionRef = useRef<HTMLElement | null>(null);
   const hoverCapable = useHoverCapable();
+  const safariBrowser = useMemo(() => isSafariBrowser(), []);
 
   const isHalf = props.width === "half";
 
@@ -764,6 +771,17 @@ export default function PageLinkSection(props: Props) {
     const w = window as any;
     if (w.__dimItemsCount == null) w.__dimItemsCount = 0;
 
+    if (safariBrowser) {
+      if (dimParticipationRef.current) {
+        w.__dimItemsCount = Math.max(0, (w.__dimItemsCount || 1) - 1);
+        dimParticipationRef.current = false;
+      }
+      if (w.__dimItemsCount === 0) {
+        delete root.dataset.dimItems;
+      }
+      return;
+    }
+
     const currentlyActive = activeIndex !== null;
 
     if (currentlyActive && !dimParticipationRef.current) {
@@ -787,7 +805,7 @@ export default function PageLinkSection(props: Props) {
         }
       }
     };
-  }, [activeIndex]);
+  }, [activeIndex, safariBrowser]);
 
   const clearAll = useCallback(
     (opts?: { force?: boolean }) => {

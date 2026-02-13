@@ -20,6 +20,13 @@ type HomeActiveSection = {
   index: number;
 };
 
+type PanelMeta = {
+  id: string;
+  type: string;
+  index: number;
+  centerX: number;
+};
+
 export default function HorizontalScroller({ children, className = "" }: Props) {
   const { loaderDone } = useLoader();
   const containerRef = useRef<HTMLElement | null>(null);
@@ -44,6 +51,8 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
 
     let readyOnce = false;
     let lastActiveId: string | null = null;
+    let panelEls: HTMLElement[] = [];
+    let panelMeta: PanelMeta[] = [];
 
     const mq = window.matchMedia("(min-width: 768px)");
     let isDesktop = mq.matches;
@@ -83,16 +92,29 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
     };
 
     const publishFirst = () => {
-      const first = track.querySelector<HTMLElement>("[data-section-id]");
+      const first = panelEls[0] ?? track.querySelector<HTMLElement>("[data-section-id]");
       if (!first) return;
       const id = first.getAttribute("data-section-id") || "";
       const type = first.getAttribute("data-section-type") || "";
       if (id) publishActive({ id, type, index: 0 });
     };
 
+    const collectPanels = () => {
+      panelEls = Array.from(track.querySelectorAll<HTMLElement>("[data-section-id]"));
+    };
+
+    const measurePanelMeta = () => {
+      if (!panelEls.length) collectPanels();
+      panelMeta = panelEls.map((p, index) => ({
+        id: p.getAttribute("data-section-id") || "",
+        type: p.getAttribute("data-section-type") || "",
+        index,
+        centerX: p.offsetLeft + p.offsetWidth / 2,
+      }));
+    };
+
     const computeActiveHorizontal = (self: ScrollTrigger, amountToScroll: number) => {
-      const panels = Array.from(track.querySelectorAll<HTMLElement>("[data-section-id]"));
-      if (!panels.length) return;
+      if (!panelMeta.length) return;
 
       const vw = window.innerWidth || 1;
       const x = self.progress * amountToScroll;
@@ -101,25 +123,21 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
       let bestIdx = 0;
       let bestDist = Number.POSITIVE_INFINITY;
 
-      for (let i = 0; i < panels.length; i++) {
-        const p = panels[i];
-        const cx = p.offsetLeft + p.offsetWidth / 2;
-        const d = Math.abs(cx - centerX);
+      for (let i = 0; i < panelMeta.length; i++) {
+        const d = Math.abs(panelMeta[i].centerX - centerX);
         if (d < bestDist) {
           bestDist = d;
           bestIdx = i;
         }
       }
 
-      const el = panels[bestIdx];
-      const id = el.getAttribute("data-section-id") || "";
-      const type = el.getAttribute("data-section-type") || "";
-      if (id) publishActive({ id, type, index: bestIdx });
+      const best = panelMeta[bestIdx];
+      if (best?.id) publishActive({ id: best.id, type: best.type, index: best.index });
     };
 
     const computeActiveVertical = () => {
-      const panels = Array.from(track.querySelectorAll<HTMLElement>("[data-section-id]"));
-      if (!panels.length) return;
+      if (!panelEls.length) collectPanels();
+      if (!panelEls.length) return;
 
       const vh = window.innerHeight || 1;
       const centerY = vh / 2;
@@ -127,8 +145,8 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
       let bestIdx = 0;
       let bestDist = Number.POSITIVE_INFINITY;
 
-      for (let i = 0; i < panels.length; i++) {
-        const p = panels[i];
+      for (let i = 0; i < panelEls.length; i++) {
+        const p = panelEls[i];
         const r = p.getBoundingClientRect();
         const cy = r.top + r.height / 2;
         const d = Math.abs(cy - centerY);
@@ -138,7 +156,7 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
         }
       }
 
-      const el = panels[bestIdx];
+      const el = panelEls[bestIdx];
       const id = el.getAttribute("data-section-id") || "";
       const type = el.getAttribute("data-section-type") || "";
       if (id) publishActive({ id, type, index: bestIdx });
@@ -164,6 +182,8 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
       } catch {
         // ignore
       }
+      panelMeta = [];
+      panelEls = [];
 
       try {
         gsap.set(track, { clearProps: "x" });
@@ -184,6 +204,7 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
     const buildMobile = () => {
       killInstance();
       setMode("vertical");
+      collectPanels();
 
       // no spacer / no horizontal motion
       spacer.style.height = "0px";
@@ -215,6 +236,8 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
     const buildDesktop = () => {
       killInstance();
       setMode("horizontal");
+      collectPanels();
+      measurePanelMeta();
 
       const trackWidth = track.scrollWidth;
       const viewportWidth = window.innerWidth;
@@ -270,6 +293,9 @@ export default function HorizontalScroller({ children, className = "" }: Props) 
           invalidateOnRefresh: false,
           animation: tl,
           onUpdate: (self) => computeActiveHorizontal(self, amountToScroll),
+          onRefresh: () => {
+            measurePanelMeta();
+          },
         });
       }, container);
 

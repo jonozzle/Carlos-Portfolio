@@ -38,6 +38,13 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
     // Prevent “catch up” snapping.
     gsap.ticker.lagSmoothing(0);
 
+    if (isSafari) {
+      ScrollTrigger.config({
+        limitCallbacks: true,
+        ignoreMobileResize: true,
+      });
+    }
+
     try {
       if ("scrollRestoration" in window.history) {
         window.history.scrollRestoration = "manual";
@@ -51,18 +58,27 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
     const smoother = ScrollSmoother.create({
       wrapper: wrapperRef.current!,
       content: contentRef.current!,
-      smooth: isDesktopSafari ? 0.1 : isSafari ? 0.08 : 0.5,
+      // Desktop Safari needs a tiny non-zero smoothing value so pinning stays coherent.
+      // A strict 0 can cause visible vertical/horizontal correction jumps.
+      smooth: isDesktopSafari ? 0.1 : isSafari ? 0 : 0.5,
       smoothTouch: isSafari ? 0 : 0.2,
       effects: !isSafari,
       normalizeScroll: !isSafari,
     });
 
     if (contentRef.current) {
-      contentRef.current.style.willChange = "transform";
-      contentRef.current.style.transform = "translate3d(0,0,0)";
-      contentRef.current.style.backfaceVisibility = "hidden";
-      (contentRef.current.style as any).webkitBackfaceVisibility = "hidden";
-      predecodeNextImages(contentRef.current, 10);
+      if (isSafari) {
+        contentRef.current.style.willChange = "auto";
+        contentRef.current.style.transform = "";
+        contentRef.current.style.backfaceVisibility = "";
+        (contentRef.current.style as any).webkitBackfaceVisibility = "";
+      } else {
+        contentRef.current.style.willChange = "transform";
+        contentRef.current.style.transform = "translate3d(0,0,0)";
+        contentRef.current.style.backfaceVisibility = "hidden";
+        (contentRef.current.style as any).webkitBackfaceVisibility = "hidden";
+      }
+      predecodeNextImages(contentRef.current, isSafari ? 4 : 10);
     }
 
     // Refresh helpers:
@@ -143,7 +159,7 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
 
   return (
     <div id="smooth-wrapper" ref={wrapperRef}>
-      <div id="smooth-content" ref={contentRef} className="will-change-transform [transform:translate3d(0,0,0)]">
+      <div id="smooth-content" ref={contentRef}>
         {children}
       </div>
     </div>

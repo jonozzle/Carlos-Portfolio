@@ -1,7 +1,7 @@
 // components/cursor.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { APP_EVENTS } from "@/lib/app-events";
 
@@ -16,6 +16,13 @@ function isFinePointer() {
     window.matchMedia("(pointer: fine)").matches &&
     window.matchMedia("(hover: hover)").matches
   );
+}
+
+function isSafariBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor || "";
+  return /Safari/i.test(ua) && /Apple/i.test(vendor) && !/Chrome|Chromium|Edg|OPR/i.test(ua);
 }
 
 function getCursorRoot(): HTMLElement | null {
@@ -46,17 +53,29 @@ export default function Cursor({
 
   const shownRef = useRef(false);
   const hasMovedRef = useRef(false);
+  const hoveredRef = useRef(false);
+  const safariRef = useRef(false);
+  const moveRafRef = useRef<number | null>(null);
+  const hasPendingMoveRef = useRef(false);
+  const pendingPosRef = useRef<{ x: number; y: number }>({ x: -9999, y: -9999 });
 
   const lastPos = useRef<{ x: number; y: number }>({ x: -9999, y: -9999 });
 
   const reset = useCallback((moveOffscreen: boolean) => {
     const wrap = wrapRef.current;
+    const dot = dotRef.current;
     if (!wrap) return;
 
     shownRef.current = false;
+    hoveredRef.current = false;
+    hasPendingMoveRef.current = false;
     setRootActive(false);
 
     gsap.killTweensOf(wrap);
+    if (dot) {
+      gsap.killTweensOf(dot);
+      gsap.set(dot, { scale: 1, force3D: true });
+    }
 
     wrap.dataset.hovered = "false";
 
@@ -65,6 +84,7 @@ export default function Cursor({
       scale: 0.001,
       x: moveOffscreen ? -9999 : lastPos.current.x,
       y: moveOffscreen ? -9999 : lastPos.current.y,
+      force3D: true,
     });
   }, []);
 
@@ -77,18 +97,26 @@ export default function Cursor({
     setRootActive(true);
 
     gsap.killTweensOf(wrap);
+    if (safariRef.current) {
+      gsap.set(wrap, { autoAlpha: 1, scale: 1, force3D: true });
+      return;
+    }
+
     gsap.to(wrap, {
       autoAlpha: 1,
       scale: 1,
-      duration: 0.16,
+      duration: 0.14,
       ease: "power3.out",
       overwrite: "auto",
+      force3D: true,
     });
   }, []);
 
   useEffect(() => {
     const wrap = wrapRef.current;
+    const dot = dotRef.current;
     if (!wrap) return;
+    if (!dot) return;
     if (typeof window === "undefined") return;
 
     if (!isFinePointer()) {
@@ -96,6 +124,9 @@ export default function Cursor({
       setRootActive(false);
       return;
     }
+    safariRef.current = isSafariBrowser();
+    if (safariRef.current) wrap.dataset.safari = "true";
+    else delete wrap.dataset.safari;
 
     gsap.set(wrap, {
       xPercent: -50,
@@ -105,14 +136,52 @@ export default function Cursor({
       transformOrigin: "50% 50%",
       autoAlpha: 0,
       scale: 0.001,
+      force3D: true,
     });
 
     const setX = gsap.quickSetter(wrap, "x", "px");
     const setY = gsap.quickSetter(wrap, "y", "px");
+    const rootCursorScale = Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--cursor-hover-scale")
+    );
+    const hoverScale = Number.isFinite(rootCursorScale) && rootCursorScale > 0 ? rootCursorScale : 1.8;
+    const setDotScale = gsap.quickTo(dot, "scale", {
+      duration: safariRef.current ? 0.09 : 0.14,
+      ease: safariRef.current ? "none" : "power3.out",
+      overwrite: "auto",
+    });
+
+    const setHovered = (v: boolean) => {
+      if (!wrapRef.current) return;
+      if (hoveredRef.current === v) return;
+      hoveredRef.current = v;
+      wrapRef.current.dataset.hovered = v ? "true" : "false";
+      setDotScale(v ? hoverScale : 1);
+    };
+
+    const flushMove = () => {
+      moveRafRef.current = null;
+      if (!hasPendingMoveRef.current) return;
+      hasPendingMoveRef.current = false;
+      const x = pendingPosRef.current.x;
+      const y = pendingPosRef.current.y;
+      setX(x);
+      setY(y);
+      const target = pendingTargetRef.current;
+      setHovered(!!resolveInteractive(target));
+      show();
+    };
+
+    const pendingTargetRef = { current: null as HTMLElement | null };
 
     const handleMove = (e: any) => {
       const pt = (e?.pointerType as string | undefined) ?? "mouse";
       if (pt && pt !== "mouse") {
+        if (moveRafRef.current != null) {
+          window.cancelAnimationFrame(moveRafRef.current);
+          moveRafRef.current = null;
+        }
+        hasPendingMoveRef.current = false;
         reset(true);
         return;
       }
@@ -121,75 +190,74 @@ export default function Cursor({
       const y = e.clientY ?? 0;
 
       hasMovedRef.current = true;
-      lastPos.current = { x, y };
-
-      setX(x);
-      setY(y);
-
-      show();
+      lastPos.current.x = x;
+      lastPos.current.y = y;
+      pendingPosRef.current.x = x;
+      pendingPosRef.current.y = y;
+      const rawTarget = e.target;
+      pendingTargetRef.current = rawTarget instanceof HTMLElement ? rawTarget : null;
+      hasPendingMoveRef.current = true;
+      if (moveRafRef.current == null) {
+        moveRafRef.current = window.requestAnimationFrame(flushMove);
+      }
     };
 
-    const boundRef = new Set<HTMLElement>();
+    const onFocusIn = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      setHovered(!!resolveInteractive(target));
+    };
 
-    const setHovered = (v: boolean) => {
+    const onFocusOut = (e: Event) => {
+      const rel = (e as FocusEvent).relatedTarget as HTMLElement | null;
+      setHovered(!!resolveInteractive(rel));
+    };
+
+    const usePointerEvents = "PointerEvent" in window;
+    const moveEvent = usePointerEvents && !safariRef.current ? "pointermove" : "mousemove";
+
+    const onResize = () => {
       if (!wrapRef.current) return;
-      wrapRef.current.dataset.hovered = v ? "true" : "false";
+      safariRef.current = isSafariBrowser();
+      if (safariRef.current) wrapRef.current.dataset.safari = "true";
+      else delete wrapRef.current.dataset.safari;
+      if (!isFinePointer()) {
+        gsap.set(wrapRef.current, { display: "none" });
+        setRootActive(false);
+        return;
+      }
+      gsap.set(wrapRef.current, { display: "block" });
     };
 
-    const onEnter = (e: Event) => {
-      const el = resolveInteractive(e.currentTarget as HTMLElement | null);
-      if (el) setHovered(true);
+    const onBlur = () => {
+      setHovered(false);
+      reset(true);
     };
-
-    const onLeave = (e: Event) => {
-      const rel = (e as MouseEvent).relatedTarget as HTMLElement | null;
-      const next = resolveInteractive(rel);
-      setHovered(!!next);
-    };
-
-    const bindElement = (el: HTMLElement) => {
-      if (boundRef.has(el)) return;
-      boundRef.add(el);
-      el.addEventListener("mouseenter", onEnter, { passive: true });
-      el.addEventListener("mouseleave", onLeave, { passive: true });
-      el.addEventListener("focus", onEnter, { passive: true });
-      el.addEventListener("blur", onLeave, { passive: true });
-    };
-
-    const scanInteractive = () => {
-      const nodes = document.querySelectorAll<HTMLElement>(INTERACTIVE_SELECTOR);
-      nodes.forEach(bindElement);
-    };
-
-    scanInteractive();
-
-    const mo = new MutationObserver(() => {
-      scanInteractive();
-    });
-    mo.observe(document.documentElement, { childList: true, subtree: true });
-
-    const onBlur = () => reset(true);
     const onVis = () => {
-      if (document.visibilityState !== "visible") reset(true);
+      if (document.visibilityState !== "visible") {
+        setHovered(false);
+        reset(true);
+      }
     };
 
     const onShowEvent = () => {
       if (hasMovedRef.current) show();
     };
 
-    const onHideEvent = () => reset(true);
+    const onHideEvent = () => {
+      setHovered(false);
+      reset(true);
+    };
 
-    document.addEventListener("pointermove", handleMove as EventListener, {
+    document.addEventListener(moveEvent, handleMove as EventListener, {
       passive: true,
       capture: true,
     });
-    document.addEventListener("mousemove", handleMove as EventListener, {
-      passive: true,
-      capture: true,
-    });
+    document.addEventListener("focusin", onFocusIn as EventListener, { passive: true, capture: true });
+    document.addEventListener("focusout", onFocusOut as EventListener, { passive: true, capture: true });
 
     window.addEventListener("blur", onBlur);
     document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("resize", onResize, { passive: true });
 
     window.addEventListener(APP_EVENTS.UI_CURSOR_SHOW, onShowEvent);
     window.addEventListener(APP_EVENTS.UI_CURSOR_HIDE, onHideEvent);
@@ -197,13 +265,20 @@ export default function Cursor({
     reset(true);
 
     return () => {
-      mo.disconnect();
+      if (moveRafRef.current != null) {
+        window.cancelAnimationFrame(moveRafRef.current);
+        moveRafRef.current = null;
+      }
+      hasPendingMoveRef.current = false;
+      gsap.killTweensOf(dot);
 
-      document.removeEventListener("pointermove", handleMove as EventListener, true);
-      document.removeEventListener("mousemove", handleMove as EventListener, true);
+      document.removeEventListener(moveEvent, handleMove as EventListener, true);
+      document.removeEventListener("focusin", onFocusIn as EventListener, true);
+      document.removeEventListener("focusout", onFocusOut as EventListener, true);
 
       window.removeEventListener("blur", onBlur);
       document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("resize", onResize);
 
       window.removeEventListener(APP_EVENTS.UI_CURSOR_SHOW, onShowEvent);
       window.removeEventListener(APP_EVENTS.UI_CURSOR_HIDE, onHideEvent);
@@ -229,7 +304,11 @@ export default function Cursor({
         transform: "translate3d(-9999px,-9999px,0) scale(0.001)",
       }}
     >
-      <div ref={dotRef} className="cursor-dot absolute inset-0 rounded-full" />
+      <div
+        ref={dotRef}
+        className="cursor-dot absolute inset-0 rounded-full"
+        style={{ borderRadius: "9999px" }}
+      />
     </div>
   );
 }
