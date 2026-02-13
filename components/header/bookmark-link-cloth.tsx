@@ -85,6 +85,7 @@ const GRAB_OVERDRAG = 0.0;
 
 const GRAB_MOVE_PX = 10;
 const PASSIVE_DAMPING_PER_FRAME = 0.976;
+const DRAWER_SEAM_OVERLAP_PX = 1;
 
 // Label
 const LABEL_FONT_FAMILY = `"Times New Roman", Times, serif`;
@@ -1068,7 +1069,15 @@ export default function BookmarkLinkCloth({
   const labelCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const labelCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const anchorBaseRef = useRef({ left: 0, top: 0, width: 0, height: 0 });
+  const followAnchorRef = useRef({
+    valid: false,
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+  });
   const isHomeRef = useRef(isHome);
+  const followActiveRef = useRef(false);
   const heightTweenRef = useRef<gsap.core.Tween | null>(null);
   const heightProxyRef = useRef({ value: 0 });
   const heightTargetRef = useRef(0);
@@ -1083,6 +1092,13 @@ export default function BookmarkLinkCloth({
   const followActive = !!(isHome && homeFollow && homeFollowRef?.current);
 
   useEffect(() => {
+    followActiveRef.current = followActive;
+    if (!followActive) {
+      followAnchorRef.current.valid = false;
+    }
+  }, [followActive]);
+
+  useEffect(() => {
     if (!followActive) return;
     let raf = 0;
     const el = linkRef.current;
@@ -1091,12 +1107,34 @@ export default function BookmarkLinkCloth({
       const target = homeFollowRef?.current;
       if (el && target) {
         const rect = target.getBoundingClientRect();
-        gsap.set(el, { top: rect.bottom, y: 0 });
+        const top = rect.bottom - DRAWER_SEAM_OVERLAP_PX;
+        gsap.set(el, { top, y: 0 });
+
+        const base = anchorBaseRef.current;
+        let left = base.left;
+        let width = base.width;
+        let height = base.height;
+        if (width <= 0 || height <= 0) {
+          const lr = el.getBoundingClientRect();
+          left = lr.left;
+          width = lr.width;
+          height = lr.height;
+        }
+        followAnchorRef.current = {
+          valid: width > 0,
+          left,
+          top,
+          width,
+          height: Math.max(1, height),
+        };
       }
       raf = window.requestAnimationFrame(tick);
     };
     tick();
-    return () => window.cancelAnimationFrame(raf);
+    return () => {
+      followAnchorRef.current.valid = false;
+      window.cancelAnimationFrame(raf);
+    };
   }, [followActive, homeFollowRef]);
 
   useEffect(() => {
@@ -2013,22 +2051,18 @@ export default function BookmarkLinkCloth({
     };
     measureAnchorBase();
 
-    const readBookmarkOffset = () => {
-      if (typeof document === "undefined") return 0;
-      const winOffset = (window as any).__bookmarkOffset;
-      if (typeof winOffset === "number" && Number.isFinite(winOffset)) return winOffset;
-      const raw = document.documentElement.style.getPropertyValue("--bookmark-offset");
-      const parsed = parseFloat(raw);
-      return Number.isFinite(parsed) ? parsed : 0;
-    };
-
     const readAnchor = () => {
-      // Keep anchor live so first-load drop tween (inner y:-100 -> 0) doesn't freeze cloth too high.
-      measureAnchorBase();
-      const nextBase = anchorBaseRef.current;
-      const offsetY = readBookmarkOffset();
+      let nextBase = anchorBaseRef.current;
+      if (followActiveRef.current && followAnchorRef.current.valid) {
+        nextBase = followAnchorRef.current;
+      } else {
+        // Keep anchor live so first-load drop tween (inner y:-100 -> 0) doesn't freeze cloth too high.
+        measureAnchorBase();
+        nextBase = anchorBaseRef.current;
+      }
       const left = nextBase.left;
-      const top = nextBase.top + offsetY;
+      // Drawer offset is already applied by link transform, so don't add it again here.
+      const top = nextBase.top;
       const cx = left + nextBase.width / 2;
       return {
         x: cx - STRIP_W / 2,
@@ -2438,7 +2472,7 @@ export default function BookmarkLinkCloth({
               transform: "translate3d(-9999px,-9999px,0)",
               pointerEvents: isShown ? "auto" : "none",
               cursor: "grab",
-              zIndex: 10011,
+              zIndex: 10021,
               background: "transparent",
               userSelect: "none",
               WebkitUserSelect: "none",
@@ -2469,7 +2503,9 @@ export default function BookmarkLinkCloth({
           opacity: isShown ? 1 : 0,
           pointerEvents: isShown ? "auto" : "none",
           height: `var(--bookmark-total, ${defaultBookmarkHeight})`,
-          transform: "translate3d(0, var(--bookmark-offset, 0px), 0)",
+          transform: followActive
+            ? "translate3d(0, 0px, 0)"
+            : "translate3d(0, var(--bookmark-offset, 0px), 0)",
           willChange: "transform",
         }}
         className={cn(

@@ -247,7 +247,7 @@ export default function ProjectIndexDrawer({
     <div
       id={id}
       ref={resolvedPanelRef}
-      className="fixed inset-x-0 top-0 z-[10005] w-full bg-neutral-50/95 text-neutral-900 backdrop-blur-md shadow-[0_20px_60px_rgba(0,0,0,0.12)]"
+      className="fixed inset-x-0 top-0 z-[10020] w-full bg-neutral-50/95 text-neutral-900 backdrop-blur-md shadow-[0_20px_60px_rgba(0,0,0,0.12)]"
       role="dialog"
       aria-modal="true"
       aria-label={title}
