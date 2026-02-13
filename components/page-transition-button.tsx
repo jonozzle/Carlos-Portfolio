@@ -27,6 +27,13 @@ type Props = React.PropsWithChildren<{
 
 const TOP_THRESHOLD = 24;
 
+function setHomeHold(on: boolean) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (on) root.dataset.homeHold = "1";
+  else delete (root as any).dataset.homeHold;
+}
+
 function getRawScrollY(): number {
   if (typeof window === "undefined") return 0;
   const y =
@@ -146,6 +153,7 @@ export default function PageTransitionButton({
 
           const hero = getHeroSourceFromCurrentPage();
           if (hero) {
+            setHomeHold(true);
             startHeroTransition({
               slug: hero.slug,
               sourceEl: hero.sourceEl,
@@ -161,6 +169,7 @@ export default function PageTransitionButton({
         clearAnyHeroPending();
 
         await fadeOutPageRoot({ duration: 0.26 });
+        setHomeHold(true);
         onNavigate("simple", saved?.id ?? null, saved?.type ?? null);
         return;
       }

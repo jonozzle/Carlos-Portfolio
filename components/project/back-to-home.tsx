@@ -20,6 +20,13 @@ type Props = {
 
 const TOP_THRESHOLD = 24;
 
+function setHomeHold(on: boolean) {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (on) root.dataset.homeHold = "1";
+    else delete (root as any).dataset.homeHold;
+}
+
 function getRawScrollY(): number {
     if (typeof window === "undefined") return 0;
     const y =
@@ -107,6 +114,7 @@ export default function BackToHomeButton({ slug, heroImgUrl, className }: Props)
                 clearAnyHeroPending();
 
                 await fadeOutPageRoot({ duration: 0.26 });
+                setHomeHold(true);
                 go();
                 return;
             }
@@ -127,9 +135,12 @@ export default function BackToHomeButton({ slug, heroImgUrl, className }: Props)
                 clearAnyHeroPending();
 
                 await fadeOutPageRoot({ duration: 0.26 });
+                setHomeHold(true);
                 go();
                 return;
             }
+
+            setHomeHold(true);
 
             startHeroTransition({
                 slug: hero?.slug ?? slug,

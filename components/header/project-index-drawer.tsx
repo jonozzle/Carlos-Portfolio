@@ -39,11 +39,12 @@ const DRAWER_GRID_ROWS = 28;
 // CHANGE THIS to control how wide each project link is in grid mode (in grid columns).
 const DRAWER_GRID_ITEM_COL_SPAN = 6;
 const MOBILE_DRAWER_QUERY = "(max-width: 767px)";
-const DRAWER_OPEN_DUR = 1.1;
-const DRAWER_CLOSE_DUR = 0.9;
-const DRAWER_OPEN_EASE = "elastic.out(1,1)";
-const DRAWER_CLOSE_EASE = "elastic.in(1,1)";
+const DRAWER_OPEN_DUR = 1.25;
+const DRAWER_CLOSE_DUR = 1.05;
+const DRAWER_OPEN_EASE = "power3.out";
+const DRAWER_CLOSE_EASE = "power3.inOut";
 const TOP_FILL_HEIGHT = 240;
+const BOOKMARK_OFFSET_VAR = "--bookmark-offset";
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -83,6 +84,10 @@ export default function ProjectIndexDrawer({
     const panel = resolvedPanelRef.current;
     if (!panel) return;
     gsap.set(panel, { yPercent: -100, autoAlpha: 1, pointerEvents: "none" });
+    if (typeof document !== "undefined") {
+      document.documentElement.style.setProperty(BOOKMARK_OFFSET_VAR, "0px");
+      (window as any).__bookmarkOffset = 0;
+    }
   }, [resolvedPanelRef]);
 
   useEffect(() => {
@@ -101,6 +106,22 @@ export default function ProjectIndexDrawer({
   useEffect(() => {
     const panel = resolvedPanelRef.current;
     if (!panel) return;
+    const root = typeof document !== "undefined" ? document.documentElement : null;
+    const panelHeight = Math.max(0, panel.getBoundingClientRect().height || 0);
+    const getOffset = () => {
+      if (!root) return 0;
+      const raw = root.style.getPropertyValue(BOOKMARK_OFFSET_VAR);
+      const parsed = parseFloat(raw);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const setOffset = root ? gsap.quickSetter(root, BOOKMARK_OFFSET_VAR, "px") : null;
+    const offsetProxy = { v: getOffset() };
+    const applyOffset = () => {
+      if (!root || !setOffset) return;
+      const next = Math.max(0, offsetProxy.v);
+      setOffset(next);
+      (window as any).__bookmarkOffset = next;
+    };
 
     const itemEls = gridRef.current
       ? Array.from(gridRef.current.querySelectorAll<HTMLElement>("[data-drawer-item]"))
@@ -108,10 +129,13 @@ export default function ProjectIndexDrawer({
 
     gsap.killTweensOf(panel);
     gsap.killTweensOf(itemEls);
+    if (root) gsap.killTweensOf(root);
 
     if (!open) {
       if (!wasOpenRef.current) {
         gsap.set(panel, { yPercent: -100, pointerEvents: "none" });
+        offsetProxy.v = 0;
+        applyOffset();
         return;
       }
 
@@ -121,8 +145,21 @@ export default function ProjectIndexDrawer({
         ease: DRAWER_CLOSE_EASE,
         onComplete: () => {
           gsap.set(panel, { pointerEvents: "none" });
+          offsetProxy.v = 0;
+          applyOffset();
         },
       });
+      if (root) {
+        gsap.killTweensOf(offsetProxy);
+        gsap.to(offsetProxy, {
+          v: 0,
+          duration: DRAWER_CLOSE_DUR,
+          ease: DRAWER_CLOSE_EASE,
+          overwrite: "auto",
+          onUpdate: applyOffset,
+          onComplete: applyOffset,
+        });
+      }
       return;
     }
 
@@ -135,7 +172,26 @@ export default function ProjectIndexDrawer({
       yPercent: 0,
       duration: DRAWER_OPEN_DUR,
       ease: DRAWER_OPEN_EASE,
+      onComplete: () => {
+        offsetProxy.v = panelHeight;
+        applyOffset();
+      },
     });
+    if (root) {
+      offsetProxy.v = getOffset();
+      tl.to(
+        offsetProxy,
+        {
+          v: panelHeight,
+          duration: DRAWER_OPEN_DUR,
+          ease: DRAWER_OPEN_EASE,
+          overwrite: "auto",
+          onUpdate: applyOffset,
+          onComplete: applyOffset,
+        },
+        0
+      );
+    }
 
     if (itemEls.length) {
       tl.fromTo(

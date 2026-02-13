@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { gsap } from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
+import ScrollSmoother from "gsap/ScrollSmoother";
 import { cn } from "@/lib/utils";
 import { useLoader } from "@/components/loader/loader-context";
 import { APP_EVENTS } from "@/lib/app-events";
@@ -19,7 +20,7 @@ import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 import type { PageTransitionKind } from "@/lib/transitions/state";
 
 if (typeof window !== "undefined") {
-  gsap.registerPlugin(ScrollTrigger);
+  gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
 }
 
 function isDesktopSafari() {
@@ -36,6 +37,7 @@ function isDesktopSafari() {
  * Toggle fabric grab/drag interactivity.
  */
 const ENABLE_FABRIC_DRAG = true;
+const USE_SAFARI_LITE_SIM = false;
 
 type BookmarkLinkFabricProps = {
   href?: string;
@@ -109,6 +111,7 @@ const SCROLL_WIND_SMOOTH = 0.12;
 const SCROLL_WIND_DEADZONE = 0.12;
 const SCROLL_WIND_PROGRESS_EPS = 0.0025;
 const SCROLL_WIND_PX_EPS = 1.5;
+const SCROLL_WIND_PX_EPS_SAFARI = 0.35;
 const SCROLL_WIND_INPUT_WINDOW_MS = 120;
 const SCROLL_INPUT_EPS = 1.2;
 const SAFARI_SCROLL_WIND_MULT = 0.7;
@@ -215,6 +218,16 @@ function readViewportHeight(): number {
 function getRawScrollY(): number {
   if (typeof window === "undefined") return 0;
 
+  try {
+    const smoother = ScrollSmoother.get();
+    if (smoother) {
+      const sy = smoother.scrollTop();
+      if (typeof sy === "number" && Number.isFinite(sy)) return Math.max(0, sy);
+    }
+  } catch {
+    // ignore
+  }
+
   const y =
     (typeof window.scrollY === "number" ? window.scrollY : 0) ||
     (typeof document !== "undefined" && typeof document.documentElement?.scrollTop === "number"
@@ -222,6 +235,17 @@ function getRawScrollY(): number {
       : 0) ||
     0;
 
+  return Number.isFinite(y) ? Math.max(0, y) : 0;
+}
+
+function getNativeScrollY(): number {
+  if (typeof window === "undefined") return 0;
+  const y =
+    (typeof window.scrollY === "number" ? window.scrollY : 0) ||
+    (typeof document !== "undefined" && typeof document.documentElement?.scrollTop === "number"
+      ? document.documentElement.scrollTop
+      : 0) ||
+    0;
   return Number.isFinite(y) ? Math.max(0, y) : 0;
 }
 
@@ -350,6 +374,7 @@ export default function BookmarkLinkFabric({
   const pathname = usePathname();
   const isHome = pathname === "/";
   const safariDesktop = useMemo(() => isDesktopSafari(), []);
+  const useSafariLiteSim = safariDesktop && USE_SAFARI_LITE_SIM;
   const [safariWebglReady, setSafariWebglReady] = useState(
     () => !safariDesktop || loaderDone
   );
@@ -386,6 +411,7 @@ export default function BookmarkLinkFabric({
   const scrollActiveRef = useRef(false);
 
   const [webglOk, setWebglOk] = useState(true);
+  const webglOkRef = useRef(webglOk);
   const [canvasReady, setCanvasReady] = useState(false);
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [isShown, setIsShown] = useState(false);
@@ -393,13 +419,16 @@ export default function BookmarkLinkFabric({
   const canvasReadyRef = useRef(false);
   const isShownRef = useRef(isShown);
 
+  useEffect(() => {
+    webglOkRef.current = webglOk;
+  }, [webglOk]);
+
   const resolvedBookmarkLabel = useMemo(() => {
     const raw = bookmarkLabel ?? (isHome ? "Index" : "Home");
     const next = raw.trim();
     return next || (isHome ? "Index" : "Home");
   }, [bookmarkLabel, isHome]);
   const [activeLabel, setActiveLabel] = useState(resolvedBookmarkLabel);
-  const [nextLabel, setNextLabel] = useState<string | null>(null);
   const [labelSwap, setLabelSwap] = useState(false);
   const labelSwapTimerRef = useRef<number | null>(null);
   const labelTextRef = useRef(resolvedBookmarkLabel);
@@ -410,6 +439,8 @@ export default function BookmarkLinkFabric({
   const labelCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const labelCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const printLabelRef = useRef(printBookmarkLabel);
+  const [webglNonce, bumpWebglNonce] = useState(0);
+  const webglRetryRef = useRef(0);
 
   const debugStateRef = useRef({
     targetH: 0,
@@ -447,15 +478,13 @@ export default function BookmarkLinkFabric({
       labelSwapTimerRef.current = null;
     }
 
-    setNextLabel(resolvedBookmarkLabel);
+    // Fade out, swap text, then fade back in.
     setLabelSwap(true);
-
     labelSwapTimerRef.current = window.setTimeout(() => {
       setActiveLabel(resolvedBookmarkLabel);
-      setNextLabel(null);
       setLabelSwap(false);
       labelSwapTimerRef.current = null;
-    }, 220);
+    }, 320);
 
     return () => {
       if (labelSwapTimerRef.current) {
@@ -485,14 +514,15 @@ export default function BookmarkLinkFabric({
     labelFadeTweenRef.current?.kill();
     labelFadeTweenRef.current = gsap.to(labelFadeRef.current, {
       v: 0,
-      duration: 0.16,
+      duration: 0.25,
       ease: "power2.out",
       onComplete: () => {
         labelTextRef.current = resolvedBookmarkLabel;
         labelTextureDirtyRef.current = true;
         labelFadeTweenRef.current = gsap.to(labelFadeRef.current, {
           v: 1,
-          duration: 0.2,
+          duration: 0.25,
+          delay: 0.05,
           ease: "power2.out",
         });
       },
@@ -631,10 +661,23 @@ export default function BookmarkLinkFabric({
     const markScrollInput = () => {
       scrollInputRef.current = performance.now();
     };
+    const updateScrollEvent = () => {
+      const now = performance.now();
+      const y = safariDesktop ? getNativeScrollY() : getRawScrollY();
+      const lastT = scrollEventRef.current.lastT || now;
+      const dt = clamp((now - lastT) / 1000, 0.008, 0.05);
+      const dy = y - scrollEventRef.current.lastY;
+      scrollEventRef.current.v = dy / dt;
+      scrollEventRef.current.lastY = y;
+      scrollEventRef.current.lastT = now;
+    };
 
     const onWheel = (e: WheelEvent) => {
       const mag = Math.abs(e.deltaX) + Math.abs(e.deltaY);
       if (mag < SCROLL_INPUT_EPS) return;
+      const now = performance.now();
+      scrollWheelRef.current.v = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      scrollWheelRef.current.t = now;
       markScrollInput();
     };
 
@@ -655,6 +698,9 @@ export default function BookmarkLinkFabric({
       lastTouchY = t.clientY;
       const mag = Math.abs(dx) + Math.abs(dy);
       if (mag < SCROLL_INPUT_EPS) return;
+      const now = performance.now();
+      scrollWheelRef.current.v = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+      scrollWheelRef.current.t = now;
       markScrollInput();
     };
     const onTouchEnd = () => {
@@ -681,7 +727,11 @@ export default function BookmarkLinkFabric({
     window.addEventListener("touchmove", onTouchMove, { passive: true });
     window.addEventListener("touchend", onTouchEnd, { passive: true });
     window.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", markScrollInput, { passive: true });
+    const onScroll = () => {
+      updateScrollEvent();
+      markScrollInput();
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
 
     return () => {
       window.removeEventListener("wheel", onWheel);
@@ -689,7 +739,7 @@ export default function BookmarkLinkFabric({
       window.removeEventListener("touchmove", onTouchMove);
       window.removeEventListener("touchend", onTouchEnd);
       window.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", markScrollInput);
+      window.removeEventListener("scroll", onScroll);
     };
   }, []);
 
@@ -753,6 +803,8 @@ export default function BookmarkLinkFabric({
     lastMoveT: 0,
   });
   const scrollInputRef = useRef(0);
+  const scrollWheelRef = useRef({ v: 0, t: 0 });
+  const scrollEventRef = useRef({ lastY: 0, lastT: 0, v: 0 });
   const sleepRef = useRef(false);
   const sleepFramesRef = useRef(0);
 
@@ -876,9 +928,9 @@ export default function BookmarkLinkFabric({
   const animateToTargetSize = useCallback(() => {
     const { height, extra } = computeTargetSize();
     const shouldSkipElHeight =
-      safariDesktop && Math.abs(height - sizeProxyRef.current.height) > SAFARI_HEIGHT_SKIP_THRESHOLD;
+      useSafariLiteSim && Math.abs(height - sizeProxyRef.current.height) > SAFARI_HEIGHT_SKIP_THRESHOLD;
     tweenSizeTo(height, extra, SIZE_TWEEN_DUR, { skipElHeight: shouldSkipElHeight });
-  }, [computeTargetSize, safariDesktop, tweenSizeTo]);
+  }, [computeTargetSize, useSafariLiteSim, tweenSizeTo]);
 
   const flushPendingSize = useCallback(
     (opts?: { force?: boolean; animate?: boolean }) => {
@@ -888,13 +940,13 @@ export default function BookmarkLinkFabric({
       pendingSizeRef.current = null;
       if (opts?.animate) {
         const shouldSkipElHeight =
-          safariDesktop && Math.abs(height - sizeProxyRef.current.height) > SAFARI_HEIGHT_SKIP_THRESHOLD;
+          useSafariLiteSim && Math.abs(height - sizeProxyRef.current.height) > SAFARI_HEIGHT_SKIP_THRESHOLD;
         tweenSizeTo(height, extra, SIZE_TWEEN_DUR, { skipElHeight: shouldSkipElHeight });
         return;
       }
       applySize(height, extra);
     },
-    [applySize, safariDesktop, tweenSizeTo]
+    [applySize, useSafariLiteSim, tweenSizeTo]
   );
 
   const scheduleDeferredSize = useCallback(() => {
@@ -915,7 +967,7 @@ export default function BookmarkLinkFabric({
   }, [flushPendingSize]);
 
   useEffect(() => {
-    if (!safariDesktop) return;
+    if (!useSafariLiteSim) return;
     if (transitionBusy) {
       safariFreezeSizeRef.current = true;
       pendingSizeRef.current = null;
@@ -926,7 +978,7 @@ export default function BookmarkLinkFabric({
       safariFreezeSizeRef.current = false;
       animateToTargetSize();
     }
-  }, [animateToTargetSize, safariDesktop, transitionBusy]);
+  }, [animateToTargetSize, useSafariLiteSim, transitionBusy]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -956,7 +1008,7 @@ export default function BookmarkLinkFabric({
       const extraDiff = Math.abs(targetExtra - proxy.extra);
       if (heightDiff < SIZE_EPS && extraDiff < SIZE_EPS) return;
 
-      if (safariDesktop && safariFreezeSizeRef.current) {
+      if (useSafariLiteSim && safariFreezeSizeRef.current) {
         return;
       }
 
@@ -968,7 +1020,7 @@ export default function BookmarkLinkFabric({
         return;
       }
 
-      if (safariDesktop) {
+      if (useSafariLiteSim) {
         // Always tween on Safari for smooth height changes, but avoid layout thrash on large deltas
         const shouldSkipElHeight =
           Math.abs(targetHeight - proxy.height) > SAFARI_HEIGHT_SKIP_THRESHOLD;
@@ -1019,7 +1071,7 @@ export default function BookmarkLinkFabric({
       computeTargetSize,
       isHome,
       kickAnimWind,
-      safariDesktop,
+      useSafariLiteSim,
       scheduleDeferredSize,
       transitionBusy,
     ]
@@ -1148,18 +1200,8 @@ export default function BookmarkLinkFabric({
     if (!wasShown) {
       gsap.killTweensOf(inner, "y");
       gsap.set(inner, { y: DROP_INNER_Y });
-      const dropDur = safariDesktop
-        ? shouldPlainDrop
-          ? 0.4
-          : 0.7
-        : shouldPlainDrop
-          ? FIRST_DROP_DUR
-          : DRAWER_SYNC_DUR;
-      const dropEase = safariDesktop
-        ? "power2.out"
-        : shouldPlainDrop
-          ? "none"
-          : DRAWER_SYNC_EASE;
+      const dropDur = shouldPlainDrop ? FIRST_DROP_DUR : DRAWER_SYNC_DUR;
+      const dropEase = shouldPlainDrop ? "none" : DRAWER_SYNC_EASE;
       gsap.to(inner, { y: 0, duration: dropDur, ease: dropEase, overwrite: "auto" });
 
       const scheduleReveal = (
@@ -1175,8 +1217,8 @@ export default function BookmarkLinkFabric({
         }
       };
 
-      if (safariDesktop) {
-        const silentReveal = !safariWebglReady || safariIntroSuppressedRef.current;
+      if (useSafariLiteSim) {
+        const silentReveal = false;
         scheduleReveal(REVEAL_LIFT_PX * 0.25, { randomizeZ: false, silent: silentReveal });
         dropActiveRef.current = true;
         if (dropTimerRef.current) window.clearTimeout(dropTimerRef.current);
@@ -1186,6 +1228,7 @@ export default function BookmarkLinkFabric({
           if (!isShownRef.current) return;
         }, Math.round(dropDur * 1000) + 80);
       } else {
+        dropActiveRef.current = false;
         scheduleReveal(REVEAL_LIFT_PX);
       }
     }
@@ -1209,6 +1252,8 @@ export default function BookmarkLinkFabric({
     if (!safariWebglReady) {
       setPrewarm(true);
       safariShowWaitingRef.current = true;
+      // Show immediately so Safari doesn’t get stuck in the static fallback.
+      show();
       return;
     }
 
@@ -1504,7 +1549,7 @@ export default function BookmarkLinkFabric({
       }
 
       if (drag.mode !== "grab") {
-        const holdMs = safariDesktop ? 0 : GRAB_HOLD_MS;
+        const holdMs = useSafariLiteSim ? 0 : GRAB_HOLD_MS;
         const heldLongEnough = now - drag.downAt >= holdMs;
         if (heldLongEnough && drag.moved) {
           drag.mode = "grab";
@@ -1512,7 +1557,7 @@ export default function BookmarkLinkFabric({
         }
       }
     },
-    [safariDesktop]
+    [useSafariLiteSim]
   );
 
   const detachWindowPointerListeners = useCallback(() => {
@@ -1705,7 +1750,7 @@ export default function BookmarkLinkFabric({
     pointerRef.current.vy *= 0.25;
   }, []);
 
-  const simEnabled = loaderDone && (isShown || prewarm) && (!safariDesktop || safariWebglReady);
+  const simEnabled = isShown || prewarm;
 
   // WebGL cloth
   useEffect(() => {
@@ -1720,24 +1765,40 @@ export default function BookmarkLinkFabric({
     const host = clothHostRef.current;
     if (!canvas || !host) return;
 
+    setWebglOk(true);
+
     let isActive = true;
     canvasReadyRef.current = false;
     setCanvasReady(false);
 
     simApiRef.current = null;
 
-    const gl =
+    const glOpts = {
+      alpha: true,
+      antialias: true,
+      premultipliedAlpha: false,
+      powerPreference: "low-power",
+    } as const;
+    const gl = (canvas.getContext("webgl", glOpts) ||
       canvas.getContext("webgl", {
         alpha: true,
-        antialias: true,
+        antialias: false,
         premultipliedAlpha: false,
-        powerPreference: "low-power",
-      }) ?? null;
+      }) ||
+      canvas.getContext("experimental-webgl", glOpts) ||
+      canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
 
     if (!gl) {
       setWebglOk(false);
+      if (webglRetryRef.current < 2) {
+        webglRetryRef.current += 1;
+        window.setTimeout(() => {
+          bumpWebglNonce((v) => v + 1);
+        }, 200);
+      }
       return;
     }
+    webglRetryRef.current = 0;
 
     const deriv = gl.getExtension("OES_standard_derivatives");
     const hasDeriv = !!deriv;
@@ -1873,8 +1934,8 @@ export default function BookmarkLinkFabric({
     }
 
     // Higher mesh resolution to reduce “sharp points”
-    const COLS = safariDesktop ? 8 : 10;
-    const ROWS = safariDesktop ? 24 : 32;
+    const COLS = useSafariLiteSim ? 8 : 10;
+    const ROWS = useSafariLiteSim ? 24 : 32;
     const COUNT = COLS * ROWS;
 
     const pos = new Float32Array(COUNT * 3);
@@ -1997,8 +2058,8 @@ export default function BookmarkLinkFabric({
         if (cx + 2 < COLS) addConstraint(constraintsExtra, i, idx(cx + 2, ry));
         if (ry + 2 < ROWS) addConstraint(constraintsExtra, i, idx(cx, ry + 2));
 
-        if (!safariDesktop && cx + 3 < COLS) addConstraint(constraintsExtra, i, idx(cx + 3, ry));
-        if (!safariDesktop && ry + 3 < ROWS) addConstraint(constraintsExtra, i, idx(cx, ry + 3));
+        if (!useSafariLiteSim && cx + 3 < COLS) addConstraint(constraintsExtra, i, idx(cx + 3, ry));
+        if (!useSafariLiteSim && ry + 3 < ROWS) addConstraint(constraintsExtra, i, idx(cx, ry + 3));
       }
     }
 
@@ -2241,7 +2302,7 @@ export default function BookmarkLinkFabric({
       typeof window !== "undefined"
         ? window.scrollX || document.documentElement.scrollLeft || 0
         : 0;
-    scrollWind.lastY = getRawScrollY();
+    scrollWind.lastY = safariDesktop ? getNativeScrollY() : getRawScrollY();
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -2269,25 +2330,64 @@ export default function BookmarkLinkFabric({
       labelTextureDirtyRef.current = true;
     };
 
-    const updateScrollWind = (time: number) => {
+    const updateScrollWind = (time: number, isScrolling: boolean) => {
       if (typeof window === "undefined") return;
 
       const currentX = window.scrollX || document.documentElement.scrollLeft || 0;
-      const currentY = getRawScrollY();
-      const recentlyInput = time - scrollInputRef.current < SCROLL_WIND_INPUT_WINDOW_MS;
-
-      if (!recentlyInput) {
-        scrollWind.vx = 0;
-        scrollWind.lastT = time;
-        scrollWind.lastX = currentX;
-        scrollWind.lastY = currentY;
-        return;
-      }
-
+      const currentY = safariDesktop ? getNativeScrollY() : getRawScrollY();
       const dx = currentX - scrollWind.lastX;
       const dy = currentY - scrollWind.lastY;
+      const pxEps = useSafariLiteSim ? SCROLL_WIND_PX_EPS_SAFARI : SCROLL_WIND_PX_EPS;
+      let progressDeltaPx = 0;
+      let progressActive = false;
+      let triggerVelocity = 0;
+      let triggerActive = false;
+      if (safariDesktop) {
+        try {
+          const st = ScrollTrigger.getById("hs-horizontal") as any;
+          if (st && typeof st.progress === "number") {
+            const progress = st.progress;
+            const amount =
+              typeof st.start === "number" && typeof st.end === "number" ? st.end - st.start : 0;
+            const dp = progress - scrollWind.lastProgress;
+            scrollWind.lastProgress = progress;
+            if (Math.abs(dp) >= SCROLL_WIND_PROGRESS_EPS && Number.isFinite(amount) && amount > 0) {
+              progressDeltaPx = dp * amount;
+              progressActive = Math.abs(progressDeltaPx) >= pxEps;
+            }
+          } else {
+            scrollWind.lastProgress = 0;
+          }
+          if (st && typeof st.getVelocity === "function") {
+            const v = st.getVelocity();
+            if (typeof v === "number" && Number.isFinite(v) && Math.abs(v) > 5) {
+              triggerVelocity = v;
+              triggerActive = true;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+      const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+      const deltaAbs = Math.abs(delta);
+      const recentlyInput = time - scrollInputRef.current < SCROLL_WIND_INPUT_WINDOW_MS;
+      const inputActive = isScrolling || recentlyInput;
+      const wheelAge = time - scrollWheelRef.current.t;
+      const wheelActive = wheelAge >= 0 && wheelAge < 90;
+      const eventAge = time - scrollEventRef.current.lastT;
+      const eventActive = eventAge >= 0 && eventAge < 90 && Math.abs(scrollEventRef.current.v) > 0.1;
+      const hasMovement =
+        deltaAbs >= pxEps || wheelActive || progressActive || eventActive || triggerActive;
+
       scrollWind.lastX = currentX;
       scrollWind.lastY = currentY;
+
+      if (!inputActive && !hasMovement) {
+        scrollWind.vx = 0;
+        scrollWind.lastT = time;
+        return;
+      }
 
       if (!scrollWind.lastT) {
         scrollWind.lastT = time;
@@ -2298,16 +2398,41 @@ export default function BookmarkLinkFabric({
       const dt = clamp((time - scrollWind.lastT) / 1000, 0.008, 0.05);
       scrollWind.lastT = time;
 
-      const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
-      if (Math.abs(delta) < SCROLL_WIND_PX_EPS) {
+      if (safariDesktop && !useSafariLiteSim) {
+        const eventAge = time - scrollEventRef.current.lastT;
+        const eventV = eventAge >= 0 && eventAge < 120 ? scrollEventRef.current.v : 0;
+        const baseV = Math.abs(triggerVelocity) > Math.abs(eventV) ? triggerVelocity : eventV;
+        const rawV = Math.abs(baseV) > 2 ? baseV : deltaAbs >= pxEps ? delta / dt : 0;
+        const norm = clamp(rawV / SCROLL_WIND_NORM, -SCROLL_WIND_MAX, SCROLL_WIND_MAX);
+        const smooth = SCROLL_WIND_SMOOTH;
+        scrollWind.vx = scrollWind.vx * (1 - smooth) + norm * smooth;
+        if (Math.abs(scrollWind.vx) < SCROLL_WIND_DEADZONE * 0.5) scrollWind.vx = 0;
+        else scrollWind.lastMoveT = time;
+
+        debugStateRef.current.scrollVx = scrollWind.vx;
+        debugStateRef.current.lastWindAt = time;
+        return;
+      }
+
+      if (!hasMovement) {
         scrollWind.vx = 0;
         return;
       }
 
-      const vx = delta / dt;
+      const deltaUsed =
+        deltaAbs >= pxEps
+          ? delta
+          : wheelActive
+            ? scrollWheelRef.current.v
+            : progressActive
+              ? progressDeltaPx
+              : triggerActive
+                ? triggerVelocity * dt
+                : scrollEventRef.current.v * dt;
+      const vx = deltaUsed / dt;
       const norm = clamp(vx / SCROLL_WIND_NORM, -SCROLL_WIND_MAX, SCROLL_WIND_MAX);
-      const normScaled = safariDesktop ? norm * SAFARI_SCROLL_WIND_MULT : norm;
-      const smooth = safariDesktop ? SAFARI_SCROLL_WIND_SMOOTH : SCROLL_WIND_SMOOTH;
+      const normScaled = useSafariLiteSim ? norm * SAFARI_SCROLL_WIND_MULT : norm;
+      const smooth = useSafariLiteSim ? SAFARI_SCROLL_WIND_SMOOTH : SCROLL_WIND_SMOOTH;
       scrollWind.vx = scrollWind.vx * (1 - smooth) + normScaled * smooth;
 
       if (Math.abs(scrollWind.vx) < SCROLL_WIND_DEADZONE) scrollWind.vx = 0;
@@ -2524,10 +2649,10 @@ export default function BookmarkLinkFabric({
         !!(window as any).__heroPending ||
         !!(window as any).__pageTransitionPending ||
         (typeof document !== "undefined" && (document.documentElement as any).dataset?.homeHold === "1");
-      const lowCost = safariDesktop && isTransitioning;
+      const lowCost = useSafariLiteSim && isTransitioning;
       const isScrolling = !!(window as any).__appScrolling;
 
-      if (safariDesktop) {
+      if (useSafariLiteSim) {
         const targetFps = isTransitioning ? 30 : baseFps;
         const frameInterval = 1000 / targetFps;
         if (lastFrameTime && time - lastFrameTime < frameInterval) {
@@ -2537,12 +2662,12 @@ export default function BookmarkLinkFabric({
       }
       lastFrameTime = time;
 
-      const maxDt = safariDesktop ? 0.05 : 0.033;
+      const maxDt = useSafariLiteSim ? 0.05 : 0.033;
       const dt = lastT ? clamp((time - lastT) / 1000, 0.008, maxDt) : 0.016;
       lastT = time;
 
       resize();
-      updateScrollWind(time);
+      updateScrollWind(time, isScrolling);
       const scrollSettling = time - scrollWindRef.current.lastMoveT < 220;
       const scrollActive = isScrolling
         ? scrollSettling || Math.abs(scrollWindRef.current.vx) > SCROLL_WIND_DEADZONE
@@ -2557,7 +2682,7 @@ export default function BookmarkLinkFabric({
       if (pull.current.v < 0.0005) pull.current.v = 0;
       if (release.current.v < 0.0005) release.current.v = 0;
 
-      const dropActive = safariDesktop && dropActiveRef.current;
+      const dropActive = useSafariLiteSim && dropActiveRef.current;
       let busy = false;
       const pointer = pointerRef.current;
       const pointerAge = pointer.active ? time - pointer.lastT : Infinity;
@@ -2612,7 +2737,7 @@ export default function BookmarkLinkFabric({
           rowPrev[i + 2] = rowPos[i + 2];
         }
         busy = false;
-      } else if (safariDesktop) {
+      } else if (useSafariLiteSim) {
         const drag = dragRef.current;
         const isGrab = drag.mode === "grab";
         const isReturn = drag.mode === "return";
@@ -2974,17 +3099,17 @@ export default function BookmarkLinkFabric({
         const introAge = introActive ? time - introRef.current.t0 : 0;
         let flutter = 0;
         if (introActive) {
-          const flutterMs = safariDesktop ? INTRO_FLUTTER_MS * 0.55 : INTRO_FLUTTER_MS;
+          const flutterMs = useSafariLiteSim ? INTRO_FLUTTER_MS * 0.55 : INTRO_FLUTTER_MS;
           flutter = clamp(1 - introAge / flutterMs, 0, 1);
           if (flutter <= 0.0001) introRef.current.active = false;
         }
         if (lowCost && flutter > 0) flutter = 0;
 
-        const perfDrop = safariDesktop && (dropActive || (introAge > 0 && introAge < 520));
+        const perfDrop = useSafariLiteSim && (dropActive || (introAge > 0 && introAge < 520));
         const perfLite = lowCost || perfDrop;
 
-        const windStrength = perfLite ? 1200 : safariDesktop ? 1600 : 1800;
-        const liftStrength = perfLite ? 90 : safariDesktop ? 120 : 140;
+        const windStrength = perfLite ? 1200 : useSafariLiteSim ? 1600 : 1800;
+        const liftStrength = perfLite ? 90 : useSafariLiteSim ? 120 : 140;
         const scrollWindStrength = SCROLL_WIND_STRENGTH * (perfLite ? 0.25 : 1);
 
         // wind during show/size animations
@@ -3180,14 +3305,14 @@ export default function BookmarkLinkFabric({
         if (time - lastActiveAt < SETTLE_HOLD_MS) busy = true;
 
         // Solve constraints more during grabbing/return to smooth kinks
-        const introWarm = safariDesktop && introAge > 0 && introAge < 420;
-        const scrollWarm = safariDesktop && scrollActive;
+        const introWarm = useSafariLiteSim && introAge > 0 && introAge < 420;
+        const scrollWarm = useSafariLiteSim && scrollActive;
         const constraintsList = scrollWarm || perfDrop || lowCost ? constraintsBase : constraintsAll;
         const ITER = busy
-          ? safariDesktop
+          ? useSafariLiteSim
             ? (isGrab ? 12 : isReturn ? 8 : isTransitioning ? 5 : scrollWarm || perfDrop ? 4 : introWarm ? 5 : 6)
             : (isGrab ? 22 : isReturn ? 14 : isTransitioning ? 8 : 10)
-          : safariDesktop
+          : useSafariLiteSim
             ? 4
             : 6;
 
@@ -3245,7 +3370,7 @@ export default function BookmarkLinkFabric({
 
         // Smoothing to reduce “sharp points” when dragging/returning
         const smoothK = busy
-          ? safariDesktop
+          ? useSafariLiteSim
             ? 0
             : isGrab
               ? 0.3
@@ -3338,7 +3463,7 @@ export default function BookmarkLinkFabric({
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
       gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
 
-      scheduleNext(busy ? 0 : safariDesktop ? 120 : 80);
+      scheduleNext(busy ? 0 : useSafariLiteSim ? 120 : 80);
 
       if ((window as any).__bookmarkDebug) {
         if (!debugEl) {
@@ -3362,8 +3487,16 @@ export default function BookmarkLinkFabric({
 
         if (time >= debugNextAt && debugEl) {
           const d = debugStateRef.current;
+          const wheelAge = time - scrollWheelRef.current.t;
           debugEl.textContent = [
             `bookmark-debug`,
+            `sim ${simEnabled ? 1 : 0} webgl ${webglOkRef.current ? 1 : 0} canvas ${
+              canvasReadyRef.current ? 1 : 0
+            } shown ${isShownRef.current ? 1 : 0}`,
+            `drag ${dragRef.current.mode} down ${dragRef.current.down ? 1 : 0} pointer ${
+              pointerActive ? 1 : 0
+            }`,
+            `inputAge ${(time - scrollInputRef.current).toFixed(0)} wheelAge ${wheelAge.toFixed(0)} eventAge ${(time - scrollEventRef.current.lastT).toFixed(0)}`,
             `targetH ${d.targetH.toFixed(1)}  appliedH ${d.appliedH.toFixed(1)}`,
             `stripH ${d.stripH.toFixed(1)}  anchorY ${d.anchorY.toFixed(1)}`,
             `scrollVx ${d.scrollVx.toFixed(3)}  dt ${(dt * 1000).toFixed(1)}ms`,
@@ -3416,7 +3549,7 @@ export default function BookmarkLinkFabric({
       gl.deleteTexture(labelTex);
       gl.deleteProgram(prog);
     };
-  }, [drawLabelTexture, getLabelScale, overlayEl, simEnabled]);
+  }, [drawLabelTexture, getLabelScale, overlayEl, simEnabled, webglNonce]);
 
   const fallbackBookmark = useMemo(() => {
     return (
@@ -3445,7 +3578,7 @@ export default function BookmarkLinkFabric({
   return (
     <>
       {/* Canvas is portaled to document.body (prevents clipping + fixes left-edge limits caused by transformed ancestors) */}
-      {overlayEl && webglOk
+      {overlayEl
         ? createPortal(
           <canvas
             ref={canvasRef}
@@ -3515,7 +3648,7 @@ export default function BookmarkLinkFabric({
                 <div className="relative -translate-x-1/2 rotate-[-90deg] origin-bottom-left">
                   <span
                     className={cn(
-                      "block text-[11px] uppercase font-serif tracking-[0.3em] leading-none transition-opacity duration-200",
+                      "block text-[11px] uppercase font-serif tracking-[0.3em] leading-none transition-opacity duration-300",
                       labelSwap ? "opacity-0" : "opacity-100"
                     )}
                     style={{
@@ -3526,21 +3659,6 @@ export default function BookmarkLinkFabric({
                   >
                     {activeLabel}
                   </span>
-                  {nextLabel ? (
-                    <span
-                      className={cn(
-                        "absolute inset-0 block text-[11px] uppercase font-serif tracking-[0.3em] leading-none transition-opacity duration-200",
-                        labelSwap ? "opacity-100" : "opacity-0"
-                      )}
-                      style={{
-                        color: "#fb2c36",
-                        textShadow:
-                          "-0.6px -0.6px 0 rgba(255,255,255,0.5), 0.6px 0.6px 0 rgba(0,0,0,0.28)",
-                      }}
-                    >
-                      {nextLabel}
-                    </span>
-                  ) : null}
                 </div>
               </div>
             ) : null}

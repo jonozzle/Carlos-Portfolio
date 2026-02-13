@@ -3,7 +3,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import BookmarkLink from "@/components/header/bookmark-link-fabric";
+import BookmarkLink from "@/components/header/bookmark-link-cloth";
 import ProjectIndexDrawer from "@/components/header/project-index-drawer";
 import BioBlock from "@/components/blocks/hero/bio-block";
 import { useHeroBioData } from "@/lib/hero-bio-store";
@@ -11,9 +11,10 @@ import type { ProjectIndexDrawerData } from "@/components/header/project-index-d
 
 const DRAWER_ID = "home-project-index";
 const BOOKMARK_FOLLOWS_DRAWER = true;
-const DRAWER_CLOSE_MS = 900;
+const DRAWER_CLOSE_MS = 1100;
 const SHOW_BOOKMARK_LABEL = false;
 const PRINT_BOOKMARK_LABEL = true;
+const ENABLE_BOOKMARK = true;
 
 type HomeBookmarkNavProps = {
   drawer?: ProjectIndexDrawerData;
@@ -71,19 +72,21 @@ export default function HomeBookmarkNav({ drawer }: HomeBookmarkNavProps) {
 
   return (
     <>
-      <BookmarkLink
-        href="/"
-        side="left"
-        bookmarkLabel={bookmarkLabel}
-        showBookmarkLabel={SHOW_BOOKMARK_LABEL}
-        printBookmarkLabel={PRINT_BOOKMARK_LABEL}
-        onHomeToggle={toggle}
-        ariaControls={isHome ? DRAWER_ID : undefined}
-        ariaExpanded={isHome ? open : undefined}
-        homeLabel={open ? "Close project index" : "Open project index"}
-        homeFollowRef={drawerRef}
-        homeFollow={follow}
-      />
+      {ENABLE_BOOKMARK ? (
+        <BookmarkLink
+          href="/"
+          side="left"
+          bookmarkLabel={bookmarkLabel}
+          showBookmarkLabel={SHOW_BOOKMARK_LABEL}
+          printBookmarkLabel={PRINT_BOOKMARK_LABEL}
+          onHomeToggle={toggle}
+          ariaControls={isHome ? DRAWER_ID : undefined}
+          ariaExpanded={isHome ? open : undefined}
+          homeLabel={open ? "Close project index" : "Open project index"}
+          homeFollowRef={drawerRef}
+          homeFollow={follow}
+        />
+      ) : null}
       {isHome ? (
         <ProjectIndexDrawer id={DRAWER_ID} open={open} panelRef={drawerRef} drawer={drawer} />
       ) : null}
