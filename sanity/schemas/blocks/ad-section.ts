@@ -96,6 +96,7 @@ export default defineType({
               { title: "Medium (≈50vw)", value: "medium" },
               { title: "Wide (≈65vw)", value: "wide" },
               { title: "Full (100vw)", value: "full" },
+              { title: "Auto (image width)", value: "auto" },
             ],
             layout: "radio",
           },
@@ -226,6 +227,8 @@ export default defineType({
             ? "Wide"
             : dWidth === "full"
               ? "Full"
+              : dWidth === "auto"
+                ? "Auto"
               : "Medium";
 
       const dParLabel = dParallaxEnabled === false ? "parallax off" : `parallax ${dParallaxAmount || "md"}`;

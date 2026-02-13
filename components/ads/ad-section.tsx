@@ -22,6 +22,10 @@ function isAppScrolling() {
     return !!(window as any).__appScrolling;
 }
 
+function clamp(n: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, n));
+}
+
 function useMediaQuery(query: string) {
     const [matches, setMatches] = useState(false);
 
@@ -47,7 +51,7 @@ function useMediaQuery(query: string) {
 
 type ParallaxAmount = "sm" | "md" | "lg";
 type Orientation = "horizontal" | "vertical";
-type SectionWidth = "narrow" | "medium" | "wide" | "full";
+type SectionWidth = "narrow" | "medium" | "wide" | "full" | "auto";
 
 type MobileHeight =
     | "ratio-1-1"
@@ -76,7 +80,13 @@ function mobileHeightStyle(opt: MobileHeight | null | undefined): React.CSSPrope
     }
 }
 
-export default function AdSection({ images, title, theme, desktop, mobile }: Props) {
+export default function AdSection({
+    images,
+    title,
+    theme,
+    desktop,
+    mobile,
+}: Props) {
     const themeActions = useThemeActions();
     const hasTheme = !!(theme?.bg || theme?.text);
     const hoverCapable = useHoverCapable();
@@ -84,6 +94,15 @@ export default function AdSection({ images, title, theme, desktop, mobile }: Pro
     const sectionRef = useRef<HTMLElement | null>(null);
 
     const isDesktop = useMediaQuery("(min-width: 768px)"); // below tablet => mobile settings
+    const [viewportHeight, setViewportHeight] = useState(0);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const update = () => setViewportHeight(Math.max(0, window.innerHeight || 0));
+        update();
+        window.addEventListener("resize", update, { passive: true });
+        return () => window.removeEventListener("resize", update as any);
+    }, []);
 
     const desktopCfg = (desktop ?? {}) as {
         orientation?: Orientation | null;
@@ -128,6 +147,27 @@ export default function AdSection({ images, title, theme, desktop, mobile }: Pro
             })) ?? null,
         [images]
     );
+
+    const desktopAutoDimensions = useMemo(() => {
+        if (desktopSectionWidth !== "auto") return null;
+
+        for (const img of imgs ?? []) {
+            const width = img.asset?.width;
+            const height = img.asset?.height;
+            if (
+                typeof width === "number" &&
+                Number.isFinite(width) &&
+                width > 0 &&
+                typeof height === "number" &&
+                Number.isFinite(height) &&
+                height > 0
+            ) {
+                return { width: Math.round(width), height: Math.round(height) };
+            }
+        }
+
+        return null;
+    }, [desktopSectionWidth, imgs]);
 
     const applyTheme = useCallback(
         (allowIdle?: boolean, force?: boolean) => {
@@ -192,6 +232,8 @@ export default function AdSection({ images, title, theme, desktop, mobile }: Pro
     }, [applyTheme, hasTheme, hoverCapable, isPointerInside]);
 
     const isVertical = effectiveOrientation === "vertical";
+    const lockCrossAxisBleed =
+        isDesktop && desktopSectionWidth === "auto" && isVertical && effectiveParallaxEnabled;
 
     const sectionWidthClass = useMemo(() => {
         switch (desktopSectionWidth) {
@@ -203,6 +245,8 @@ export default function AdSection({ images, title, theme, desktop, mobile }: Pro
                 return "w-full md:w-[65vw]";
             case "full":
                 return "w-full md:w-screen";
+            case "auto":
+                return "w-full md:w-auto";
             default:
                 return "w-full md:w-[50vw]";
         }
@@ -221,9 +265,38 @@ export default function AdSection({ images, title, theme, desktop, mobile }: Pro
         }
     }, [desktopSectionWidth, isDesktop]);
 
-    const sectionStyle: React.CSSProperties = {
-        containIntrinsicSize: isDesktop ? "100vh 50vw" : "60vh 100vw",
-    };
+    const sectionStyle: React.CSSProperties = useMemo(() => {
+        const style: React.CSSProperties = {
+            containIntrinsicSize: isDesktop ? "100vh 50vw" : "60vh 100vw",
+        };
+
+        if (isDesktop && desktopSectionWidth === "auto") {
+            style.height = "100vh";
+            style.maxHeight = "100vh";
+            style.width = "auto";
+            style.maxWidth = "none";
+
+            if (desktopAutoDimensions) {
+                const imageAspect = desktopAutoDimensions.width / desktopAutoDimensions.height;
+                const vh = Math.max(1, viewportHeight || 1);
+                let widthPx = imageAspect * vh;
+
+                if (lockCrossAxisBleed) {
+                    const parallaxScale =
+                        effectiveParallaxAmount === "sm" ? 0.6 : effectiveParallaxAmount === "lg" ? 1.4 : 1;
+                    const pan = clamp(clamp(vh * 0.08, 16, 140) * parallaxScale, 8, 180);
+                    widthPx = imageAspect * (vh + pan * 2);
+                }
+
+                style.width = `${Math.round(widthPx)}px`;
+                style.aspectRatio = `${desktopAutoDimensions.width} / ${desktopAutoDimensions.height}`;
+            } else {
+                style.width = "auto";
+            }
+        }
+
+        return style;
+    }, [desktopAutoDimensions, desktopSectionWidth, effectiveParallaxAmount, isDesktop, lockCrossAxisBleed, viewportHeight]);
 
     const sliderLabel = title ?? "Ad section";
 
@@ -238,6 +311,7 @@ export default function AdSection({ images, title, theme, desktop, mobile }: Pro
             style={sectionStyle}
             aria-label={sliderLabel}
             data-cursor-blend="normal"
+            data-cursor-tone="ad-muted"
             onPointerEnter={() => {
                 if (isHoverLocked()) return;
                 applyTheme();
@@ -268,6 +342,7 @@ export default function AdSection({ images, title, theme, desktop, mobile }: Pro
                         className="h-full w-full"
                         parallaxEnabled={effectiveParallaxEnabled}
                         parallaxAmount={effectiveParallaxAmount}
+                        lockCrossAxisBleed={lockCrossAxisBleed}
                     />
                 ) : (
                     <HorizontalImageSlider
@@ -277,6 +352,7 @@ export default function AdSection({ images, title, theme, desktop, mobile }: Pro
                         className="h-full w-full"
                         parallaxEnabled={effectiveParallaxEnabled}
                         parallaxAmount={effectiveParallaxAmount}
+                        lockCrossAxisBleed={lockCrossAxisBleed}
                     />
                 )}
             </div>

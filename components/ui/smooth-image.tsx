@@ -8,6 +8,7 @@ import { lowSrc, highSrc } from "@/lib/img";
 type Props = Omit<ImageProps, "placeholder" | "blurDataURL"> & {
   lqipWidth?: number;
   hiMaxWidth?: number;
+  hiQuality?: number;
   objectFit?: "cover" | "contain";
 };
 
@@ -16,6 +17,7 @@ export default function SmoothImage({
   className = "",
   lqipWidth = 24,
   hiMaxWidth = 1800,
+  hiQuality,
   sizes = "100vw",
   loading,
   fetchPriority = "auto",
@@ -28,7 +30,7 @@ export default function SmoothImage({
 
   const raw = typeof src === "string" ? src : "";
   const lo = useLqip ? lowSrc(raw, lqipWidth) : "";
-  const hi = typeof src === "string" ? highSrc(src, hiMaxWidth) : src;
+  const hi = typeof src === "string" ? highSrc(src, hiMaxWidth, hiQuality) : src;
 
   const fitClass = objectFit === "contain" ? "object-contain" : "object-cover";
 

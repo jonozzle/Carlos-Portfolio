@@ -42,8 +42,27 @@ function resolveInteractive(el: HTMLElement | null): HTMLElement | null {
   return el.closest<HTMLElement>(INTERACTIVE_SELECTOR);
 }
 
+function resolveCursorTone(el: HTMLElement | null): string | null {
+  if (!el) return null;
+  if (el.closest("[data-cursor-ui], #transition-layer")) return null;
+  const toneEl = el.closest<HTMLElement>("[data-cursor-tone]");
+  if (!toneEl) return null;
+  const tone = toneEl.getAttribute("data-cursor-tone");
+  return tone && tone.trim().length > 0 ? tone.trim() : null;
+}
+
+function resolveCursorScale(el: HTMLElement | null, fallback: number): number {
+  if (!el) return fallback;
+  const scaleEl = el.closest<HTMLElement>("[data-cursor-scale]");
+  if (!scaleEl) return fallback;
+  const raw = scaleEl.getAttribute("data-cursor-scale");
+  const parsed = raw ? Number.parseFloat(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export default function Cursor({
   size = 12,
+  growScale,
 }: {
   size?: number;
   growScale?: number;
@@ -58,6 +77,8 @@ export default function Cursor({
   const moveRafRef = useRef<number | null>(null);
   const hasPendingMoveRef = useRef(false);
   const pendingPosRef = useRef<{ x: number; y: number }>({ x: -9999, y: -9999 });
+  const toneRef = useRef<string>("default");
+  const dotScaleRef = useRef(1);
 
   const lastPos = useRef<{ x: number; y: number }>({ x: -9999, y: -9999 });
 
@@ -75,9 +96,12 @@ export default function Cursor({
     if (dot) {
       gsap.killTweensOf(dot);
       gsap.set(dot, { scale: 1, force3D: true });
+      dotScaleRef.current = 1;
     }
 
     wrap.dataset.hovered = "false";
+    wrap.dataset.tone = "default";
+    toneRef.current = "default";
 
     gsap.set(wrap, {
       autoAlpha: 0,
@@ -144,19 +168,32 @@ export default function Cursor({
     const rootCursorScale = Number.parseFloat(
       getComputedStyle(document.documentElement).getPropertyValue("--cursor-hover-scale")
     );
-    const hoverScale = Number.isFinite(rootCursorScale) && rootCursorScale > 0 ? rootCursorScale : 1.8;
+    const cssScale = Number.isFinite(rootCursorScale) && rootCursorScale > 0 ? rootCursorScale : 1.8;
+    const defaultHoverScale = Number.isFinite(growScale) && (growScale as number) > 0 ? (growScale as number) : cssScale;
     const setDotScale = gsap.quickTo(dot, "scale", {
       duration: safariRef.current ? 0.09 : 0.14,
       ease: safariRef.current ? "none" : "power3.out",
       overwrite: "auto",
     });
 
-    const setHovered = (v: boolean) => {
+    const setHovered = (v: boolean, targetScale = defaultHoverScale) => {
       if (!wrapRef.current) return;
-      if (hoveredRef.current === v) return;
+      const nextScale = v ? targetScale : 1;
+      const sameState = hoveredRef.current === v;
+      const sameScale = Math.abs(dotScaleRef.current - nextScale) < 0.001;
+      if (sameState && sameScale) return;
       hoveredRef.current = v;
       wrapRef.current.dataset.hovered = v ? "true" : "false";
-      setDotScale(v ? hoverScale : 1);
+      dotScaleRef.current = nextScale;
+      setDotScale(nextScale);
+    };
+
+    const setTone = (tone: string | null) => {
+      const next = tone ?? "default";
+      if (!wrapRef.current) return;
+      if (toneRef.current === next) return;
+      toneRef.current = next;
+      wrapRef.current.dataset.tone = next;
     };
 
     const flushMove = () => {
@@ -167,8 +204,15 @@ export default function Cursor({
       const y = pendingPosRef.current.y;
       setX(x);
       setY(y);
-      const target = pendingTargetRef.current;
-      setHovered(!!resolveInteractive(target));
+      const hit =
+        typeof document !== "undefined"
+          ? (document.elementFromPoint(x, y) as HTMLElement | null)
+          : null;
+      const target = hit ?? pendingTargetRef.current;
+      const interactive = resolveInteractive(target);
+      const targetScale = resolveCursorScale(interactive, defaultHoverScale);
+      setHovered(!!interactive, targetScale);
+      setTone(resolveCursorTone(target));
       show();
     };
 
@@ -204,12 +248,18 @@ export default function Cursor({
 
     const onFocusIn = (e: Event) => {
       const target = e.target as HTMLElement | null;
-      setHovered(!!resolveInteractive(target));
+      const interactive = resolveInteractive(target);
+      const targetScale = resolveCursorScale(interactive, defaultHoverScale);
+      setHovered(!!interactive, targetScale);
+      setTone(resolveCursorTone(target));
     };
 
     const onFocusOut = (e: Event) => {
       const rel = (e as FocusEvent).relatedTarget as HTMLElement | null;
-      setHovered(!!resolveInteractive(rel));
+      const interactive = resolveInteractive(rel);
+      const targetScale = resolveCursorScale(interactive, defaultHoverScale);
+      setHovered(!!interactive, targetScale);
+      setTone(resolveCursorTone(rel));
     };
 
     const usePointerEvents = "PointerEvent" in window;
@@ -230,11 +280,13 @@ export default function Cursor({
 
     const onBlur = () => {
       setHovered(false);
+      setTone(null);
       reset(true);
     };
     const onVis = () => {
       if (document.visibilityState !== "visible") {
         setHovered(false);
+        setTone(null);
         reset(true);
       }
     };
@@ -245,6 +297,7 @@ export default function Cursor({
 
     const onHideEvent = () => {
       setHovered(false);
+      setTone(null);
       reset(true);
     };
 
@@ -285,7 +338,7 @@ export default function Cursor({
 
       setRootActive(false);
     };
-  }, [reset, show]);
+  }, [growScale, reset, show]);
 
   return (
     <div
@@ -293,6 +346,7 @@ export default function Cursor({
       aria-hidden
       data-cursor-ui
       data-hovered="false"
+      data-tone="default"
       className="cursor-wrap fixed left-0 top-0 z-[2147483647] pointer-events-none"
       style={{
         width: size,

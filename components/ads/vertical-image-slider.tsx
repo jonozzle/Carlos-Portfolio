@@ -21,17 +21,11 @@ type Props = {
     label?: string;
     parallaxEnabled?: boolean;
     parallaxAmount?: "sm" | "md" | "lg";
+    lockCrossAxisBleed?: boolean;
 };
 
 function clamp(n: number, min: number, max: number) {
     return Math.min(max, Math.max(min, n));
-}
-
-// Ensure the scaled content always covers the container while panning +/- pan.
-function coverScale(viewportPx: number, panPx: number) {
-    const v = Math.max(1, viewportPx);
-    const required = 1 + (2 * panPx) / v;
-    return clamp(required + 0.02, 1.02, 1.6);
 }
 
 export default function VerticalImageSlider({
@@ -41,6 +35,7 @@ export default function VerticalImageSlider({
     label = "Advertisement",
     parallaxEnabled = true,
     parallaxAmount = "md",
+    lockCrossAxisBleed = false,
 }: Props) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const trackRef = useRef<HTMLDivElement | null>(null);
@@ -55,6 +50,8 @@ export default function VerticalImageSlider({
                 .map((i) => ({
                     src: i!.asset!.url as string,
                     alt: i!.alt ?? "",
+                    width: i?.asset?.width ?? null,
+                    height: i?.asset?.height ?? null,
                 })),
         [images]
     );
@@ -132,6 +129,7 @@ export default function VerticalImageSlider({
             });
             if (target) {
                 gsap.set(target, {
+                    clearProps: "position,left,right,top,bottom,width,height,scale,scaleX,scaleY,transformOrigin",
                     x: 0,
                     y: 0,
                     scale: 1,
@@ -320,19 +318,35 @@ export default function VerticalImageSlider({
 
                 const requireCA = isRail;
 
-                // SINGLE IMAGE: subtle internal pan with scale derived from pan (no edge gaps)
+                // SINGLE IMAGE: original move + cross-axis bleed to preserve full-width framing.
                 if (isSingle) {
                     const target = singlePanRef.current;
                     if (!target) return;
 
-                    const basePan = clamp(viewportH * 0.08, 16, 140);
-                    const pan = clamp(basePan * parallaxScale, 8, 180);
-                    const scale = coverScale(viewportH, pan);
+                    const viewportW = Math.max(1, container.clientWidth);
+                    const single = prepared[0];
+                    const imageAspect =
+                        typeof single?.width === "number" &&
+                        single.width > 0 &&
+                        typeof single?.height === "number" &&
+                        single.height > 0
+                            ? single.width / single.height
+                            : viewportW / viewportH;
+                    const pan = clamp(clamp(viewportH * 0.08, 16, 140) * parallaxScale, 8, 180);
+                    const baseXBleed = Math.max(0, Math.ceil((imageAspect * (viewportH + pan * 2) - viewportW) / 2));
+                    const xBleed = lockCrossAxisBleed ? 0 : baseXBleed;
 
                     gsap.set(target, {
+                        position: "absolute",
+                        left: -xBleed,
+                        top: -pan,
+                        width: `calc(100% + ${xBleed * 2}px)`,
+                        height: `calc(100% + ${pan * 2}px)`,
                         x: 0,
                         y: 0,
-                        scale,
+                        scale: 1,
+                        scaleX: 1,
+                        scaleY: 1,
                         transformOrigin: "center",
                         willChange: "transform",
                         force3D: true,
@@ -452,6 +466,7 @@ export default function VerticalImageSlider({
     }
 
     const sizesAttr = size === "half" ? "50vw" : size === "full" ? "100vw" : "100vw";
+    const hiMaxWidth = size === "full" ? 3200 : 2600;
 
     const roleDesc =
         len > 0 ? `${label}. ${len} frames. Scrolling reveals more frames.` : `${label}. No media.`;
@@ -483,7 +498,8 @@ export default function VerticalImageSlider({
                                     alt={img.alt}
                                     fill
                                     sizes={sizesAttr}
-                                    hiMaxWidth={size === "full" ? 2000 : 1400}
+                                    hiMaxWidth={hiMaxWidth}
+                                    hiQuality={90}
                                     lqipWidth={24}
                                     loading="lazy"
                                 />

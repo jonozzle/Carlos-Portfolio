@@ -52,14 +52,14 @@ export default function Advert({
     // data
     const prepared = useMemo<PreparedImage[]>(() => {
         const maxWidth =
-            size === "full" ? 2000 : size === "half" ? 1400 : 1600;
+            size === "full" ? 3200 : size === "half" ? 2400 : 2800;
 
         return (images ?? [])
             .filter(i => i?.asset?.url)
             .map(i => {
                 const raw = i!.asset!.url as string;
                 return {
-                    hi: highSrc(raw, maxWidth),
+                    hi: highSrc(raw, maxWidth, 90),
                     lo: lowSrc(raw, 24),
                     alt: i!.alt ?? "",
                 };

@@ -2550,6 +2550,7 @@ export default function BookmarkLinkCloth({
 
       <a
         ref={linkRef}
+        data-bookmark-link="true"
         href={href}
         draggable={false}
         onDragStart={(e) => e.preventDefault()}

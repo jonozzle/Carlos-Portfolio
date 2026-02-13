@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 function readHoverCapable(): boolean {
   if (typeof window === "undefined" || !window.matchMedia) return false;
 
+  const desktopWidth = window.matchMedia("(min-width: 768px)").matches;
   const hover = window.matchMedia("(hover: hover)").matches;
   const anyHover = window.matchMedia("(any-hover: hover)").matches;
   const finePointer = window.matchMedia("(pointer: fine)").matches;
@@ -18,6 +19,7 @@ function readHoverCapable(): boolean {
 
   // Treat any touch-capable environment as non-hover for theme previews.
   if (coarsePointer || anyCoarsePointer || hasTouchPoints) return false;
+  if (!desktopWidth) return false;
 
   return (hover || anyHover) && (finePointer || anyFinePointer);
 }
@@ -38,6 +40,7 @@ export function useHoverCapable() {
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
 
+    const desktopMq = window.matchMedia("(min-width: 768px)");
     const hoverMq = window.matchMedia("(hover: hover)");
     const anyHoverMq = window.matchMedia("(any-hover: hover)");
     const finePointerMq = window.matchMedia("(pointer: fine)");
@@ -74,6 +77,7 @@ export function useHoverCapable() {
     window.addEventListener("pointermove", onPointer, { passive: true });
 
     [
+      desktopMq,
       hoverMq,
       anyHoverMq,
       finePointerMq,
@@ -84,6 +88,7 @@ export function useHoverCapable() {
 
     return () => {
       [
+        desktopMq,
         hoverMq,
         anyHoverMq,
         finePointerMq,

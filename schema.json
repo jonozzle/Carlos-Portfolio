@@ -1759,6 +1759,10 @@
                     {
                       "type": "string",
                       "value": "full"
+                    },
+                    {
+                      "type": "string",
+                      "value": "auto"
                     }
                   ]
                 },

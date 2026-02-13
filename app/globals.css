@@ -202,12 +202,19 @@ html[data-browser-safari="1"] body {
 
 .cursor-dot {
   background: red;
+  opacity: 1;
   transform: scale(1);
   will-change: transform;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
   transform-origin: 50% 50%;
   border-radius: 9999px;
+  transition: background-color 140ms ease, opacity 140ms ease;
+}
+
+.cursor-wrap[data-tone="ad-muted"] .cursor-dot {
+  background: #9ca3af;
+  opacity: 0.5;
 }
 
 

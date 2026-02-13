@@ -69,18 +69,39 @@ export default function HomeBookmarkNav({ drawer }: HomeBookmarkNavProps) {
 
   const toggle = useCallback(() => {
     if (!isHome) return;
-    setOpen((prev) => !prev);
-  }, [isHome]);
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+  }, [isHome, open]);
 
   useEffect(() => {
     if (!isHome || !open) return;
 
-    const onPointerUp = (e: PointerEvent) => {
+    const closeIfOutside = (target: EventTarget | null) => {
       const panel = drawerRef.current;
-      const target = e.target;
       if (!panel || !(target instanceof Node)) return;
+      if (target instanceof Element) {
+        const fromBookmark =
+          target.closest("[data-bookmark-hit='true']") ||
+          target.closest("[data-bookmark-link='true']");
+        if (fromBookmark) return;
+      }
       if (panel.contains(target)) return;
       setOpen(false);
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      closeIfOutside(e.target);
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      closeIfOutside(e.target);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      closeIfOutside(e.target);
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -88,12 +109,16 @@ export default function HomeBookmarkNav({ drawer }: HomeBookmarkNavProps) {
       setOpen(false);
     };
 
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("mousedown", onMouseDown, true);
+    window.addEventListener("touchstart", onTouchStart, true);
+    window.addEventListener("keydown", onKeyDown, true);
 
     return () => {
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("mousedown", onMouseDown, true);
+      window.removeEventListener("touchstart", onTouchStart, true);
+      window.removeEventListener("keydown", onKeyDown, true);
     };
   }, [isHome, open]);
 
