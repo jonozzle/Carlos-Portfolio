@@ -88,6 +88,8 @@ const GRAB_MOVE_PX = 10;
 const GRAB_MOVE_TOUCH_PX = 18;
 const PASSIVE_DAMPING_PER_FRAME = 0.976;
 const DRAWER_SEAM_OVERLAP_PX = 1;
+const TAP_CLICK_SUPPRESS_TOUCH_MS = 700;
+const TAP_CLICK_SUPPRESS_MOUSE_MS = 120;
 
 // Label
 const LABEL_FONT_FAMILY = `"Times New Roman", Times, serif`;
@@ -1044,6 +1046,7 @@ export default function BookmarkLinkCloth({
     cancel: (e: PointerEvent) => void;
   } | null>(null);
   const skipClickRef = useRef(false);
+  const skipClickTimerRef = useRef<number | null>(null);
   const selectionLockRef = useRef<{
     active: boolean;
     userSelect: string;
@@ -1548,6 +1551,10 @@ export default function BookmarkLinkCloth({
   useEffect(() => {
     return () => {
       detachWindowPointerListeners();
+      if (skipClickTimerRef.current) {
+        window.clearTimeout(skipClickTimerRef.current);
+        skipClickTimerRef.current = null;
+      }
     };
   }, [detachWindowPointerListeners]);
 
@@ -1694,10 +1701,17 @@ export default function BookmarkLinkCloth({
       const shouldClick = drag.wasDownInside && !drag.active;
       endPointer({ clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId });
       skipClickRef.current = true;
-      if (shouldClick) handleActivate();
-      window.setTimeout(() => {
+      if (skipClickTimerRef.current) {
+        window.clearTimeout(skipClickTimerRef.current);
+        skipClickTimerRef.current = null;
+      }
+      const suppressFor =
+        e.pointerType === "touch" ? TAP_CLICK_SUPPRESS_TOUCH_MS : TAP_CLICK_SUPPRESS_MOUSE_MS;
+      skipClickTimerRef.current = window.setTimeout(() => {
         skipClickRef.current = false;
-      }, 0);
+        skipClickTimerRef.current = null;
+      }, suppressFor);
+      if (shouldClick) handleActivate();
     };
 
     const onPointerCancelWindow = (e: PointerEvent) => {
@@ -1811,6 +1825,10 @@ export default function BookmarkLinkCloth({
     (e: React.MouseEvent<HTMLElement>) => {
       if (skipClickRef.current) {
         skipClickRef.current = false;
+        if (skipClickTimerRef.current) {
+          window.clearTimeout(skipClickTimerRef.current);
+          skipClickTimerRef.current = null;
+        }
         e.preventDefault();
         return;
       }

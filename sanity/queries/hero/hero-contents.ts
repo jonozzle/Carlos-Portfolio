@@ -50,6 +50,18 @@ export const heroContentsQuery = groq`
 
     "copyrightText": coalesce(copyrightText, ""),
 
+    "mobileItems": coalesce(mobileItems, [])[]{
+      _key,
+      "title": coalesce(title, ""),
+      "image": select(
+        defined(image) => {
+          "asset": {"url": image.asset->url},
+          "alt": image.alt
+        },
+        null
+      )
+    },
+
     "items": items[]{
       "title": coalesce(project->title, "Untitled"),
       "slug": project->slug.current,
@@ -74,8 +86,6 @@ export const heroContentsQuery = groq`
       // legacy fallback (optional)
       "x": x,
       "y": y,
-
-      "layout": coalesce(layout, "feature-left"),
       _key
     }
   }

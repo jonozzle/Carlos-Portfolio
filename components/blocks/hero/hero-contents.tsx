@@ -91,13 +91,8 @@ const HERO_GRID_ITEM_COL_SPAN = 6;
 const BELOW_DESKTOP_MQ = "(max-width: 767px)";
 
 // Below-desktop cycling config
-const MOBILE_CYCLE_MS = 2400;
 const MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS = 4500;
-
-function normalizeLayout(layout: HeroItem["layout"]): HeroLayout {
-  if (layout === "feature-right" || layout === "center-overlay") return layout;
-  return "feature-left";
-}
+const MOBILE_CYCLE_MS = 4000;
 
 function normalizeLinksLayout(mode: unknown): LinksLayoutMode {
   if (mode === "center" || mode === "two-column" || mode === "grid") return mode;
@@ -650,9 +645,34 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     [items]
   );
 
+  const mobileItems: HeroItem[] = useMemo(() => {
+    const raw = ((props as any)?.mobileItems ?? []) as unknown[];
+    return raw.filter((it): it is HeroItem => !!it && typeof it === "object");
+  }, [props]);
+
+  const mobileKeyed: HeroItemWithKey[] = useMemo(
+    () =>
+      mobileItems.map((it, i) => {
+        const fallback = (it.title as string | undefined) ?? "mobile-slide";
+        return { ...it, _key: it._key ?? `mobile-${fallback}-${i}` };
+      }),
+    [mobileItems]
+  );
+
+  // Mobile uses dedicated slideshow images when provided; otherwise fallback to desktop items.
+  const mobileSlidesKeyed: HeroItemWithKey[] = useMemo(() => {
+    if (mobileKeyed.length) return mobileKeyed;
+    return keyed;
+  }, [keyed, mobileKeyed]);
+
+  const slideshowKeyed: HeroItemWithKey[] = useMemo(
+    () => (isBelowDesktop ? mobileSlidesKeyed : keyed),
+    [isBelowDesktop, keyed, mobileSlidesKeyed]
+  );
+
   const previewables: HeroItemWithKey[] = useMemo(
-    () => keyed.filter((i) => i.image?.asset?.url),
-    [keyed]
+    () => slideshowKeyed.filter((i) => i.image?.asset?.url),
+    [slideshowKeyed]
   );
 
   const previewByKey = useMemo(() => {
@@ -661,7 +681,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     return map;
   }, [previewables]);
 
-  const initialKey = keyed[0]?._key ?? null;
+  const initialKey = slideshowKeyed[0]?._key ?? null;
 
   const initialPreviewKey = useMemo(() => {
     const a = initialKey;
@@ -700,6 +720,26 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     displayedPreviewKeyRef.current = displayedPreviewKey;
   }, [displayedPreviewKey]);
 
+  useEffect(() => {
+    if (!slideshowKeyed.length) {
+      setActiveKey(null);
+      setDisplayedPreviewKey(null);
+      setPendingKey(null);
+      activeKeyRef.current = null;
+      displayedPreviewKeyRef.current = null;
+      return;
+    }
+
+    const current = activeKeyRef.current;
+    if (current && slideshowKeyed.some((item) => item._key === current)) return;
+
+    setActiveKey(initialActiveKey);
+    setDisplayedPreviewKey(initialPreviewKey);
+    setPendingKey(null);
+    activeKeyRef.current = initialActiveKey;
+    displayedPreviewKeyRef.current = initialPreviewKey;
+  }, [initialActiveKey, initialPreviewKey, slideshowKeyed]);
+
   const displayedPreviewItem: HeroItemWithKey | null = displayedPreviewKey
     ? previewByKey.get(displayedPreviewKey) ?? null
     : null;
@@ -708,7 +748,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     ? previewByKey.get(pendingKey) ?? null
     : null;
 
-  const activeLayout: HeroLayout = normalizeLayout(displayedPreviewItem?.layout);
+  const activeLayout: HeroLayout = "feature-left";
 
   const runIndexAction = useCallback(
     (index: number, it: HeroItemWithKey, reason: IndexActionReason) => {
@@ -742,7 +782,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   useEffect(() => {
     if (!loaderDone) return;
     if (!isBelowDesktop) return;
-    if (keyed.length <= 1) return;
+    if (slideshowKeyed.length <= 1) return;
 
     let raf = 0;
     let t: any = null;
@@ -751,9 +791,9 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       if (Date.now() < cyclePauseUntilRef.current) return;
 
       const currKey = activeKeyRef.current;
-      const currIndex = currKey ? keyed.findIndex((k) => k._key === currKey) : -1;
-      const nextIndex = (Math.max(-1, currIndex) + 1) % keyed.length;
-      const nextItem = keyed[nextIndex];
+      const currIndex = currKey ? slideshowKeyed.findIndex((k) => k._key === currKey) : -1;
+      const nextIndex = (Math.max(-1, currIndex) + 1) % slideshowKeyed.length;
+      const nextItem = slideshowKeyed[nextIndex];
       if (!nextItem?._key) return;
 
       activateHeroLink(nextItem._key, () => runIndexAction(nextIndex, nextItem, "cycle"));
@@ -787,11 +827,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       if (t) window.clearInterval(t);
       if (raf) window.cancelAnimationFrame(raf);
     };
-  }, [activateHeroLink, isBelowDesktop, keyed, loaderDone, runIndexAction]);
+  }, [activateHeroLink, isBelowDesktop, loaderDone, runIndexAction, slideshowKeyed]);
 
   useEffect(() => {
     if (!loaderDone) return;
     if (typeof window === "undefined") return;
+    if (isBelowDesktop) return;
     if (!keyed.length) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -807,15 +848,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       if (idx == null) return;
       if (idx < 0 || idx >= keyed.length) return;
 
-      // On below desktop, any explicit interaction pauses the cycling briefly.
-      if (isBelowDesktop) pauseCycle(MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS);
-
       handleActivate(keyed[idx], idx, "key");
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleActivate, isBelowDesktop, keyed, loaderDone, pauseCycle]);
+  }, [handleActivate, isBelowDesktop, keyed, loaderDone]);
 
   const leftRef = useRef<HTMLDivElement | null>(null);
   const rightRef = useRef<HTMLDivElement | null>(null);
@@ -1464,15 +1502,13 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const disableHover = isBelowDesktop;
 
   const renderLinks = useMemo(() => {
+    if (isBelowDesktop) return null;
+
     const common = {
       keyed,
       activeKey,
       handleActivate: (it: HeroItemWithKey, index: number, reason: IndexActionReason) => {
         if (disableHover && reason === "hover") return;
-
-        if (isBelowDesktop && reason !== "hover") {
-          pauseCycle(MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS);
-        }
 
         handleActivate(it, index, reason);
       },
@@ -1509,7 +1545,6 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     heroLinkAlwaysBold,
     isBelowDesktop,
     keyed,
-    pauseCycle,
     renderLinkContent,
     runIndexAction,
   ]);
@@ -1755,14 +1790,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
           </div>
         </div>
 
-        {/* LINKS FIELD */}
-        <div
-          className="relative flex-none md:flex-1 md:min-h-0 pointer-events-none"
-          onPointerDown={isBelowDesktop ? () => pauseCycle(MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS) : undefined}
-          onTouchStart={isBelowDesktop ? () => pauseCycle(MOBILE_CYCLE_PAUSE_AFTER_INTERACT_MS) : undefined}
-        >
-          <div className="pointer-events-auto md:absolute md:inset-0">{renderLinks}</div>
-        </div>
+        {/* LINKS FIELD (desktop only) */}
+        {!isBelowDesktop ? (
+          <div className="relative flex-none md:flex-1 md:min-h-0 pointer-events-none">
+            <div className="pointer-events-auto md:absolute md:inset-0">{renderLinks}</div>
+          </div>
+        ) : null}
 
         {/* FOOTER: footerBody bottom-left, links bottom-right */}
         {shouldRenderFooter ? (

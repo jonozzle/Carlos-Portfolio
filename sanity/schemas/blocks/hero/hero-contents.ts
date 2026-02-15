@@ -16,6 +16,7 @@ export default defineType({
     { name: "bio", title: "Bio" },
     { name: "footer", title: "Footer Text" },
     { name: "bottom", title: "Bottom" },
+    { name: "mobile", title: "Mobile Slideshow" },
   ],
   fields: [
     defineField({
@@ -244,6 +245,52 @@ export default defineType({
     }),
 
     // -----------------------
+    // MOBILE SLIDESHOW
+    // -----------------------
+    defineField({
+      name: "mobileItems",
+      title: "Mobile slideshow images",
+      type: "array",
+      fieldset: "mobile",
+      description:
+        "Used only on mobile for the hero image slideshow. Desktop project links are unaffected. If empty, desktop hero item images are used as fallback.",
+      of: [
+        defineField({
+          name: "slide",
+          title: "Slide",
+          type: "object",
+          fields: [
+            defineField({
+              name: "title",
+              title: "Title",
+              type: "string",
+              description: "Optional internal label for this mobile slide.",
+            }),
+            defineField({
+              name: "image",
+              title: "Image",
+              type: "image",
+              options: { hotspot: true },
+              icon: ImageIcon,
+              validation: (r) => r.required(),
+            }),
+          ],
+          preview: {
+            select: { title: "title", media: "image" },
+            prepare({ title, media }) {
+              return {
+                title: title || "Mobile slide",
+                media,
+                subtitle: "Hero mobile slideshow image",
+              };
+            },
+          },
+        }),
+      ],
+      initialValue: [],
+    }),
+
+    // -----------------------
     // ITEMS
     // -----------------------
     defineField({
@@ -270,21 +317,6 @@ export default defineType({
               options: { hotspot: true },
               icon: ImageIcon,
               description: "Optional. Falls back to project.featuredImage.",
-            }),
-            defineField({
-              name: "layout",
-              title: "Layout / Animation",
-              type: "string",
-              options: {
-                list: [
-                  { title: "Feature Left (corner clip)", value: "feature-left" },
-                  { title: "Feature Right (reversed clip)", value: "feature-right" },
-                  { title: "Center Overlay (fade / scale)", value: "center-overlay" },
-                ],
-                layout: "radio",
-              },
-              initialValue: "feature-left",
-              description: "Controls layout/animation for this project when active.",
             }),
 
             // GRID placement (28×28)
