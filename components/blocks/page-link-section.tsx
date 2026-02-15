@@ -706,7 +706,6 @@ const PageLinkTile = React.memo(function PageLinkTile({
       onMouseLeave={handleLeave}
       onFocusCapture={handleEnter}
       onBlurCapture={handleLeave}
-      onPointerDownCapture={handleNavLockCapture}
       onClickCapture={handleNavLockCapture}
       data-page-link-cell
     >

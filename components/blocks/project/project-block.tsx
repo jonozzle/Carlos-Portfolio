@@ -673,7 +673,6 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             onMouseLeave={handleLeave}
             onFocusCapture={handleEnter}
             onBlurCapture={handleLeave}
-            onPointerDownCapture={handleNavLockCapture}
             onClickCapture={handleNavLockCapture}
             data-project-block-cell
             data-speed-x="0.5"
