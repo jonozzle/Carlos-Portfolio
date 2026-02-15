@@ -59,6 +59,7 @@ function setPageTransitionBusy(on: boolean) {
   }
   if (typeof window !== "undefined") {
     (window as any).__pageTransitionBusy = on;
+    (window as any).__navInProgress = on;
     try {
       window.dispatchEvent(new Event(on ? APP_EVENTS.NAV_START : APP_EVENTS.NAV_END));
     } catch {

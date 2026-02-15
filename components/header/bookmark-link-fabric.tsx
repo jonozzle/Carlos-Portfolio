@@ -56,7 +56,8 @@ type BookmarkLinkFabricProps = {
   homeFollow?: boolean;
 };
 
-const TOP_THRESHOLD = 24;
+const TOP_THRESHOLD_DESKTOP = 24;
+const TOP_THRESHOLD_MOBILE = 96;
 const TUG_COOLDOWN_MS = 1000;
 
 
@@ -236,6 +237,13 @@ function getRawScrollY(): number {
     0;
 
   return Number.isFinite(y) ? Math.max(0, y) : 0;
+}
+
+function getTopThreshold() {
+  if (typeof window === "undefined") return TOP_THRESHOLD_DESKTOP;
+  return window.matchMedia("(max-width: 767px)").matches
+    ? TOP_THRESHOLD_MOBILE
+    : TOP_THRESHOLD_DESKTOP;
 }
 
 function getNativeScrollY(): number {
@@ -1333,20 +1341,17 @@ export default function BookmarkLinkFabric({
 
   const doNavigate = useCallback(async () => {
     const rawY = getRawScrollY();
-    const atTop = rawY <= TOP_THRESHOLD;
+    const atTop = rawY <= getTopThreshold();
 
     const saved = getSavedHomeSection();
     const enteredKind =
       ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
-
-    const isHeroBackType = saved?.type === "project-block" || saved?.type === "page-link-section";
 
     const shouldHeroBack =
       href === "/" &&
       pathname !== "/" &&
       enteredKind === "hero" &&
       atTop &&
-      isHeroBackType &&
       !!saved?.id;
 
     lockAppScroll();

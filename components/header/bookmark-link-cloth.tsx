@@ -38,7 +38,8 @@ const BASE_RECT_HEIGHT = 24;
 const TAIL_HEIGHT = 40;
 const BASE_SHAPE_HEIGHT = BASE_RECT_HEIGHT + TAIL_HEIGHT;
 const HOME_ANCHOR_HEIGHT = 92;
-const TOP_THRESHOLD = 24;
+const TOP_THRESHOLD_DESKTOP = 24;
+const TOP_THRESHOLD_MOBILE = 96;
 
 const DROP_INNER_Y = -100;
 
@@ -165,6 +166,13 @@ function resolveHeroImgUrl(sourceEl: HTMLElement | null): string | null {
 
 function getRawScrollY(): number {
   return getNativeScrollY();
+}
+
+function getTopThreshold() {
+  if (typeof window === "undefined") return TOP_THRESHOLD_DESKTOP;
+  return window.matchMedia("(max-width: 767px)").matches
+    ? TOP_THRESHOLD_MOBILE
+    : TOP_THRESHOLD_DESKTOP;
 }
 
 function getTargetBookmarkHeight(isHome: boolean): number {
@@ -1566,20 +1574,17 @@ export default function BookmarkLinkCloth({
     if (!href) return;
 
     const rawY = getRawScrollY();
-    const atTop = rawY <= TOP_THRESHOLD;
+    const atTop = rawY <= getTopThreshold();
 
     const saved = getSavedHomeSection();
     const enteredKind =
       ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
-
-    const isHeroBackType = saved?.type === "project-block" || saved?.type === "page-link-section";
 
     const shouldHeroBack =
       href === "/" &&
       pathname !== "/" &&
       enteredKind === "hero" &&
       atTop &&
-      isHeroBackType &&
       !!saved?.id;
 
     lockAppScroll();

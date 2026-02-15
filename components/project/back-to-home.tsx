@@ -18,7 +18,8 @@ type Props = {
     className?: string;
 };
 
-const TOP_THRESHOLD = 24;
+const TOP_THRESHOLD_DESKTOP = 24;
+const TOP_THRESHOLD_MOBILE = 96;
 
 function setHomeHold(on: boolean) {
     if (typeof document === "undefined") return;
@@ -36,7 +37,14 @@ function getRawScrollY(): number {
             : 0) ||
         0;
 
-    return Number.isFinite(y) ? Math.max(0, y) : 0;
+  return Number.isFinite(y) ? Math.max(0, y) : 0;
+}
+
+function getTopThreshold() {
+    if (typeof window === "undefined") return TOP_THRESHOLD_DESKTOP;
+    return window.matchMedia("(max-width: 767px)").matches
+        ? TOP_THRESHOLD_MOBILE
+        : TOP_THRESHOLD_DESKTOP;
 }
 
 function clearAnyHeroPending() {
@@ -79,7 +87,7 @@ export default function BackToHomeButton({ slug, heroImgUrl, className }: Props)
             e.preventDefault();
 
             const rawYBeforeLock = getRawScrollY();
-            const atTop = rawYBeforeLock <= TOP_THRESHOLD;
+            const atTop = rawYBeforeLock <= getTopThreshold();
 
             const saved = getSavedHomeSection();
             const enteredKind =
@@ -88,7 +96,6 @@ export default function BackToHomeButton({ slug, heroImgUrl, className }: Props)
             const shouldHeroBack =
                 enteredKind === "hero" &&
                 atTop &&
-                saved?.type === "project-block" &&
                 !!saved?.id;
 
             lockAppScroll();

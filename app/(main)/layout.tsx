@@ -26,6 +26,31 @@ export default async function MainLayout({ children }: { children: React.ReactNo
           __html: "document.documentElement.classList.add('js');",
         }}
       />
+      <Script
+        id="scroll-boot"
+        strategy="beforeInteractive"
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function () {
+              try {
+                if ("scrollRestoration" in window.history) {
+                  window.history.scrollRestoration = "manual";
+                }
+              } catch {}
+
+              try {
+                if (window.location.pathname !== "/") return;
+
+                var nav = (performance.getEntriesByType("navigation")[0] || null);
+                var navType = nav && nav.type ? String(nav.type) : "unknown";
+                if (navType === "back_forward") return;
+
+                window.scrollTo(0, 0);
+              } catch {}
+            })();
+          `,
+        }}
+      />
 
       <div className="has-custom-cursor">
         <HomeLoader enable={true} />

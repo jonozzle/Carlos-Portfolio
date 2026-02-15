@@ -7,7 +7,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { startHeroTransition } from "@/lib/hero-transition";
 import type { PageDirection, PageTransitionKind } from "@/lib/transitions/state";
 import { saveScrollForPath } from "@/lib/scroll-state";
-import { getActiveHomeSection, getSavedHomeSection, saveActiveHomeSectionNow } from "@/lib/home-section";
+import {
+  getActiveHomeSection,
+  getSavedHomeSection,
+  saveActiveHomeSectionNow,
+  saveHomeSection,
+} from "@/lib/home-section";
 import { lockAppScroll } from "@/lib/scroll-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 import { setNavIntent } from "@/lib/nav-intent";
@@ -25,7 +30,15 @@ type Props = React.PropsWithChildren<{
   disabled?: boolean;
 }>;
 
-const TOP_THRESHOLD = 24;
+const TOP_THRESHOLD_DESKTOP = 24;
+const TOP_THRESHOLD_MOBILE = 96;
+
+function getTopThreshold() {
+  if (typeof window === "undefined") return TOP_THRESHOLD_DESKTOP;
+  return window.matchMedia("(max-width: 767px)").matches
+    ? TOP_THRESHOLD_MOBILE
+    : TOP_THRESHOLD_DESKTOP;
+}
 
 function setHomeHold(on: boolean) {
   if (typeof document === "undefined") return;
@@ -77,6 +90,34 @@ function getHeroSourceFromCurrentPage(): { slug: string; sourceEl: HTMLElement; 
   return { slug, sourceEl, imgUrl };
 }
 
+function getHomeSectionSnapshotFromEl(el: HTMLElement | null): { id: string; type: string } | null {
+  const section = el?.closest<HTMLElement>("[data-section-id]");
+  if (!section) return null;
+
+  const id = (section.getAttribute("data-section-id") || "").trim();
+  const type = (section.getAttribute("data-section-type") || "").trim();
+  if (!id) return null;
+
+  return { id, type: type || "unknown" };
+}
+
+function isMobileNow() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.matchMedia("(max-width: 767px)").matches;
+  } catch {
+    return false;
+  }
+}
+
+function getHeroThemeSettleDelayMs() {
+  if (typeof window === "undefined") return 0;
+  const readyAt = Number((window as any).__heroThemeLockReadyAt ?? 0);
+  if (!Number.isFinite(readyAt) || readyAt <= 0) return 0;
+  const now = performance.now();
+  return Math.max(0, Math.min(260, Math.round(readyAt - now)));
+}
+
 export default function PageTransitionButton({
   href,
   direction,
@@ -120,8 +161,26 @@ export default function PageTransitionButton({
       lockAppScroll();
 
       const activeHome = pathname === "/" ? getActiveHomeSection() : null;
-      if (pathname === "/") saveActiveHomeSectionNow();
-      else saveScrollForPath(pathname);
+      let homeSectionId = activeHome?.id ?? null;
+      let homeSectionType = activeHome?.type ?? null;
+
+      if (pathname === "/") {
+        saveActiveHomeSectionNow();
+
+        if (!homeSectionId) {
+          const heroFallback = getHomeSectionSnapshotFromEl(heroSourceRef?.current ?? null);
+          const clickFallback = getHomeSectionSnapshotFromEl(e.currentTarget as HTMLElement);
+          const fallback = heroFallback ?? clickFallback;
+
+          if (fallback?.id) {
+            saveHomeSection({ id: fallback.id, type: fallback.type });
+            homeSectionId = fallback.id;
+            homeSectionType = fallback.type;
+          }
+        }
+      } else {
+        saveScrollForPath(pathname);
+      }
 
       const isProjectRoute = href.startsWith("/projects/");
       const isGoingHome = href === "/" && pathname !== "/";
@@ -137,15 +196,11 @@ export default function PageTransitionButton({
         const enteredKind =
           ((window as any).__pageTransitionLast as PageTransitionKind | undefined) ?? "simple";
 
-        const atTop = rawYBeforeLock <= TOP_THRESHOLD;
-
-        const isHeroBackType =
-          saved?.type === "project-block" || saved?.type === "page-link-section";
+        const atTop = rawYBeforeLock <= getTopThreshold();
 
         const shouldHeroBack =
           enteredKind === "hero" &&
           atTop &&
-          isHeroBackType &&
           !!saved?.id;
 
         if (shouldHeroBack) {
@@ -184,21 +239,35 @@ export default function PageTransitionButton({
 
       if (slug && sourceEl && heroImgUrl) {
         kind = "hero";
-        startHeroTransition({
-          slug,
-          sourceEl,
-          imgUrl: heroImgUrl,
-          onNavigate: () => onNavigate(kind, activeHome?.id ?? null, activeHome?.type ?? null),
-        });
+        const runHeroNav = () => {
+          if (typeof window !== "undefined") {
+            (window as any).__heroThemeLockReadyAt = 0;
+          }
+          startHeroTransition({
+            slug,
+            sourceEl,
+            imgUrl: heroImgUrl,
+            onNavigate: () => onNavigate(kind, homeSectionId, homeSectionType),
+          });
+        };
+
+        const shouldDelayForTheme = pathname === "/" && isMobileNow();
+        const settleDelay = shouldDelayForTheme ? getHeroThemeSettleDelayMs() : 0;
+
+        if (settleDelay > 0) {
+          window.setTimeout(runHeroNav, settleDelay);
+        } else {
+          runHeroNav();
+        }
         return;
       }
 
-      if (pathname === "/" && isProjectRoute && activeHome?.type === "hero-contents") {
+      if (pathname === "/" && homeSectionType === "hero-contents" && isProjectRoute) {
         kind = "fadeHero";
       }
 
       await fadeOutPageRoot({ duration: 0.26 });
-      onNavigate(kind, activeHome?.id ?? null, activeHome?.type ?? null);
+      onNavigate(kind, homeSectionId, homeSectionType);
     },
     [disabled, heroImgUrl, heroSlug, heroSourceRef, href, onNavigate, pathname]
   );

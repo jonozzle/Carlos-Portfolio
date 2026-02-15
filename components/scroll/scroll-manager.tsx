@@ -118,6 +118,24 @@ export default function ScrollManager() {
     if (typeof window === "undefined") return;
     if (pathname === "/") return;
 
+    const pendingKind = (window as any).__pageTransitionPending?.kind as string | undefined;
+    const enteredKind =
+      pendingKind ?? ((window as any).__pageTransitionLast as string | undefined) ?? "simple";
+
+    const hasHeroOverlay = !!(window as any).__heroPending;
+    const isHeroNav = enteredKind === "hero" && hasHeroOverlay;
+
+    if (isHeroNav) {
+      // Hero destination targets are measured immediately on mount.
+      // Multi-frame top restoration causes a second target shift on mobile.
+      setCurrentScrollY(0);
+      requestAnimationFrame(() => {
+        setCurrentScrollY(0);
+        scheduleScrollTriggerRefresh();
+      });
+      return;
+    }
+
     restoreWithFrames(
       () => setCurrentScrollY(0),
       () => scheduleScrollTriggerRefresh()

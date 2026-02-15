@@ -167,7 +167,10 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
     const initialPath = (window as any)[GLOBAL_INITIAL_PATH] as string | undefined;
     const alreadyPlayed = !!(window as any)[GLOBAL_PLAYED_FLAG];
 
-    const shouldPlay = navType === "reload" && initialPath === "/" && !alreadyPlayed;
+    const isHardHomeLoad =
+      navType === "reload" || navType === "navigate" || navType === "unknown";
+
+    const shouldPlay = isHardHomeLoad && initialPath === "/" && !alreadyPlayed;
 
     if (!shouldPlay) {
       playingRef.current = false;

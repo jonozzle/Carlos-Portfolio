@@ -54,6 +54,7 @@ function setTransitionBusy(on: boolean) {
     if (prev === on) return;
 
     (window as any).__pageTransitionBusy = on;
+    (window as any).__navInProgress = on;
     if (typeof document !== "undefined") {
         const root = document.documentElement;
         if (on) root.dataset.pageTransitionBusy = "1";
