@@ -158,6 +158,84 @@
             "value": "image-text-grid-text"
           }
         },
+        "usePresetPosition": {
+          "type": "objectAttribute",
+          "value": {
+            "type": "boolean"
+          },
+          "optional": true
+        },
+        "presetX": {
+          "type": "objectAttribute",
+          "value": {
+            "type": "union",
+            "of": [
+              {
+                "type": "string",
+                "value": "left"
+              },
+              {
+                "type": "string",
+                "value": "center"
+              },
+              {
+                "type": "string",
+                "value": "right"
+              }
+            ]
+          },
+          "optional": true
+        },
+        "presetY": {
+          "type": "objectAttribute",
+          "value": {
+            "type": "union",
+            "of": [
+              {
+                "type": "string",
+                "value": "top"
+              },
+              {
+                "type": "string",
+                "value": "center"
+              },
+              {
+                "type": "string",
+                "value": "bottom"
+              }
+            ]
+          },
+          "optional": true
+        },
+        "presetWidth": {
+          "type": "objectAttribute",
+          "value": {
+            "type": "union",
+            "of": [
+              {
+                "type": "string",
+                "value": "w33"
+              },
+              {
+                "type": "string",
+                "value": "w50"
+              },
+              {
+                "type": "string",
+                "value": "w66"
+              },
+              {
+                "type": "string",
+                "value": "w75"
+              },
+              {
+                "type": "string",
+                "value": "w100"
+              }
+            ]
+          },
+          "optional": true
+        },
         "rowStart": {
           "type": "objectAttribute",
           "value": {
@@ -694,11 +772,62 @@
             "value": "image-text-grid"
           }
         },
+        "paddingMode": {
+          "type": "objectAttribute",
+          "value": {
+            "type": "union",
+            "of": [
+              {
+                "type": "string",
+                "value": "none"
+              },
+              {
+                "type": "string",
+                "value": "sm"
+              },
+              {
+                "type": "string",
+                "value": "md"
+              },
+              {
+                "type": "string",
+                "value": "lg"
+              },
+              {
+                "type": "string",
+                "value": "xl"
+              }
+            ]
+          },
+          "optional": true
+        },
+        "paddingSideOverrides": {
+          "type": "objectAttribute",
+          "value": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
+          },
+          "optional": true
+        },
         "widthMode": {
           "type": "objectAttribute",
           "value": {
             "type": "union",
             "of": [
+              {
+                "type": "string",
+                "value": "xxs"
+              },
+              {
+                "type": "string",
+                "value": "xs"
+              },
+              {
+                "type": "string",
+                "value": "half"
+              },
               {
                 "type": "string",
                 "value": "small"
@@ -710,6 +839,10 @@
               {
                 "type": "string",
                 "value": "large"
+              },
+              {
+                "type": "string",
+                "value": "xl"
               }
             ]
           },
@@ -1090,6 +1223,16 @@
                 "value": "xl"
               }
             ]
+          },
+          "optional": true
+        },
+        "paddingSideOverrides": {
+          "type": "objectAttribute",
+          "value": {
+            "type": "array",
+            "of": {
+              "type": "string"
+            }
           },
           "optional": true
         },

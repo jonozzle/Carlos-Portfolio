@@ -7,6 +7,7 @@ export const singleImageBlockQuery = groq`
     _type,
     _key,
     paddingMode,
+    paddingSideOverrides,
     widthMode,
 
     caption,

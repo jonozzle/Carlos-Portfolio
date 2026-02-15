@@ -10,6 +10,9 @@ type Props = {
   gridRow: string;
   body?: any[] | null;
   dropCap?: boolean | null;
+  justifySelf?: "start" | "center" | "end" | null;
+  alignSelf?: "start" | "center" | "end" | null;
+  presetWidth?: { width: string; minWidth: string } | null;
 };
 
 type StyleCfg = {
@@ -42,7 +45,15 @@ function cfgForStyle(styleKey: string): StyleCfg {
   }
 }
 
-export default function ImageTextGridTextBlock({ gridColumn, gridRow, body, dropCap }: Props) {
+export default function ImageTextGridTextBlock({
+  gridColumn,
+  gridRow,
+  body,
+  dropCap,
+  justifySelf,
+  alignSelf,
+  presetWidth,
+}: Props) {
   const firstBlockKey = useMemo(() => {
     if (!dropCap) return null;
     if (!Array.isArray(body)) return null;
@@ -86,7 +97,24 @@ export default function ImageTextGridTextBlock({ gridColumn, gridRow, body, drop
   }, [dropCap, firstBlockKey]);
 
   return (
-    <div className="relative z-10 w-full md:w-auto" style={{ gridColumn, gridRow }}>
+    <div
+      className={clsx(
+        "relative z-10 w-full",
+        presetWidth ? "md:w-[var(--it-preset-w)] md:min-w-[var(--it-preset-min-w)]" : "md:w-auto"
+      )}
+      style={{
+        gridColumn,
+        gridRow,
+        justifySelf: justifySelf ?? undefined,
+        alignSelf: alignSelf ?? undefined,
+        ...(presetWidth
+          ? {
+              ["--it-preset-w" as any]: presetWidth.width,
+              ["--it-preset-min-w" as any]: presetWidth.minWidth,
+            }
+          : {}),
+      }}
+    >
       <div className="w-full md:h-full overflow-visible md:overflow-hidden flex items-start">
         <div className="w-full max-w-full it-pt px-16 py-16 md:p-0">
           {body?.length ? <PortableText value={body} components={components as any} /> : <div className="text-xs opacity-60">No text</div>}

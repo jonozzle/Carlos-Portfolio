@@ -22,6 +22,7 @@ function isDesktopSafari() {
 type Props = {
   triggerRef: React.RefObject<HTMLElement | null>;
   enabled?: boolean | null;
+  position?: "absolute" | "relative";
 
   /**
    * Must match HorizontalScroller's ScrollTrigger id
@@ -37,6 +38,7 @@ type Props = {
 export default function SectionScrollLine({
   triggerRef,
   enabled,
+  position = "absolute",
   horizontalScrollTriggerId = "hs-horizontal",
   pollMs = 100,
 }: Props) {
@@ -166,9 +168,14 @@ export default function SectionScrollLine({
 
   if (!enabled || !isMdUp) return null;
 
+  const wrapperClass =
+    position === "relative"
+      ? "pointer-events-none relative px-2 md:px-4 pb-10 will-change-transform transform-gpu [backface-visibility:hidden] [-webkit-backface-visibility:hidden]"
+      : "pointer-events-none absolute left-0 right-0 bottom-10 px-2 md:px-4 will-change-transform transform-gpu [backface-visibility:hidden] [-webkit-backface-visibility:hidden]";
+
   // identical markup/classes as before
   return (
-    <div className="pointer-events-none absolute left-0 right-0 bottom-10 px-2 md:px-4 will-change-transform transform-gpu [backface-visibility:hidden] [-webkit-backface-visibility:hidden]">
+    <div className={wrapperClass}>
       <div className="relative h-px w-full">
         <div className="absolute inset-0 bg-current opacity-10" />
         <div

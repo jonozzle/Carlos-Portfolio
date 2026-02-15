@@ -85,6 +85,7 @@ const GRAB_MAX_STRETCH = 1.0;
 const GRAB_OVERDRAG = 0.0;
 
 const GRAB_MOVE_PX = 10;
+const GRAB_MOVE_TOUCH_PX = 18;
 const PASSIVE_DAMPING_PER_FRAME = 0.976;
 const DRAWER_SEAM_OVERLAP_PX = 1;
 
@@ -1025,6 +1026,7 @@ export default function BookmarkLinkCloth({
     startX: 0,
     startY: 0,
     downAt: 0,
+    pointerType: "",
     useWindowPointer: false,
     wasDownInside: false,
     lastDownAt: 0,
@@ -1451,7 +1453,8 @@ export default function BookmarkLinkCloth({
     const dx = drag.targetX - drag.startX;
     const dy = drag.targetY - drag.startY;
     const dist = Math.hypot(dx, dy);
-    if (!drag.moved && dist > GRAB_MOVE_PX) {
+    const moveThreshold = drag.pointerType === "touch" ? GRAB_MOVE_TOUCH_PX : GRAB_MOVE_PX;
+    if (!drag.moved && dist > moveThreshold) {
       drag.moved = true;
     }
 
@@ -1480,6 +1483,7 @@ export default function BookmarkLinkCloth({
 
       drag.down = false;
       drag.pointerId = -1;
+      drag.pointerType = "";
       drag.useWindowPointer = false;
       drag.active = false;
       drag.wasDownInside = false;
@@ -1649,7 +1653,7 @@ export default function BookmarkLinkCloth({
     if (typeof window === "undefined") return;
 
     const onPointerDownWindow = (e: PointerEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 && e.button !== -1) return;
       if (!isPointInBookmark(e.clientX, e.clientY)) return;
       if (dragRef.current.down) return;
 
@@ -1670,6 +1674,7 @@ export default function BookmarkLinkCloth({
       drag.targetY = e.clientY;
       drag.downAt = performance.now();
       drag.lastDownAt = drag.downAt;
+      drag.pointerType = e.pointerType || "";
       drag.pointerId = e.pointerId;
       drag.useWindowPointer = true;
       drag.lastWasDownInside = true;
@@ -1727,7 +1732,7 @@ export default function BookmarkLinkCloth({
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLElement>) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 && e.button !== -1) return;
 
       const a = linkRef.current;
       if (!a) return;
@@ -1749,6 +1754,7 @@ export default function BookmarkLinkCloth({
       drag.targetY = e.clientY;
       drag.downAt = performance.now();
       drag.lastDownAt = drag.downAt;
+      drag.pointerType = e.pointerType || "";
       drag.pointerId = e.pointerId;
       drag.useWindowPointer = false;
       drag.lastWasDownInside = true;

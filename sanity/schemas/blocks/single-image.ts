@@ -42,6 +42,24 @@ export default defineType({
       },
       initialValue: "md",
     }),
+    defineField({
+      name: "paddingSideOverrides",
+      title: "Padding side overrides",
+      description: "Optional. Remove padding from selected sides (choose none, one, or multiple).",
+      type: "array",
+      of: [{ type: "string" }],
+      options: {
+        layout: "grid",
+        list: [
+          { title: "Top", value: "top" },
+          { title: "Right", value: "right" },
+          { title: "Bottom", value: "bottom" },
+          { title: "Left", value: "left" },
+        ],
+      },
+      validation: (r) => r.unique(),
+      initialValue: [],
+    }),
 
     defineField({
       name: "widthMode",

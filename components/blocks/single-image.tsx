@@ -20,6 +20,7 @@ function getSafeRatio(w: number | null, h: number | null) {
 }
 
 export default function SingleImage(props: Props) {
+  const paddingSideOverridesRaw = (props as any).paddingSideOverrides;
   const {
     image,
     paddingMode,
@@ -28,6 +29,10 @@ export default function SingleImage(props: Props) {
     captionPosition,
     captionColor,
   } = props;
+
+  const paddingSideOverrides = (Array.isArray(paddingSideOverridesRaw) ? paddingSideOverridesRaw : []).filter(
+    (v: unknown) => v === "top" || v === "right" || v === "bottom" || v === "left"
+  ) as Array<"top" | "right" | "bottom" | "left">;
 
   const sectionRef = useRef<HTMLElement | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -59,8 +64,18 @@ export default function SingleImage(props: Props) {
     }
   }, [paddingMode]);
 
+  const paddingOverrideClass = useMemo(() => {
+    const sideSet = new Set(paddingSideOverrides);
+    return clsx(
+      sideSet.has("top") && "!pt-0 md:!pt-0 lg:!pt-0",
+      sideSet.has("right") && "!pr-0 md:!pr-0 lg:!pr-0",
+      sideSet.has("bottom") && "!pb-0 md:!pb-0 lg:!pb-0",
+      sideSet.has("left") && "!pl-0 md:!pl-0 lg:!pl-0"
+    );
+  }, [paddingSideOverrides]);
+
   // Fallback padding (px) before measurement
-  const fallbackPadPx = useMemo(() => {
+  const fallbackBasePadPx = useMemo(() => {
     switch (paddingMode) {
       case "none":
         return 0;
@@ -69,17 +84,33 @@ export default function SingleImage(props: Props) {
       case "md":
         return 24; // p-6
       case "lg":
-        return 100; // p-8
+        return 32; // p-8
       case "xl":
-        return 50; // p-10
+        return 40; // p-10
       default:
         return 24;
     }
   }, [paddingMode]);
 
-  const [measuredPadPx, setMeasuredPadPx] = useState<number>(fallbackPadPx);
+  const fallbackPad = useMemo(() => {
+    const sideSet = new Set(paddingSideOverrides);
+    const top = sideSet.has("top") ? 0 : fallbackBasePadPx;
+    const right = sideSet.has("right") ? 0 : fallbackBasePadPx;
+    const bottom = sideSet.has("bottom") ? 0 : fallbackBasePadPx;
+    const left = sideSet.has("left") ? 0 : fallbackBasePadPx;
+    return {
+      x: left + right,
+      y: top + bottom,
+    };
+  }, [fallbackBasePadPx, paddingSideOverrides]);
 
-  useEffect(() => setMeasuredPadPx(fallbackPadPx), [fallbackPadPx]);
+  const [measuredPadX, setMeasuredPadX] = useState<number>(fallbackPad.x);
+  const [measuredPadY, setMeasuredPadY] = useState<number>(fallbackPad.y);
+
+  useEffect(() => {
+    setMeasuredPadX(fallbackPad.x);
+    setMeasuredPadY(fallbackPad.y);
+  }, [fallbackPad]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -88,8 +119,17 @@ export default function SingleImage(props: Props) {
 
     const measure = () => {
       const cs = window.getComputedStyle(el);
-      const px = Number.parseFloat(cs.paddingLeft || "0"); // uniform padding
-      if (Number.isFinite(px)) setMeasuredPadPx(px);
+      const padLeft = Number.parseFloat(cs.paddingLeft || "0");
+      const padRight = Number.parseFloat(cs.paddingRight || "0");
+      const padTop = Number.parseFloat(cs.paddingTop || "0");
+      const padBottom = Number.parseFloat(cs.paddingBottom || "0");
+
+      if (Number.isFinite(padLeft) && Number.isFinite(padRight)) {
+        setMeasuredPadX(padLeft + padRight);
+      }
+      if (Number.isFinite(padTop) && Number.isFinite(padBottom)) {
+        setMeasuredPadY(padTop + padBottom);
+      }
     };
 
     const onResize = () => window.requestAnimationFrame(measure);
@@ -97,19 +137,17 @@ export default function SingleImage(props: Props) {
     measure();
     window.addEventListener("resize", onResize, { passive: true });
     return () => window.removeEventListener("resize", onResize);
-  }, [paddingMode]);
-
-  const pad2 = measuredPadPx * 2;
+  }, [paddingMode, paddingOverrideClass]);
 
   // WIDTH: auto | small | medium | large
   const boxClass = useMemo(() => {
     switch (widthMode) {
       case "small":
-        return "w-[calc(100vw - var(--pad2))] md:w-[max(0px,calc(35vw - var(--pad2)))]";
+        return "w-[calc(100vw - var(--pad-x))] md:w-[max(0px,calc(35vw - var(--pad-x)))]";
       case "medium":
-        return "w-[calc(100vw - var(--pad2))] md:w-[max(0px,calc(50vw - var(--pad2)))]";
+        return "w-[calc(100vw - var(--pad-x))] md:w-[max(0px,calc(50vw - var(--pad-x)))]";
       case "large":
-        return "w-[calc(100vw - var(--pad2))] md:w-[max(0px,calc(65vw - var(--pad2)))]";
+        return "w-[calc(100vw - var(--pad-x))] md:w-[max(0px,calc(65vw - var(--pad-x)))]";
       case "auto":
       default:
         return "w-auto";
@@ -137,19 +175,20 @@ export default function SingleImage(props: Props) {
     if (imgWidth && imgHeight) style.aspectRatio = `${imgWidth} / ${imgHeight}`;
 
     if (widthMode === "auto") {
-      const pad2px = `${pad2}px`;
+      const padXpx = `${measuredPadX}px`;
+      const padYpx = `${measuredPadY}px`;
 
       if (ratio) {
-        style.width = `min(calc(100vw - ${pad2px}), calc((100vh - ${pad2px}) * ${ratio}))`;
-        style.height = `min(calc(100vh - ${pad2px}), calc((100vw - ${pad2px}) / ${ratio}))`;
+        style.width = `min(calc(100vw - ${padXpx}), calc((100vh - ${padYpx}) * ${ratio}))`;
+        style.height = `min(calc(100vh - ${padYpx}), calc((100vw - ${padXpx}) / ${ratio}))`;
       } else {
-        style.width = `calc(100vw - ${pad2px})`;
-        style.height = `calc(100vh - ${pad2px})`;
+        style.width = `calc(100vw - ${padXpx})`;
+        style.height = `calc(100vh - ${padYpx})`;
       }
     }
 
     return style;
-  }, [imgWidth, imgHeight, widthMode, pad2]);
+  }, [imgWidth, imgHeight, widthMode, measuredPadX, measuredPadY]);
 
   const objectFit: "cover" | "contain" = widthMode === "auto" ? "contain" : "cover";
 
@@ -182,7 +221,8 @@ export default function SingleImage(props: Props) {
       ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
       className={clsx(
         "h-auto md:h-screen flex flex-none items-center justify-center relative overflow-hidden will-change-transform",
-        paddingClass
+        paddingClass,
+        paddingOverrideClass
       )}
       style={{ contain: "layout paint" }}
       aria-label={alt}
@@ -192,12 +232,13 @@ export default function SingleImage(props: Props) {
         <div
           ref={boxRef}
           className={clsx(
-            "relative overflow-hidden max-w-[calc(100vw - var(--pad2))] max-h-[calc(100vh - var(--pad2))] md:max-w-[calc(100vw - var(--pad2))] md:max-h-[calc(100vh - var(--pad2))]",
+            "relative overflow-hidden max-w-[calc(100vw - var(--pad-x))] max-h-[calc(100vh - var(--pad-y))] md:max-w-[calc(100vw - var(--pad-x))] md:max-h-[calc(100vh - var(--pad-y))]",
             boxClass
           )}
           style={{
             ...boxStyle,
-            ["--pad2" as any]: `${pad2}px`,
+            ["--pad-x" as any]: `${measuredPadX}px`,
+            ["--pad-y" as any]: `${measuredPadY}px`,
           }}
         >
           {imgUrl ? (

@@ -6,6 +6,8 @@ export const imageTextGridQuery = groq`
   _type == "image-text-grid" => {
     _type,
     _key,
+    paddingMode,
+    paddingSideOverrides,
     widthMode,
     showScrollLine,
     items[]{
@@ -41,6 +43,10 @@ export const imageTextGridQuery = groq`
       _type == "image-text-grid-text" => {
         _type,
         _key,
+        usePresetPosition,
+        presetX,
+        presetY,
+        presetWidth,
         rowStart,
         rowEnd,
         colStart,
