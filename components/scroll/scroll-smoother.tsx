@@ -35,8 +35,13 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
     if (typeof window === "undefined") return;
     const { isSafari, isDesktopSafari } = getSafariFlags();
 
-    // Prevent “catch up” snapping.
-    gsap.ticker.lagSmoothing(0);
+    if (isDesktopSafari) {
+      // On Safari desktop, allow limited catch-up so frame drops feel less stepwise.
+      gsap.ticker.lagSmoothing(500, 33);
+    } else {
+      // Prevent “catch up” snapping.
+      gsap.ticker.lagSmoothing(0);
+    }
 
     if (isSafari) {
       ScrollTrigger.config({
@@ -60,14 +65,20 @@ export default function SmoothScroller({ children }: { children: React.ReactNode
       content: contentRef.current!,
       // Desktop Safari needs a tiny non-zero smoothing value so pinning stays coherent.
       // A strict 0 can cause visible vertical/horizontal correction jumps.
-      smooth: isDesktopSafari ? 0.1 : isSafari ? 0 : 0.5,
+      // Slightly higher desktop Safari smoothing reduces visible wheel-step jitter.
+      smooth: isDesktopSafari ? 0.35 : isSafari ? 0 : 0.5,
       smoothTouch: isSafari ? 0 : 0.2,
       effects: !isSafari,
-      normalizeScroll: !isSafari,
+      // Safari desktop benefits from normalized wheel deltas.
+      normalizeScroll: isDesktopSafari ? true : !isSafari,
     });
 
     if (contentRef.current) {
-      if (isSafari) {
+      if (isDesktopSafari) {
+        contentRef.current.style.willChange = "transform";
+        contentRef.current.style.backfaceVisibility = "hidden";
+        (contentRef.current.style as any).webkitBackfaceVisibility = "hidden";
+      } else if (isSafari) {
         contentRef.current.style.willChange = "auto";
         contentRef.current.style.transform = "";
         contentRef.current.style.backfaceVisibility = "";

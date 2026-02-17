@@ -1,6 +1,7 @@
 import { defineLive } from "next-sanity/live";
 import { client } from "./client";
 import { token } from "./token";
+import { revalidateSeconds } from "../env";
 
 export const { sanityFetch, SanityLive } = defineLive({
   client,
@@ -9,5 +10,5 @@ export const { sanityFetch, SanityLive } = defineLive({
   // Required for stand-alone live previews, the token is only shared to the brwoser if it's a valid Next.js Draft Mode session
   browserToken: token,
   // Enable time-based revalidation in production
-  fetchOptions: { revalidate: 60 },
+  fetchOptions: { revalidate: revalidateSeconds },
 });

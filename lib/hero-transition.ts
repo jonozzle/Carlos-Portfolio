@@ -368,7 +368,8 @@ export function startHeroTransition({
   overlay.style.overflow = "hidden";
   overlay.style.zIndex = "10000";
   overlay.style.pointerEvents = "none";
-  overlay.style.willChange = "left, top, width, height, transform, opacity";
+  overlay.style.willChange = "transform, opacity";
+  overlay.style.transformOrigin = "top left";
   overlay.style.transform = "translate3d(0,0,0)";
   overlay.style.backfaceVisibility = "hidden";
   overlay.style.webkitBackfaceVisibility = "hidden";
@@ -505,6 +506,11 @@ export function completeHeroTransition({
       return;
     }
 
+    const dx = toRect.left - fromRect.left;
+    const dy = toRect.top - fromRect.top;
+    const sx = clamp(toRect.width / Math.max(1, fromRect.width), 0.02, 50);
+    const sy = clamp(toRect.height / Math.max(1, fromRect.height), 0.02, 50);
+
     gsap.set(overlay, {
       position: "fixed",
       left: fromRect.left,
@@ -516,7 +522,8 @@ export function completeHeroTransition({
       scaleX: 1,
       scaleY: 1,
       opacity: 1,
-      willChange: "left,top,width,height,transform,opacity",
+      transformOrigin: "top left",
+      willChange: "transform,opacity",
       force3D: true,
     });
 
@@ -541,10 +548,10 @@ export function completeHeroTransition({
     tl.to(
       overlay,
       {
-        left: toRect.left,
-        top: toRect.top,
-        width: toRect.width,
-        height: toRect.height,
+        x: dx,
+        y: dy,
+        scaleX: sx,
+        scaleY: sy,
         force3D: true,
       },
       0

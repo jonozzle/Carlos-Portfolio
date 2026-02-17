@@ -10,8 +10,9 @@ import DomDebugger from "@/components/dom-debugger";
 import UiRevealCoordinator from "@/components/ui/ui-reveal-coordinator";
 import ScrollManager from "@/components/scroll/scroll-manager";
 import Script from "next/script";
+import { revalidateSeconds } from "@/sanity/env";
 
-export const revalidate = 60;
+export const revalidate = revalidateSeconds;
 
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
   const isDraft = (await draftMode()).isEnabled;

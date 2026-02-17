@@ -965,26 +965,19 @@ export default function ProjectBlock(props: Props) {
 
     useEffect(() => {
         if (typeof window === "undefined") return;
-
-        let timeoutId: number | null = null;
-
-        const onScroll = () => {
-            if (!isScrollingRef.current) {
-                isScrollingRef.current = true;
-            }
-
-            if (timeoutId !== null) window.clearTimeout(timeoutId);
-
-            timeoutId = window.setTimeout(() => {
-                isScrollingRef.current = false;
-            }, 0);
+        const onScrollStart = () => {
+            isScrollingRef.current = true;
+        };
+        const onScrollEnd = () => {
+            isScrollingRef.current = false;
         };
 
-        window.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener(APP_EVENTS.SCROLL_START, onScrollStart);
+        window.addEventListener(APP_EVENTS.SCROLL_END, onScrollEnd);
 
         return () => {
-            window.removeEventListener("scroll", onScroll);
-            if (timeoutId !== null) window.clearTimeout(timeoutId);
+            window.removeEventListener(APP_EVENTS.SCROLL_START, onScrollStart as any);
+            window.removeEventListener(APP_EVENTS.SCROLL_END, onScrollEnd as any);
         };
     }, []);
 

@@ -1002,7 +1002,6 @@ export default function BookmarkLinkCloth({
   const [hitPortalEl, setHitPortalEl] = useState<HTMLElement | null>(null);
   const createdOverlayRef = useRef(false);
   const [webglOk, setWebglOk] = useState(true);
-
   const linkRef = useRef<HTMLAnchorElement | null>(null);
   const innerWrapRef = useRef<HTMLDivElement | null>(null);
   const clothHostRef = useRef<HTMLDivElement | null>(null);
@@ -1092,17 +1091,47 @@ export default function BookmarkLinkCloth({
     height: 0,
   });
   const isHomeRef = useRef(isHome);
+  const isShownRef = useRef(isShown);
   const followActiveRef = useRef(false);
+  const toggleSimLoopRef = useRef<((active: boolean) => void) | null>(null);
   const heightTweenRef = useRef<gsap.core.Tween | null>(null);
   const heightProxyRef = useRef({ value: 0 });
   const heightTargetRef = useRef(0);
   const sizeChangedRef = useRef(false);
   const showSeqRef = useRef(0);
   const shownSeqAnimatedRef = useRef(0);
+  const transitionBusyRef = useRef(
+    typeof window !== "undefined" ? !!(window as any).__pageTransitionBusy : false
+  );
+  const heightNeedsSyncRef = useRef(false);
 
   useEffect(() => {
     isHomeRef.current = isHome;
   }, [isHome]);
+
+  useEffect(() => {
+    isShownRef.current = isShown;
+    toggleSimLoopRef.current?.(isShown);
+  }, [isShown]);
+
+  useEffect(() => {
+    const onStart = () => {
+      transitionBusyRef.current = true;
+      heightNeedsSyncRef.current = true;
+    };
+    const onEnd = () => {
+      transitionBusyRef.current = false;
+      heightNeedsSyncRef.current = true;
+    };
+
+    window.addEventListener(APP_EVENTS.NAV_START, onStart);
+    window.addEventListener(APP_EVENTS.NAV_END, onEnd);
+
+    return () => {
+      window.removeEventListener(APP_EVENTS.NAV_START, onStart);
+      window.removeEventListener(APP_EVENTS.NAV_END, onEnd);
+    };
+  }, []);
 
   const followActive = !!(isHome && homeFollow && homeFollowRef?.current);
 
@@ -1219,7 +1248,21 @@ export default function BookmarkLinkCloth({
   }, [loaderDone]);
 
   useLayoutEffect(() => {
-    const height = getTargetBookmarkHeight(isHome);
+    const targetHeight = getTargetBookmarkHeight(isHome);
+    const currentHeight = heightProxyRef.current.value;
+    const rememberedHeight =
+      typeof window !== "undefined" &&
+      Number.isFinite((window as any).__bookmarkClothHeight)
+        ? Number((window as any).__bookmarkClothHeight)
+        : 0;
+    // If the cloth loop is running, keep current height and let the loop tween to target.
+    // This avoids a one-frame CSS jump when `isHome` flips.
+    const height =
+      Number.isFinite(currentHeight) && currentHeight > 0
+        ? currentHeight
+        : rememberedHeight > 0
+          ? rememberedHeight
+        : targetHeight;
     const extra = Math.max(0, height - BASE_SHAPE_HEIGHT);
     const link = linkRef.current;
     const host = clothHostRef.current;
@@ -1910,7 +1953,7 @@ export default function BookmarkLinkCloth({
   );
 
   useEffect(() => {
-    if (!overlayEl || !isShown) return;
+    if (!overlayEl) return;
     const canvas = canvasRef.current;
     const host = clothHostRef.current;
     const link = linkRef.current;
@@ -2050,7 +2093,14 @@ export default function BookmarkLinkCloth({
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
 
-    let stripHeight = getTargetBookmarkHeight(isHomeRef.current);
+    const rememberedHeight =
+      Number.isFinite((window as any).__bookmarkClothHeight)
+        ? Number((window as any).__bookmarkClothHeight)
+        : 0;
+    let stripHeight =
+      transitionBusyRef.current && rememberedHeight > 0
+        ? rememberedHeight
+        : getTargetBookmarkHeight(isHomeRef.current);
     heightProxyRef.current.value = stripHeight;
     heightTargetRef.current = stripHeight;
 
@@ -2078,7 +2128,7 @@ export default function BookmarkLinkCloth({
     };
 
     const updateLabelTexture = () => {
-      if (!printBookmarkLabel) return;
+      if (!printBookmarkLabelRef.current) return;
       const text = labelTextRef.current ?? "";
       const scale = getLabelScale();
       const width = Math.max(1, Math.round(STRIP_W * scale));
@@ -2101,8 +2151,11 @@ export default function BookmarkLinkCloth({
         link.style.setProperty("--bookmark-total", `${height}px`);
         link.style.setProperty("--bookmark-extra", `${extra}px`);
       }
+      (window as any).__bookmarkClothHeight = height;
     };
     updateHostMetrics(stripHeight);
+    updateLabelTexture();
+    labelTextureDirtyRef.current = false;
 
     const measureAnchorBase = () => {
       let r = host.getBoundingClientRect();
@@ -2118,8 +2171,7 @@ export default function BookmarkLinkCloth({
       };
     };
     measureAnchorBase();
-
-    const readAnchor = () => {
+    const readAnchor = (now: number) => {
       let nextBase = anchorBaseRef.current;
       if (followActiveRef.current && followAnchorRef.current.valid) {
         nextBase = followAnchorRef.current;
@@ -2139,7 +2191,7 @@ export default function BookmarkLinkCloth({
       };
     };
 
-    const anchor = readAnchor();
+    const anchor = readAnchor(performance.now());
     const cloth = new Cloth(COLS, ROWS, STRIP_W, stripHeight, anchor.x, anchor.y);
     const clampGrabTarget = (grabIdx: number, targetX: number, targetY: number) => {
       const grabCol = grabIdx % cloth.cols;
@@ -2222,6 +2274,7 @@ export default function BookmarkLinkCloth({
     const tweenToHeight = (nextHeight: number, immediate = false) => {
       heightTweenRef.current?.kill();
       if (immediate) {
+        heightTweenRef.current = null;
         heightProxyRef.current.value = nextHeight;
         applyHeight(nextHeight);
         return;
@@ -2232,10 +2285,14 @@ export default function BookmarkLinkCloth({
         ease: "power2.out",
         overwrite: "auto",
         onUpdate: () => applyHeight(heightProxyRef.current.value),
+        onComplete: () => {
+          heightTweenRef.current = null;
+        },
       });
     };
 
     const updateTargetHeight = (immediate = false) => {
+      if (transitionBusyRef.current) return;
       const vh = readViewportHeight();
       const raw = isHomeRef.current ? HOME_ANCHOR_HEIGHT : vh * BOOKMARK_TALL_VH;
       const next = Math.max(BASE_SHAPE_HEIGHT, raw);
@@ -2269,12 +2326,43 @@ export default function BookmarkLinkCloth({
       pinnedGrabIdx = nextIdx;
     };
 
+    const drawFrame = () => {
+      if (labelTextureDirtyRef.current) {
+        labelTextureDirtyRef.current = false;
+        updateLabelTexture();
+      }
+
+      gl.useProgram(prog);
+      gl.uniform3f(uColor, BOOKMARK_RED.r, BOOKMARK_RED.g, BOOKMARK_RED.b);
+      gl.uniform3f(uLabelColor, TEXT_RED.r, TEXT_RED.g, TEXT_RED.b);
+      gl.uniform1f(uTotalH, stripHeight);
+      gl.uniform1f(uTopH, BASE_RECT_HEIGHT + Math.max(0, stripHeight - BASE_SHAPE_HEIGHT));
+      gl.uniform1f(uTailH, TAIL_HEIGHT);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, labelTex);
+      gl.uniform1f(uLabelAlpha, printBookmarkLabelRef.current ? labelFadeRef.current.v : 0);
+      gl.uniform2f(uLabelTexSize, labelTexSizeRef.current.w, labelTexSizeRef.current.h);
+      gl.uniform1i(uLabelTex, 0);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, cloth.X.data);
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
+      gl.enableVertexAttribArray(aUv);
+      gl.vertexAttribPointer(aUv, 2, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+      gl.drawElements(gl.TRIANGLES, cloth.tris.length, gl.UNSIGNED_SHORT, 0);
+    };
+
     const step = (time: number) => {
       raf = requestAnimationFrame(step);
       const dt = lastT ? clamp((time - lastT) / 1000, 0.008, 0.033) : SIM_OPTIONS.timeStep;
       lastT = time;
 
-      const { x: nextX, y: nextY, rect: anchorRect } = readAnchor();
+      const { x: nextX, y: nextY, rect: anchorRect } = readAnchor(time);
       const anchorChanged = cloth.setAnchor(nextX, nextY);
       const hitEl = hitRef.current;
       if (hitEl) {
@@ -2284,12 +2372,48 @@ export default function BookmarkLinkCloth({
         hitEl.style.height = `${Math.round(hitHeight)}px`;
       }
 
+      if (heightNeedsSyncRef.current && !transitionBusyRef.current) {
+        heightNeedsSyncRef.current = false;
+        updateTargetHeight(false);
+      }
       updateTargetHeight();
       const sizeChanged = sizeChangedRef.current;
       sizeChangedRef.current = false;
 
       const pointer = pointerRef.current;
       const drag = dragRef.current;
+      const pauseForNav = transitionBusyRef.current && !drag.active;
+      if (pauseForNav) {
+        // During nav transition: stop user forces but keep simulation running,
+        // so the cloth recenters smoothly instead of freezing and popping later.
+        setPinnedGrabIndex(-1);
+        drag.index = -1;
+        drag.patch = null;
+        cloth.externalForce.fill(0);
+
+        if (cloth.awake > 0) {
+          cloth.simulate(dt);
+        }
+
+        const damp = Math.pow(PASSIVE_DAMPING_PER_FRAME, dt / SIM_OPTIONS.timeStep);
+        const V = cloth.V.data;
+        for (let i = 0; i < cloth.count; i++) {
+          if (cloth.isPermanentPinned(i)) continue;
+          const i3 = i * 3;
+          V[i3 + 0] *= damp;
+          V[i3 + 1] *= damp;
+          V[i3 + 2] *= damp;
+        }
+
+        const needsDrawDuringPause =
+          anchorChanged || sizeChanged || cloth.awake > 0 || labelTextureDirtyRef.current;
+
+        if (needsDrawDuringPause) {
+          drawFrame();
+        }
+        lastT = time;
+        return;
+      }
 
       const wind = scrollWindRef.current;
       scrollWindRef.current = lerp(scrollWindRef.current, 0, SCROLL_WIND_SMOOTH);
@@ -2461,44 +2585,49 @@ export default function BookmarkLinkCloth({
 
       const needsDraw =
         forceInput || cloth.awake > 0 || anchorChanged || sizeChanged || labelTextureDirtyRef.current;
-
-      if (labelTextureDirtyRef.current) {
-        labelTextureDirtyRef.current = false;
-        updateLabelTexture();
-      }
-
       if (!needsDraw) return;
+      drawFrame();
+    };
 
-      gl.useProgram(prog);
-      gl.uniform3f(uColor, BOOKMARK_RED.r, BOOKMARK_RED.g, BOOKMARK_RED.b);
-      gl.uniform3f(uLabelColor, TEXT_RED.r, TEXT_RED.g, TEXT_RED.b);
-      gl.uniform1f(uTotalH, stripHeight);
-      gl.uniform1f(uTopH, BASE_RECT_HEIGHT + Math.max(0, stripHeight - BASE_SHAPE_HEIGHT));
-      gl.uniform1f(uTailH, TAIL_HEIGHT);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, labelTex);
-      gl.uniform1f(uLabelAlpha, printBookmarkLabel ? labelFadeRef.current.v : 0);
-      gl.uniform2f(uLabelTexSize, labelTexSizeRef.current.w, labelTexSizeRef.current.h);
-      gl.uniform1i(uLabelTex, 0);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, cloth.X.data);
-      gl.enableVertexAttribArray(aPos);
-      gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
-      gl.enableVertexAttribArray(aUv);
-      gl.vertexAttribPointer(aUv, 2, gl.FLOAT, false, 0, 0);
-
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
-      gl.drawElements(gl.TRIANGLES, cloth.tris.length, gl.UNSIGNED_SHORT, 0);
+    let loopActive = false;
+    const startLoop = () => {
+      if (loopActive) return;
+      loopActive = true;
+      lastT = 0;
+      raf = requestAnimationFrame(step);
+    };
+    const stopLoop = () => {
+      if (!loopActive) return;
+      loopActive = false;
+      cancelAnimationFrame(raf);
+      raf = 0;
+      lastT = 0;
+      setPinnedGrabIndex(-1);
+      const drag = dragRef.current;
+      drag.active = false;
+      drag.index = -1;
+      drag.patch = null;
+      pointerRef.current.active = false;
+      cloth.externalForce.fill(0);
+    };
+    toggleSimLoopRef.current = (active: boolean) => {
+      if (active) {
+        labelTextureDirtyRef.current = true;
+        startLoop();
+        return;
+      }
+      stopLoop();
     };
 
     resize();
-    raf = requestAnimationFrame(step);
+    if (isShownRef.current) {
+      startLoop();
+    }
 
     return () => {
-      cancelAnimationFrame(raf);
+      (window as any).__bookmarkClothHeight = stripHeight;
+      toggleSimLoopRef.current = null;
+      stopLoop();
       setPinnedGrabIndex(-1);
       heightTweenRef.current?.kill();
       window.removeEventListener("resize", handleResize);
@@ -2509,7 +2638,7 @@ export default function BookmarkLinkCloth({
       gl.deleteTexture(labelTex);
       gl.deleteProgram(prog);
     };
-  }, [overlayEl, isShown, drawLabelTexture, getLabelScale, printBookmarkLabel]);
+  }, [overlayEl, drawLabelTexture, getLabelScale]);
 
   const ariaLabel = isHome ? homeLabel ?? "Project index" : "Back";
   const defaultBookmarkHeight = isHome

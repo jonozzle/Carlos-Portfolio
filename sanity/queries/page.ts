@@ -26,9 +26,26 @@ export const PAGE_QUERY = groq`
     // Basic page info
     title,
     "slug": slug.current,
+    year,
+    client,
+
+    blockText{
+      body,
+      dropCap,
+      showPageStartScrollLine,
+      pageStartScrollLinePosition
+    },
+
+    details[]{
+      left,
+      right
+    },
 
     // Page theme (used by PageThemeSetter)
-    theme{bg, text},
+    "theme": {
+      "bg": coalesce(theme.bg.hex, theme.bg),
+      "text": coalesce(theme.text.hex, theme.text)
+    },
 
     // Page-level featured image for hero
     featuredImage{ ${imageQuery} },

@@ -62,6 +62,12 @@ export default defineType({
     }),
 
     defineField({
+      name: "blockText",
+      title: "Block text",
+      type: "block-text",
+    }),
+
+    defineField({
       name: "featuredImage",
       title: "Featured Image",
       type: "image",

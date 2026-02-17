@@ -157,7 +157,11 @@ async function decodeIfPossible(img: HTMLImageElement) {
   }
 }
 
-async function waitForBestNonPlaceholderImg(container: HTMLElement | null, timeoutMs = 900) {
+async function waitForBestNonPlaceholderImg(
+  container: HTMLElement | null,
+  timeoutMs = 900,
+  decode = true
+) {
   if (typeof window === "undefined") return null;
 
   const start = performance.now();
@@ -168,6 +172,10 @@ async function waitForBestNonPlaceholderImg(container: HTMLElement | null, timeo
     const tick = () => {
       const best = bestLoadedImgIn(container);
       if (best) {
+        if (!decode) {
+          resolve(best);
+          return;
+        }
         decodeIfPossible(best).finally(() => resolve(best));
         return;
       }
@@ -185,8 +193,9 @@ async function waitForBestNonPlaceholderImg(container: HTMLElement | null, timeo
   });
 }
 
-function forceTileVisualsReady(container: HTMLElement | null) {
+function forceTileVisualsReady(container: HTMLElement | null, opts?: { lite?: boolean }) {
   if (!container) return;
+  const lite = !!opts?.lite;
 
   try {
     gsap.killTweensOf(container);
@@ -196,11 +205,14 @@ function forceTileVisualsReady(container: HTMLElement | null) {
   }
 
   // Kill any “internal crossfade” that might still be mid-transition (SmoothImage, Next, etc.)
-  // We only touch inline styles to avoid fighting your CSS.
-  const nodes = Array.from(container.querySelectorAll<HTMLElement>("*"));
+  // Safari path uses a lighter pass to avoid long style walks during nav.
+  const nodes = lite
+    ? (Array.from(container.querySelectorAll<HTMLImageElement>("img")) as HTMLElement[])
+    : Array.from(container.querySelectorAll<HTMLElement>("*"));
+
   for (const n of nodes) {
     try {
-      if (n.style && (n.style.opacity === "0" || n.style.opacity === "0.0")) {
+      if (!lite && n.style && (n.style.opacity === "0" || n.style.opacity === "0.0")) {
         n.style.opacity = "1";
       }
       if (n.tagName === "IMG") {
@@ -237,7 +249,7 @@ function finalizeParkedHero() {
 
   if (targetEl) {
     gsap.set(targetEl, { opacity: 1 });
-    forceTileVisualsReady(targetEl);
+    forceTileVisualsReady(targetEl, { lite: safariDesktop });
   }
 
   window.__heroPending = undefined;
@@ -266,7 +278,7 @@ function finalizeParkedHero() {
       await waitForBestNonPlaceholderImg(targetEl, 900);
 
       // Once we’ve got something real, force it fully visible before fading the overlay.
-      forceTileVisualsReady(targetEl);
+      forceTileVisualsReady(targetEl, { lite: safariDesktop });
 
       if (typeof document === "undefined") return;
       if (!document.body.contains(overlay)) return;

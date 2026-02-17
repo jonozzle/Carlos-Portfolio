@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import Blocks from "@/components/blocks";
+import BlockTextSection from "@/components/project/block-text-section";
+import ProjectDetails from "@/components/project/project-details";
 import HScrollerWrapper from "@/components/scroll/hscroller-wrapper";
 import PageHeroImage from "@/components/page/page-hero-image";
 import ThemeSetter from "@/components/theme/theme-setter";
@@ -69,6 +71,14 @@ export default async function Page({ params }: PageProps) {
       ? dims.width / dims.height
       : undefined;
 
+  const details = (page.details ?? []).filter((d) => {
+    const left = typeof d?.left === "string" ? d.left.trim() : "";
+    const right = typeof d?.right === "string" ? d.right.trim() : "";
+    return !!left || !!right;
+  });
+  const hasDetails = details.length > 0;
+  const hasBlockText = Array.isArray(page.blockText?.body) && page.blockText.body.length > 0;
+
   return (
     <HScrollerWrapper>
       <ThemeSetter theme={page.theme ?? null} />
@@ -83,8 +93,23 @@ export default async function Page({ params }: PageProps) {
             data-hero-page-animate
           >
             <div className="h-full flex flex-col">
-              {/* top spacing block to match project layout */}
-              <div className="pt-6 md:pt-10 text-center" />
+              {hasDetails || hasBlockText ? (
+                <div className="pt-6 md:pt-10 text-center" />
+              ) : null}
+
+              {hasDetails || hasBlockText ? (
+                <div className="mt-8 md:mt-10 px-6 flex flex-col gap-8">
+                  {hasDetails ? <ProjectDetails details={details} /> : null}
+                  {hasBlockText ? (
+                    <BlockTextSection
+                      body={page.blockText?.body ?? null}
+                      dropCap={page.blockText?.dropCap ?? null}
+                      showPageStartScrollLine={page.blockText?.showPageStartScrollLine ?? null}
+                      pageStartScrollLinePosition={page.blockText?.pageStartScrollLinePosition as "top" | "bottom" | null}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="mt-18 md:mt-auto pb-6 md:pb-8 flex justify-center">
                 <h1 className="text-center text-[12vw] md:text-[9vw] font-serif font-medium leading-none tracking-tighter">

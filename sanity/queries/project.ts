@@ -22,6 +22,13 @@ export const PROJECT_QUERY = groq`
   year,
   client,
 
+  blockText{
+    body,
+    dropCap,
+    showPageStartScrollLine,
+    pageStartScrollLinePosition
+  },
+
   "theme": {
     "bg": coalesce(theme.bg.hex, theme.bg),
     "text": coalesce(theme.text.hex, theme.text)

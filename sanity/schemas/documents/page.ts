@@ -58,16 +58,44 @@ export default defineType({
         defineField({
           name: "bg",
           title: "Background color",
-          type: "string",
-          description: "Hex or CSS color",
+          type: "color",
         }),
         defineField({
           name: "text",
           title: "Text color",
-          type: "string",
-          description: "Hex or CSS color",
+          type: "color",
         }),
       ],
+    }),
+
+    defineField({
+      name: "year",
+      title: "Year",
+      type: "string",
+      group: "content",
+    }),
+
+    defineField({
+      name: "client",
+      title: "Client",
+      type: "string",
+      group: "content",
+    }),
+
+    defineField({
+      name: "details",
+      title: "Details",
+      type: "array",
+      group: "content",
+      of: [{ type: "project-detail" }],
+      options: { sortable: true },
+    }),
+
+    defineField({
+      name: "blockText",
+      title: "Block text",
+      type: "block-text",
+      group: "content",
     }),
 
     defineField({
