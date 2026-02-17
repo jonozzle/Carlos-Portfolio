@@ -143,11 +143,11 @@ export default function SingleImage(props: Props) {
   const boxClass = useMemo(() => {
     switch (widthMode) {
       case "small":
-        return "w-[calc(100vw - var(--pad-x))] md:w-[max(0px,calc(35vw - var(--pad-x)))]";
+        return "w-[calc(100vw-var(--pad-x))] md:w-[min(35vw,calc(100vw-var(--pad-x)))]";
       case "medium":
-        return "w-[calc(100vw - var(--pad-x))] md:w-[max(0px,calc(50vw - var(--pad-x)))]";
+        return "w-[calc(100vw-var(--pad-x))] md:w-[min(50vw,calc(100vw-var(--pad-x)))]";
       case "large":
-        return "w-[calc(100vw - var(--pad-x))] md:w-[max(0px,calc(65vw - var(--pad-x)))]";
+        return "w-[calc(100vw-var(--pad-x))] md:w-[min(65vw,calc(100vw-var(--pad-x)))]";
       case "auto":
       default:
         return "w-auto";
@@ -232,7 +232,7 @@ export default function SingleImage(props: Props) {
         <div
           ref={boxRef}
           className={clsx(
-            "relative overflow-hidden max-w-[calc(100vw - var(--pad-x))] max-h-[calc(100vh - var(--pad-y))] md:max-w-[calc(100vw - var(--pad-x))] md:max-h-[calc(100vh - var(--pad-y))]",
+            "relative overflow-hidden max-w-[calc(100vw-var(--pad-x))] max-h-[calc(100vh-var(--pad-y))] md:max-w-[calc(100vw-var(--pad-x))] md:max-h-[calc(100vh-var(--pad-y))]",
             boxClass
           )}
           style={{
