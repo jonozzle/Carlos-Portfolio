@@ -29,6 +29,7 @@ if (typeof window !== "undefined") {
 type Theme = ThemeInput | null;
 
 type MobileLayout = "below-left" | "below-right" | "left" | "right";
+type FullImageAlign = "top" | "center" | "bottom" | "left" | "right";
 
 type SingleGalleryItem = {
     slug?: string | null;
@@ -56,6 +57,8 @@ type ProjectLayoutEntry = {
     imageRowEnd: number;
     imageColStart: number;
     imageColEnd: number;
+    fullImage: boolean;
+    fullImageAlign: FullImageAlign;
     infoRowStart: number;
     infoRowEnd: number;
     infoColStart: number;
@@ -66,7 +69,7 @@ type Props = {
     _type: "project-block";
     _key: string;
     title?: string | null;
-    width?: string | null;
+    widthMode?: "xxs" | "xs" | "half" | "small" | "medium" | "large" | "xl" | null;
     projects?: {
         project?: SingleGalleryItem | null;
 
@@ -78,6 +81,8 @@ type Props = {
         imageRowEnd?: number | null;
         imageColStart?: number | null;
         imageColEnd?: number | null;
+        fullImage?: boolean | null;
+        fullImageAlign?: FullImageAlign | null;
         infoRowStart?: number | null;
         infoRowEnd?: number | null;
         infoColStart?: number | null;
@@ -89,6 +94,8 @@ type CellProps = {
     item: SingleGalleryItem;
     slot: Slot;
     mobileLayout: MobileLayout;
+    fullImage: boolean;
+    fullImageAlign: FullImageAlign;
     themeCtx: ThemeContext;
     hoverCapable: boolean;
     index: number;
@@ -104,6 +111,11 @@ function cx(...parts: Array<string | null | undefined | false>) {
 function normalizeMobileLayout(v: unknown): MobileLayout {
     if (v === "below-left" || v === "below-right" || v === "left" || v === "right") return v;
     return "below-left";
+}
+
+function normalizeFullImageAlign(v: unknown): FullImageAlign {
+    if (v === "top" || v === "center" || v === "bottom" || v === "left" || v === "right") return v;
+    return "center";
 }
 
 function isMobileNow() {
@@ -130,6 +142,8 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     item,
     slot,
     mobileLayout,
+    fullImage,
+    fullImageAlign,
     themeCtx,
     hoverCapable,
     index,
@@ -139,8 +153,10 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 }: CellProps) {
     const tileRef = useRef<HTMLDivElement | null>(null);
     const imgScaleRef = useRef<HTMLDivElement | null>(null);
+    const imageViewportRef = useRef<HTMLDivElement | null>(null);
     const navLockedRef = useRef(false);
     const leaveRafRef = useRef<number | null>(null);
+    const hoverScale = fullImage ? 1.06 : 1.1;
 
     const slug = item?.slug ?? "";
     const href = slug ? `/projects/${slug}` : "#";
@@ -161,6 +177,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         ratio: number;
         isPortrait: boolean;
     } | null>(null);
+    const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 });
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -211,6 +228,37 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         };
     }, [imgUrl]);
 
+    useLayoutEffect(() => {
+        if (typeof window === "undefined") return;
+        const el = imageViewportRef.current;
+        if (!el) return;
+
+        const update = () => {
+            const r = el.getBoundingClientRect();
+            const nextW = Math.max(0, r.width);
+            const nextH = Math.max(0, r.height);
+            setViewportSize((prev) => {
+                if (Math.abs(prev.w - nextW) < 0.5 && Math.abs(prev.h - nextH) < 0.5) return prev;
+                return { w: nextW, h: nextH };
+            });
+        };
+
+        update();
+
+        let ro: ResizeObserver | null = null;
+        if (typeof ResizeObserver !== "undefined") {
+            ro = new ResizeObserver(update);
+            ro.observe(el);
+        } else {
+            window.addEventListener("resize", update);
+        }
+
+        return () => {
+            if (ro) ro.disconnect();
+            else window.removeEventListener("resize", update);
+        };
+    }, []);
+
     const animateScale = useCallback((to: number) => {
         const el = imgScaleRef.current;
         if (!el) return;
@@ -249,7 +297,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         const opts = allowIdle || forceAnim ? { allowIdle: !!allowIdle, force: forceAnim } : undefined;
         if (hasTheme) previewTheme(theme, opts);
         setActiveIndex(index);
-        if (!skipScale) animateScale(1.1);
+        if (!skipScale) animateScale(hoverScale);
     }, [
         hoverCapable,
         hasTheme,
@@ -259,6 +307,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         index,
         isScrollingRef,
         animateScale,
+        hoverScale,
     ]);
 
     const cancelPendingLeave = useCallback(() => {
@@ -387,6 +436,21 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
             cancelPendingLeave();
         };
     }, [cancelPendingLeave]);
+
+    // Keep image scale in sync even if a leave event is missed.
+    useEffect(() => {
+        if (navLockedRef.current) return;
+        if (!isActive) {
+            animateScale(1);
+            return;
+        }
+        if (!hoverCapable) {
+            animateScale(1);
+            return;
+        }
+        if (isHoverLocked() || isScrollingRef.current) return;
+        animateScale(hoverScale);
+    }, [isActive, hoverCapable, hoverScale, isScrollingRef, animateScale]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -654,7 +718,78 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         isSide && "h-full flex-1 justify-center"
     );
 
-    const objectFit = isMobile ? "contain" : "cover";
+    const objectFit: "cover" | "contain" = isMobile || fullImage ? "contain" : "cover";
+    const objectPosition = useMemo(() => {
+        if (isMobile || !fullImage) return "center center";
+        switch (fullImageAlign) {
+            case "top":
+                return "center top";
+            case "bottom":
+                return "center bottom";
+            case "left":
+                return "left center";
+            case "right":
+                return "right center";
+            case "center":
+            default:
+                return "center center";
+        }
+    }, [isMobile, fullImage, fullImageAlign]);
+
+    const fullImageFrameAlignClass = useMemo(() => {
+        switch (fullImageAlign) {
+            case "top":
+                return "items-start justify-center";
+            case "bottom":
+                return "items-end justify-center";
+            case "left":
+                return "items-center justify-start";
+            case "right":
+                return "items-center justify-end";
+            case "center":
+            default:
+                return "items-center justify-center";
+        }
+    }, [fullImageAlign]);
+
+    const fullImageFrameStyle = useMemo(() => {
+        if (!fullImage || isMobile) return null;
+        if (!imgMeta) return null;
+        const vw = viewportSize.w;
+        const vh = viewportSize.h;
+        if (!(vw > 0 && vh > 0)) return null;
+
+        const imageRatio = Math.max(0.0001, imgMeta.ratio || 1);
+        const viewportRatio = vw / vh;
+
+        let frameW = 0;
+        let frameH = 0;
+
+        if (imageRatio >= viewportRatio) {
+            // Width-limited fit
+            frameW = vw;
+            frameH = vw / imageRatio;
+        } else {
+            // Height-limited fit
+            frameH = vh;
+            frameW = vh * imageRatio;
+        }
+
+        return {
+            width: `${Math.max(1, Math.round(frameW))}px`,
+            height: `${Math.max(1, Math.round(frameH))}px`,
+        } as React.CSSProperties;
+    }, [fullImage, isMobile, imgMeta, viewportSize.w, viewportSize.h]);
+
+    const useFramedFullImage = fullImage && !isMobile && !!fullImageFrameStyle;
+
+    const imageViewportClass = "relative w-full h-full overflow-hidden";
+
+    useLayoutEffect(() => {
+        const el = imgScaleRef.current;
+        if (!el) return;
+        gsap.set(el, { scale: 1, transformOrigin: "50% 50%" });
+    }, [useFramedFullImage]);
 
     const metaRowClass = cx(
         "-mt-1 flex w-full font-serif text-sm md:text-base tracking-tighter",
@@ -698,30 +833,60 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 
             >
                 <PageTransitionButton {...buttonCommonProps} className="block w-full h-full cursor-pointer">
-                    <div className="relative w-full h-full overflow-hidden">
-                        <div
-                            ref={imgScaleRef}
-                            data-hero-img-scale
-                            className="relative w-full h-full transform-gpu"
-                        >
-                            {imgUrl ? (
-                                <SmoothImage
-                                    src={imgUrl}
-                                    alt={alt}
-                                    fill
-                                    sizes="(max-width: 768px) 100vw, 25vw"
-                                    lqipWidth={24}
-                                    hiMaxWidth={1200}
-                                    fetchPriority="high"
-                                    loading="eager"
-                                    objectFit={objectFit}
-                                />
-                            ) : (
-                                <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
-                                    No image
+                    <div ref={imageViewportRef} className={imageViewportClass}>
+                        {imgUrl ? (
+                            useFramedFullImage ? (
+                                <div className={cx("absolute inset-0 flex", fullImageFrameAlignClass)}>
+                                    <div
+                                        data-hero-frame="1"
+                                        className="relative overflow-hidden"
+                                        style={fullImageFrameStyle ?? undefined}
+                                    >
+                                        <div
+                                            ref={imgScaleRef}
+                                            data-hero-img-scale
+                                            className="relative w-full h-full transform-gpu"
+                                        >
+                                            <SmoothImage
+                                                src={imgUrl}
+                                                alt={alt}
+                                                fill
+                                                sizes="(max-width: 768px) 100vw, 25vw"
+                                                lqipWidth={24}
+                                                hiMaxWidth={1200}
+                                                fetchPriority="high"
+                                                loading="eager"
+                                                objectFit="cover"
+                                                objectPosition="center center"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                            )}
-                        </div>
+                            ) : (
+                                <div
+                                    ref={imgScaleRef}
+                                    data-hero-img-scale
+                                    className="relative w-full h-full transform-gpu"
+                                >
+                                    <SmoothImage
+                                        src={imgUrl}
+                                        alt={alt}
+                                        fill
+                                        sizes="(max-width: 768px) 100vw, 25vw"
+                                        lqipWidth={24}
+                                        hiMaxWidth={1200}
+                                        fetchPriority="high"
+                                        loading="eager"
+                                        objectFit={objectFit}
+                                        objectPosition={objectPosition}
+                                    />
+                                </div>
+                            )
+                        ) : (
+                            <div className="absolute inset-0 grid place-items-center text-xs opacity-60">
+                                No image
+                            </div>
+                        )}
                     </div>
                 </PageTransitionButton>
             </div>
@@ -763,7 +928,27 @@ export default function ProjectBlock(props: Props) {
     const [activeIndex, setActiveIndex] = useState<number | null>(null);
     const dimParticipationRef = useRef(false);
 
-    const width = props.width || "50vw";
+    const widthMode = (props.widthMode ?? "medium") as string;
+
+    const widthCfg = useMemo(() => {
+        switch (widthMode) {
+            case "xxs":
+                return { width: "30vw", minWidth: "320px" };
+            case "xs":
+                return { width: "40vw", minWidth: "420px" };
+            case "half":
+                return { width: "50vw", minWidth: "520px" };
+            case "small":
+                return { width: "60vw", minWidth: "640px" };
+            case "xl":
+                return { width: "120vw", minWidth: "1080px" };
+            case "large":
+                return { width: "100vw", minWidth: "960px" };
+            case "medium":
+            default:
+                return { width: "80vw", minWidth: "820px" };
+        }
+    }, [widthMode]);
 
     const isPointerOverCell = useCallback(() => {
         if (!hoverCapable) return false;
@@ -869,7 +1054,7 @@ export default function ProjectBlock(props: Props) {
     const entries: ProjectLayoutEntry[] = useMemo(() => {
         const raw = props.projects ?? [];
 
-        const defaults: Omit<ProjectLayoutEntry, "project" | "mobileLayout">[] = [
+        const defaults: Omit<ProjectLayoutEntry, "project" | "mobileLayout" | "fullImage" | "fullImageAlign">[] = [
             {
                 imageRowStart: 2,
                 imageRowEnd: 5,
@@ -978,6 +1163,8 @@ export default function ProjectBlock(props: Props) {
                     imageRowEnd,
                     imageColStart,
                     imageColEnd,
+                    fullImage: !!p?.fullImage,
+                    fullImageAlign: normalizeFullImageAlign(p?.fullImageAlign),
                     infoRowStart,
                     infoRowEnd,
                     infoColStart,
@@ -999,10 +1186,15 @@ export default function ProjectBlock(props: Props) {
                 // Desktop unchanged
                 "md:p-6 md:h-screen md:overflow-hidden md:gap-2 md:grid md:grid-cols-12 md:grid-rows-12",
                 "will-change-transform transform-gpu",
-                "w-screen md:w-[var(--pb-width)]",
+                "w-screen md:w-[var(--pb-width)] md:min-w-[var(--pb-min-width)]",
                 "md:[contain-intrinsic-size:100vh_50vw]"
             )}
-            style={{ ["--pb-width" as any]: width }}
+            style={
+                {
+                    ["--pb-width" as any]: widthCfg.width,
+                    ["--pb-min-width" as any]: widthCfg.minWidth,
+                } as React.CSSProperties
+            }
         >
             {props.title ? (
                 <div className="pointer-events-none px-0 md:px-6 will-change-transform transform-gpu md:[grid-column:1/span_8] md:[grid-row:1/span_1] md:self-center">
@@ -1033,6 +1225,8 @@ export default function ProjectBlock(props: Props) {
                             item={entry.project}
                             slot={slot}
                             mobileLayout={entry.mobileLayout}
+                            fullImage={entry.fullImage}
+                            fullImageAlign={entry.fullImageAlign}
                             themeCtx={themeCtx}
                             hoverCapable={hoverCapable}
                             index={index}

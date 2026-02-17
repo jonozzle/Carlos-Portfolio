@@ -15,10 +15,24 @@ export default defineType({
             type: "string",
         }),
         defineField({
-            name: "width",
-            title: "Width (CSS value)",
+            name: "widthMode",
+            title: "Section width",
             type: "string",
-            description: 'e.g. "50vw", "75vw", "100vw". Defaults to "50vw" if empty.',
+            initialValue: "medium",
+            description: "Each option defines both a viewport width and a pixel min width to avoid collapsing on small windows.",
+            options: {
+                layout: "radio",
+                list: [
+                    { title: "XXS (30vw, min size: 320px)", value: "xxs" },
+                    { title: "XS (40vw, min size: 420px)", value: "xs" },
+                    { title: "SM (50vw, min size: 520px)", value: "half" },
+                    { title: "MD (60vw, min size: 640px)", value: "small" },
+                    { title: "LG (80vw, min size: 820px)", value: "medium" },
+                    { title: "XL (100vw, min size: 960px)", value: "large" },
+                    { title: "2XL (120vw, min size: 1080px)", value: "xl" },
+                ],
+            },
+            validation: (r) => r.required(),
         }),
         defineField({
             name: "projects",
@@ -105,6 +119,34 @@ export default defineType({
                             description:
                                 "Exclusive end column (CSS grid style, e.g. 8 means columns 2–7 for start=2).",
                             validation: (r) => r.min(2).max(13),
+                        }),
+                        defineField({
+                            name: "fullImage",
+                            title: "Full image",
+                            type: "boolean",
+                            fieldset: "desktopGrid",
+                            description:
+                                "Desktop only. Show the entire image inside its grid area (contain) instead of cropping (cover).",
+                            initialValue: false,
+                        }),
+                        defineField({
+                            name: "fullImageAlign",
+                            title: "Full image alignment",
+                            type: "string",
+                            fieldset: "desktopGrid",
+                            description: "When Full image is enabled, choose where the image sits inside its grid area.",
+                            initialValue: "center",
+                            hidden: ({ parent }) => !parent?.fullImage,
+                            options: {
+                                layout: "dropdown",
+                                list: [
+                                    { title: "Top", value: "top" },
+                                    { title: "Center", value: "center" },
+                                    { title: "Bottom", value: "bottom" },
+                                    { title: "Left", value: "left" },
+                                    { title: "Right", value: "right" },
+                                ],
+                            },
                         }),
 
                         // INFO GRID CONTROL (DESKTOP)

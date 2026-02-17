@@ -957,10 +957,40 @@
           },
           "optional": true
         },
-        "width": {
+        "widthMode": {
           "type": "objectAttribute",
           "value": {
-            "type": "string"
+            "type": "union",
+            "of": [
+              {
+                "type": "string",
+                "value": "xxs"
+              },
+              {
+                "type": "string",
+                "value": "xs"
+              },
+              {
+                "type": "string",
+                "value": "half"
+              },
+              {
+                "type": "string",
+                "value": "small"
+              },
+              {
+                "type": "string",
+                "value": "medium"
+              },
+              {
+                "type": "string",
+                "value": "large"
+              },
+              {
+                "type": "string",
+                "value": "xl"
+              }
+            ]
           },
           "optional": true
         },
@@ -1051,6 +1081,13 @@
                   "type": "objectAttribute",
                   "value": {
                     "type": "number"
+                  },
+                  "optional": true
+                },
+                "fullImage": {
+                  "type": "objectAttribute",
+                  "value": {
+                    "type": "boolean"
                   },
                   "optional": true
                 },

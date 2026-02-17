@@ -155,6 +155,12 @@ function findHoverScale(sourceEl: HTMLElement) {
   return clamp(visualScale(scaleEl), 0.5, 2);
 }
 
+function resolveHeroFrameEl(el: HTMLElement | null): HTMLElement | null {
+  if (!el) return null;
+  const frame = el.querySelector<HTMLElement>('[data-hero-frame="1"]');
+  return frame ?? el;
+}
+
 function ensureOverlayImage(sourceEl: HTMLElement, fallbackUrl: string) {
   const url = pickSourceUrl(sourceEl, fallbackUrl);
 
@@ -350,7 +356,8 @@ export function startHeroTransition({
   setHomeHeroFlightMask(false);
   (window as any).__heroDone = false;
 
-  const fromRect = sourceEl.getBoundingClientRect();
+  const sourceFrameEl = resolveHeroFrameEl(sourceEl) ?? sourceEl;
+  const fromRect = sourceFrameEl.getBoundingClientRect();
 
   const overlay = document.createElement("div");
   overlay.style.position = "fixed";
@@ -365,9 +372,9 @@ export function startHeroTransition({
   overlay.style.transform = "translate3d(0,0,0)";
   overlay.style.backfaceVisibility = "hidden";
   overlay.style.webkitBackfaceVisibility = "hidden";
-  overlay.style.background = bgFromSource(sourceEl);
+  overlay.style.background = bgFromSource(sourceFrameEl);
 
-  const overlayImg = ensureOverlayImage(sourceEl, imgUrl);
+  const overlayImg = ensureOverlayImage(sourceFrameEl, imgUrl);
   overlay.appendChild(overlayImg);
 
   document.body.appendChild(overlay);
@@ -375,10 +382,10 @@ export function startHeroTransition({
   // Hide the source after the overlay is inserted (prevents a blank frame).
   requestAnimationFrame(() => {
     try {
-      sourceEl.style.transition = "none";
-      sourceEl.style.opacity = "0";
-      sourceEl.style.visibility = "hidden";
-      sourceEl.style.pointerEvents = "none";
+      sourceFrameEl.style.transition = "none";
+      sourceFrameEl.style.opacity = "0";
+      sourceFrameEl.style.visibility = "hidden";
+      sourceFrameEl.style.pointerEvents = "none";
     } catch {
       // ignore
     }
@@ -465,8 +472,8 @@ export function completeHeroTransition({
   const maxTries = 180;
 
   const resolveTarget = (): HTMLElement | null => {
-    if (targetEl) return targetEl;
-    return pickBestHeroTarget(slug);
+    if (targetEl) return resolveHeroFrameEl(targetEl);
+    return resolveHeroFrameEl(pickBestHeroTarget(slug));
   };
 
   const attempt = () => {

@@ -8,7 +8,7 @@ export const projectBlockQuery = groq`
     _type,
     _key,
     title,
-    width,
+    widthMode,
     projects[]{
       // MOBILE
       mobileLayout,
@@ -18,6 +18,8 @@ export const projectBlockQuery = groq`
       imageRowEnd,
       imageColStart,
       imageColEnd,
+      fullImage,
+      fullImageAlign,
       infoRowStart,
       infoRowEnd,
       infoColStart,

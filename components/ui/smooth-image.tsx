@@ -1,7 +1,7 @@
 // components/ui/smooth-image.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import NextImage, { type ImageProps } from "next/image";
 import { lowSrc, highSrc } from "@/lib/img";
 
@@ -10,6 +10,7 @@ type Props = Omit<ImageProps, "placeholder" | "blurDataURL"> & {
   hiMaxWidth?: number;
   hiQuality?: number;
   objectFit?: "cover" | "contain";
+  objectPosition?: string;
 };
 
 export default function SmoothImage({
@@ -23,6 +24,7 @@ export default function SmoothImage({
   fetchPriority = "auto",
   priority = false,
   objectFit = "cover",
+  objectPosition = "center center",
   ...rest
 }: Props) {
   const useLqip = lqipWidth > 0;
@@ -31,6 +33,7 @@ export default function SmoothImage({
   const raw = typeof src === "string" ? src : "";
   const lo = useLqip ? lowSrc(raw, lqipWidth) : "";
   const hi = typeof src === "string" ? highSrc(src, hiMaxWidth, hiQuality) : src;
+  const { style: nextImageStyle, ...nextImageRest } = rest;
 
   const fitClass = objectFit === "contain" ? "object-contain" : "object-cover";
 
@@ -40,22 +43,21 @@ export default function SmoothImage({
 
   return (
     <div className={`absolute inset-0 ${className}`} style={{ contain: "paint" }}>
-      {lo ? (
+      {lo && !loaded ? (
         <img
           src={lo}
           alt=""
           aria-hidden="true"
           className={`absolute inset-0 w-full h-full ${fitClass} pointer-events-none select-none transition-opacity duration-300 will-change-transform transform-gpu`}
           style={{
-
-            opacity: loaded ? 0 : 1,
+            objectPosition,
           }}
           decoding="async"
         />
       ) : null}
 
       <NextImage
-        {...rest}
+        {...nextImageRest}
         src={hi}
         sizes={sizes}
         // default to lazy unless caller explicitly sets something
@@ -63,10 +65,10 @@ export default function SmoothImage({
         priority={priority}
         fetchPriority={fetchPriority as any}
         className={`${fitClass} transition-opacity duration-300 will-change-transform transform-gpu`}
-        style={{ opacity: loaded ? 1 : 0 }}
+        style={{ ...(nextImageStyle as CSSProperties), opacity: loaded ? 1 : 0, objectPosition }}
         onLoad={() => setLoaded(true)}
         decoding="async"
-        fill={rest.fill ?? true}
+        fill={nextImageRest.fill ?? true}
       />
 
     </div>
