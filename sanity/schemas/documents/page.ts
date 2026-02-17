@@ -70,14 +70,14 @@ export default defineType({
 
     defineField({
       name: "year",
-      title: "Year",
+      title: "Label 1",
       type: "string",
       group: "content",
     }),
 
     defineField({
       name: "client",
-      title: "Client",
+      title: "Label 2",
       type: "string",
       group: "content",
     }),

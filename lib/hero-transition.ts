@@ -161,6 +161,12 @@ function resolveHeroFrameEl(el: HTMLElement | null): HTMLElement | null {
   return frame ?? el;
 }
 
+function getHeroSourceKind(sourceEl: HTMLElement): "page-link" | "project-block" | "other" {
+  if (sourceEl.closest("[data-page-link-cell]")) return "page-link";
+  if (sourceEl.closest("[data-project-block-cell]")) return "project-block";
+  return "other";
+}
+
 function ensureOverlayImage(sourceEl: HTMLElement, fallbackUrl: string) {
   const url = pickSourceUrl(sourceEl, fallbackUrl);
 
@@ -374,6 +380,11 @@ export function startHeroTransition({
   overlay.style.backfaceVisibility = "hidden";
   overlay.style.webkitBackfaceVisibility = "hidden";
   overlay.style.background = bgFromSource(sourceFrameEl);
+  try {
+    overlay.dataset.heroSourceKind = getHeroSourceKind(sourceEl);
+  } catch {
+    // ignore
+  }
 
   const overlayImg = ensureOverlayImage(sourceFrameEl, imgUrl);
   overlay.appendChild(overlayImg);
@@ -506,11 +517,6 @@ export function completeHeroTransition({
       return;
     }
 
-    const dx = toRect.left - fromRect.left;
-    const dy = toRect.top - fromRect.top;
-    const sx = clamp(toRect.width / Math.max(1, fromRect.width), 0.02, 50);
-    const sy = clamp(toRect.height / Math.max(1, fromRect.height), 0.02, 50);
-
     gsap.set(overlay, {
       position: "fixed",
       left: fromRect.left,
@@ -523,7 +529,7 @@ export function completeHeroTransition({
       scaleY: 1,
       opacity: 1,
       transformOrigin: "top left",
-      willChange: "transform,opacity",
+      willChange: "left,top,width,height,opacity",
       force3D: true,
     });
 
@@ -548,11 +554,10 @@ export function completeHeroTransition({
     tl.to(
       overlay,
       {
-        x: dx,
-        y: dy,
-        scaleX: sx,
-        scaleY: sy,
-        force3D: true,
+        left: toRect.left,
+        top: toRect.top,
+        width: toRect.width,
+        height: toRect.height,
       },
       0
     );
@@ -563,52 +568,17 @@ export function completeHeroTransition({
         typeof hoverStartScaleRaw === "number" && Number.isFinite(hoverStartScaleRaw)
           ? hoverStartScaleRaw
           : 1;
-
-      const scaleXTarget = sx > sy ? 1 : clamp(sy / Math.max(0.0001, sx), 1, 50);
-      const scaleYTarget = sy > sx ? 1 : clamp(sx / Math.max(0.0001, sy), 1, 50);
-      const needsWarpComp =
-        Math.abs(scaleXTarget - 1) > 0.001 || Math.abs(scaleYTarget - 1) > 0.001;
-      const needsHoverReset = Math.abs(hoverStartScale - 1) > 0.001;
-
-      if (needsWarpComp || needsHoverReset) {
-        const imgProxy = {
-          hover: hoverStartScale,
-          cx: 1,
-          cy: 1,
-        };
-
-        const applyImageTransform = () => {
-          const hx = imgProxy.hover * imgProxy.cx;
-          const hy = imgProxy.hover * imgProxy.cy;
-          overlayImg.style.transform = `translate3d(0,0,0) scale(${hx}, ${hy})`;
-        };
-
-        applyImageTransform();
-
-        if (needsHoverReset) {
-          tl.to(
-            imgProxy,
-            {
-              hover: 1,
-              ease: "power2.out",
-              onUpdate: applyImageTransform,
-            },
-            0
-          );
-        }
-
-        if (needsWarpComp) {
-          tl.to(
-            imgProxy,
-            {
-              cx: scaleXTarget,
-              cy: scaleYTarget,
-              ease: "power3.inOut",
-              onUpdate: applyImageTransform,
-            },
-            0
-          );
-        }
+      if (Math.abs(hoverStartScale - 1) > 0.001) {
+        tl.to(
+          overlayImg,
+          {
+            scale: 1,
+            // Resolve hover scale continuously across flight, not at the tail.
+            ease: "none",
+            force3D: true,
+          },
+          0
+        );
       }
     }
 

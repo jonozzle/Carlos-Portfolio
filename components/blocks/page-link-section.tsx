@@ -330,7 +330,9 @@ const PageLinkTile = React.memo(function PageLinkTile({
     }
 
     const el = imgScaleRef.current;
-    if (el) gsap.killTweensOf(el);
+    if (el) {
+      gsap.killTweensOf(el);
+    }
   }, [hasTheme, lockTheme, slug, theme]);
 
   useEffect(() => {
@@ -590,7 +592,11 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
   const renderImage = () => {
     return (
-      <div className="relative w-full h-full overflow-hidden" style={{ opacity: isHeroImageHidden ? 0 : 1 }}>
+      <div
+        data-hero-frame="1"
+        className="relative w-full h-full overflow-hidden"
+        style={{ opacity: isHeroImageHidden ? 0 : 1 }}
+      >
         <div
           ref={imgScaleRef}
           data-hero-img-scale

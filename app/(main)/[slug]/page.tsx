@@ -70,6 +70,9 @@ export default async function Page({ params }: PageProps) {
     dims?.width && dims?.height && dims.width > 0 && dims.height > 0
       ? dims.width / dims.height
       : undefined;
+  const label1 = typeof page.year === "string" ? page.year.trim() : "";
+  const label2 = typeof page.client === "string" ? page.client.trim() : "";
+  const hasTopLabels = !!label1 || !!label2;
 
   const details = (page.details ?? []).filter((d) => {
     const left = typeof d?.left === "string" ? d.left.trim() : "";
@@ -93,7 +96,14 @@ export default async function Page({ params }: PageProps) {
             data-hero-page-animate
           >
             <div className="h-full flex flex-col">
-              {hasDetails || hasBlockText ? (
+              {hasTopLabels ? (
+                <div className="pt-6 md:pt-10 text-center">
+                  <div className="text-sm md:text-base font-serif leading-tight tracking-tighter flex flex-col items-center">
+                    {label1 ? <span className="mb-0 md:text-xl">{label1}</span> : null}
+                    {label2 ? <span>{label2}</span> : null}
+                  </div>
+                </div>
+              ) : hasDetails || hasBlockText ? (
                 <div className="pt-6 md:pt-10 text-center" />
               ) : null}
 
