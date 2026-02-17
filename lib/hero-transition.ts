@@ -558,17 +558,57 @@ export function completeHeroTransition({
     );
 
     if (overlayImg) {
-      const startScale = (overlayImg as any).__startScale as number | undefined;
-      if (typeof startScale === "number" && Math.abs(startScale - 1) > 0.001) {
-        tl.to(
-          overlayImg,
-          {
-            scale: 1,
-            ease: "power2.out",
-            force3D: true,
-          },
-          0
-        );
+      const hoverStartScaleRaw = (overlayImg as any).__startScale as number | undefined;
+      const hoverStartScale =
+        typeof hoverStartScaleRaw === "number" && Number.isFinite(hoverStartScaleRaw)
+          ? hoverStartScaleRaw
+          : 1;
+
+      const scaleXTarget = sx > sy ? 1 : clamp(sy / Math.max(0.0001, sx), 1, 50);
+      const scaleYTarget = sy > sx ? 1 : clamp(sx / Math.max(0.0001, sy), 1, 50);
+      const needsWarpComp =
+        Math.abs(scaleXTarget - 1) > 0.001 || Math.abs(scaleYTarget - 1) > 0.001;
+      const needsHoverReset = Math.abs(hoverStartScale - 1) > 0.001;
+
+      if (needsWarpComp || needsHoverReset) {
+        const imgProxy = {
+          hover: hoverStartScale,
+          cx: 1,
+          cy: 1,
+        };
+
+        const applyImageTransform = () => {
+          const hx = imgProxy.hover * imgProxy.cx;
+          const hy = imgProxy.hover * imgProxy.cy;
+          overlayImg.style.transform = `translate3d(0,0,0) scale(${hx}, ${hy})`;
+        };
+
+        applyImageTransform();
+
+        if (needsHoverReset) {
+          tl.to(
+            imgProxy,
+            {
+              hover: 1,
+              ease: "power2.out",
+              onUpdate: applyImageTransform,
+            },
+            0
+          );
+        }
+
+        if (needsWarpComp) {
+          tl.to(
+            imgProxy,
+            {
+              cx: scaleXTarget,
+              cy: scaleYTarget,
+              ease: "power3.inOut",
+              onUpdate: applyImageTransform,
+            },
+            0
+          );
+        }
       }
     }
 
