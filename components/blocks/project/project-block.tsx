@@ -700,13 +700,13 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
         mobileLayout === "right" && "flex-row",
         mobileLayout === "left" && "flex-row-reverse",
         // keep the side-layout rail height controlled on mobile
-        isSide && "h-[46vh] min-h-[260px] max-h-[440px]"
+        isSide && "h-[340px] sm:h-[400px] min-h-[260px] max-h-[440px]"
     );
 
     const imgBoxClass = cx(
         "relative block cursor-pointer z-10",
         // Below layouts: preserve ratio; cap height so portrait images don't get ridiculous.
-        isBelow && "w-full max-h-[70vh] md:h-full md:max-h-none",
+        isBelow && "w-full max-h-[520px] sm:max-h-[620px] md:h-full md:max-h-none",
         // Side layouts: image is full height, width follows aspect ratio (not a forced 50/50 crop).
         isSide && "h-full w-auto shrink-0 max-w-[70%] md:w-full md:max-w-none"
     );

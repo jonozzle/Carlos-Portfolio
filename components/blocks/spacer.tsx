@@ -61,15 +61,15 @@ export default function Spacer({ size, desktopSize, mobileSize }: Props) {
   const mobileHeightClass = useMemo(() => {
     switch (resolvedMobileSize) {
       case "xs":
-        return "h-[clamp(24px,6vh,80px)]";
+        return "h-[48px]";
       case "sm":
-        return "h-[clamp(40px,10vh,140px)]";
+        return "h-[80px]";
       case "md":
-        return "h-[clamp(64px,16vh,220px)]";
+        return "h-[128px]";
       case "lg":
-        return "h-[clamp(96px,24vh,320px)]";
+        return "h-[192px]";
       case "xl":
-        return "h-[clamp(128px,32vh,420px)]";
+        return "h-[256px]";
       case "none":
       default:
         return "h-0";

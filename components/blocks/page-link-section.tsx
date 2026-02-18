@@ -860,7 +860,7 @@ export default function PageLinkSection(props: Props) {
   }, [hoverCapable, clearAll]);
 
   let paddingClass = "";
-  const sectionStyle: CSSProperties = { containIntrinsicSize: "100vh 50vw" };
+  const sectionStyle: CSSProperties = { containIntrinsicSize: "760px 50vw" };
 
   if (paddingMode === "default") paddingClass = "p-10 md:p-6";
   else if (paddingMode === "none") paddingClass = "p-0";
@@ -874,7 +874,7 @@ export default function PageLinkSection(props: Props) {
   return (
     <section
       ref={sectionRef as React.MutableRefObject<HTMLElement | null>}
-      className={`${widthClass} h-screen ${paddingClass} gap-2 md:gap-3 grid grid-cols-12 grid-rows-12 relative overflow-hidden will-change-transform`}
+      className={`${widthClass} h-[720px] sm:h-[820px] md:h-screen ${paddingClass} gap-2 md:gap-3 grid grid-cols-12 grid-rows-12 relative overflow-hidden will-change-transform`}
       style={sectionStyle}
     >
       <div

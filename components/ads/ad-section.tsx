@@ -62,6 +62,10 @@ type MobileHeight =
     | "vh-100"
     | "vh-50";
 
+const MOBILE_AD_HEIGHT_FULL_PX = 720;
+const MOBILE_AD_HEIGHT_HALF_PX = 360;
+const MOBILE_AD_INTRINSIC_HEIGHT_PX = 520;
+
 function mobileHeightStyle(
     opt: MobileHeight | null | undefined,
     autoAspectRatio: string | null
@@ -70,9 +74,9 @@ function mobileHeightStyle(
         case "auto":
             return { aspectRatio: autoAspectRatio ?? "4 / 5" };
         case "vh-100":
-            return { height: "100vh" };
+            return { height: `${MOBILE_AD_HEIGHT_FULL_PX}px` };
         case "vh-50":
-            return { height: "50vh" };
+            return { height: `${MOBILE_AD_HEIGHT_HALF_PX}px` };
         case "ratio-1-1":
             return { aspectRatio: "1 / 1" };
         case "ratio-4-5":
@@ -292,7 +296,7 @@ export default function AdSection({
 
     const sectionStyle: React.CSSProperties = useMemo(() => {
         const style: React.CSSProperties = {
-            containIntrinsicSize: isDesktop ? "100vh 50vw" : "60vh 100vw",
+            containIntrinsicSize: isDesktop ? "100vh 50vw" : `${MOBILE_AD_INTRINSIC_HEIGHT_PX}px 100vw`,
         };
 
         if (isDesktop && desktopSectionWidth === "auto") {

@@ -330,7 +330,7 @@ export default function HomeFooter({ footer }: Props) {
     return (
         <section
             ref={containerRef}
-            className="w-[100vw] h-screen flex-shrink-0 grid grid-cols-12 gap-2 overflow-hidden"
+            className="w-[100vw] h-[860px] sm:h-[960px] md:h-screen flex-shrink-0 grid grid-cols-12 gap-2 overflow-hidden"
             style={{ contain: "layout paint style" }}
         >
             {/* LEFT SIDE */}
@@ -389,7 +389,7 @@ export default function HomeFooter({ footer }: Props) {
             </div>
 
             {/* RIGHT SIDE */}
-            <div className="col-span-12 md:col-span-6 h-[70svh] md:h-full overflow-hidden relative transform-gpu">
+            <div className="col-span-12 md:col-span-6 h-[520px] sm:h-[620px] md:h-full overflow-hidden relative transform-gpu">
                 {hasImages ? (
                     <div className="relative h-full w-full overflow-hidden">
                         <div

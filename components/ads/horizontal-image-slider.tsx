@@ -578,7 +578,7 @@ export default function HorizontalImageSlider({
             ref={containerRef}
             className={clsx("relative w-full h-full overflow-hidden will-change-transform", className)}
             style={{
-                containIntrinsicSize: "100vh 100vw",
+                containIntrinsicSize: "760px 100vw",
                 opacity: allowParallax ? 0 : 1,
                 visibility: allowParallax ? ("hidden" as any) : ("visible" as any),
             }}

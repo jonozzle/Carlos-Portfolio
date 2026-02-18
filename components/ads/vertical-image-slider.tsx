@@ -478,7 +478,7 @@ export default function VerticalImageSlider({
             ref={containerRef}
             className={clsx("relative w-full h-full overflow-hidden will-change-transform", className)}
             style={{
-                containIntrinsicSize: "100vh 50vw",
+                containIntrinsicSize: "760px 50vw",
                 opacity: allowParallax ? 0 : 1,
                 visibility: allowParallax ? ("hidden" as any) : ("visible" as any),
             }}

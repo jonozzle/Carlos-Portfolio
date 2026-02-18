@@ -1773,7 +1773,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       style={{ contain: "layout paint" }}
     >
       {/* LEFT – image */}
-      <div ref={leftRef} className="relative h-[70vh] md:h-full overflow-hidden">
+      <div ref={leftRef} className="relative h-[500px] sm:h-[620px] md:h-full overflow-hidden">
         <div className="relative w-full h-full px-6 py-6 md:px-0 md:py-0">
           <div className="relative w-full h-full overflow-hidden">
             {/* CURRENT LAYER */}
