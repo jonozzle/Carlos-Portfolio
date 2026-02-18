@@ -402,8 +402,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 
         if (hasTheme) {
             const mobile = isMobileNow();
-            if (mobile) lockTheme(theme, { animate: false, force: true });
-            else lockTheme(theme, { animate: true, force: true, durationMs: 280 });
+            if (!mobile) lockTheme(theme, { animate: true, force: true, durationMs: 280 });
         }
         if (typeof window !== "undefined") (window as any).__heroThemeLockReadyAt = 0;
 

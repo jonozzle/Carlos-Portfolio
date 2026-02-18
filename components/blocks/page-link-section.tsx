@@ -316,9 +316,7 @@ const PageLinkTile = React.memo(function PageLinkTile({
 
     if (hasTheme) {
       const mobile = isMobileNow();
-      if (mobile) {
-        lockTheme(theme, { animate: false, force: true });
-      } else {
+      if (!mobile) {
         lockTheme(theme, { animate: true, force: true, durationMs: 280 });
       }
     }

@@ -20,6 +20,13 @@ export default function ThemeSetter(props: Props) {
 
     useLayoutEffect(() => {
         if (typeof window === "undefined") return;
+        const isMobileViewport = () => {
+            try {
+                return window.matchMedia("(max-width: 767px)").matches;
+            } catch {
+                return false;
+            }
+        };
         const onHomeRoute = () => {
             try {
                 return window.location.pathname === "/";
@@ -37,9 +44,11 @@ export default function ThemeSetter(props: Props) {
         const firstHydration = !(window as any).__themeHydrated;
         if (firstHydration) (window as any).__themeHydrated = true;
 
+        const isMobile = isMobileViewport();
         const navForce = !!(window as any).__navInProgress;
 
-        const baseOpts: ThemeApplyOptions = firstHydration
+        // Mobile: keep route/theme application instant to avoid transition flashes.
+        const baseOpts: ThemeApplyOptions = firstHydration || isMobile
             ? { animate: false, force: true }
             : { animate: true, force: navForce };
 
@@ -59,7 +68,7 @@ export default function ThemeSetter(props: Props) {
                     (window as any).__deferHomeThemeReset = false;
                     if (!onHomeRoute()) return;
                     // Always animate this reset (this is a navigation transition, not a cold load)
-                    resetTheme({ animate: true, force: true });
+                    resetTheme(isMobile ? { animate: false, force: true } : { animate: true, force: true });
                 };
 
                 const onHeroDone = () => run();
@@ -86,7 +95,7 @@ export default function ThemeSetter(props: Props) {
                     if (t) window.clearTimeout(t);
                     window.removeEventListener(APP_EVENTS.NAV_END, onNavEnd as any);
                     if (!onHomeRoute()) return;
-                    resetTheme({ animate: true, force: true });
+                    resetTheme(isMobile ? { animate: false, force: true } : { animate: true, force: true });
                 };
 
                 const onNavEnd = () => run();
