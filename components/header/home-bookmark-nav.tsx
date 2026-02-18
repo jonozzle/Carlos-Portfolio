@@ -152,7 +152,15 @@ export default function HomeBookmarkNav({ drawer }: HomeBookmarkNavProps) {
       ) : null}
       {isHome && bio ? (
         <div className="fixed right-3 top-3 z-[10020] md:hidden">
-          <BioBlock body={bio.body} dropCap={bio.dropCap} links={bio.links} interaction="click" />
+          <BioBlock
+            showBioText={bio.showBioText}
+            showBioLinks={bio.showBioLinks}
+            enableAnimation={bio.enableAnimation}
+            body={bio.body}
+            dropCap={bio.dropCap}
+            links={bio.links}
+            interaction="click"
+          />
         </div>
       ) : null}
     </>

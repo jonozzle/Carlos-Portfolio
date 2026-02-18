@@ -11,6 +11,9 @@ export type HeroBioData = {
   body?: any[] | null;
   dropCap?: boolean | null;
   links?: HeroLink[] | null;
+  showBioText?: boolean | null;
+  showBioLinks?: boolean | null;
+  enableAnimation?: boolean | null;
 };
 
 type Listener = () => void;

@@ -26,6 +26,9 @@ export const heroContentsQuery = groq`
 
     "bio": select(
       defined(bio) => {
+        "showBioText": coalesce(bio.showBioText, true),
+        "showBioLinks": coalesce(bio.showBioLinks, true),
+        "enableAnimation": coalesce(bio.enableAnimation, false),
         "body": bio.body,
         "dropCap": coalesce(bio.dropCap, false),
         "links": coalesce(bio.links, [])[]{

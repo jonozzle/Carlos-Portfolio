@@ -72,6 +72,9 @@ type HeroLink = {
 };
 
 type BioSection = {
+  showBioText?: boolean | null;
+  showBioLinks?: boolean | null;
+  enableAnimation?: boolean | null;
   body?: any[] | null;
   dropCap?: boolean | null;
   links?: HeroLink[] | null;
@@ -131,35 +134,6 @@ function preloadImage(url: string): Promise<void> {
       img.onerror = done;
     }
   });
-}
-
-function InlineArrow() {
-  return (
-    <span
-      className="relative inline-flex items-center w-[34px] h-[12px] -mb-[1px]"
-      aria-hidden="true"
-    >
-      <span
-        className={[
-          "absolute left-0 top-1/2 -translate-y-1/2",
-          "h-px w-[22px] bg-current",
-          "origin-left scale-x-[0.65]",
-          "transition-transform duration-300 ease-out",
-          "group-hover:scale-x-100 group-focus-visible:scale-x-100",
-        ].join(" ")}
-      />
-      <svg
-        className="absolute right-0 top-1/2 -translate-y-1/2"
-        width="10"
-        height="10"
-        viewBox="0 0 10 10"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <polygon points="0,1 10,5 0,9" fill="currentColor" />
-      </svg>
-    </span>
-  );
 }
 
 type StyleCfg = {
@@ -1625,20 +1599,32 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   }, [featuredResolved?.slug, keyed]);
 
   const shouldShowFeatured = !!(featuredLabel && featuredResolved?.slug && featuredResolved?.title);
+  const [featuredHoverActive, setFeaturedHoverActive] = useState(false);
 
   // ---- Bio (RED BLOCK overlay; stays where it is) ----
   const bio: BioSection = (props as any)?.bio ?? null;
+  const bioShowBioText = (bio as any)?.showBioText !== false;
+  const bioShowBioLinks = (bio as any)?.showBioLinks !== false;
+  const bioEnableAnimation = !!(bio as any)?.enableAnimation;
   const bioBody = (bio as any)?.body ?? null;
   const bioDropCap = !!(bio as any)?.dropCap;
   const bioLinks: HeroLink[] = useMemo(() => {
+    if (!bioShowBioLinks) return [];
     const raw = ((bio as any)?.links ?? []) as unknown[];
     return raw.filter((l): l is HeroLink => !!l && typeof l === "object");
-  }, [bio]);
+  }, [bio, bioShowBioLinks]);
 
   useEffect(() => {
-    setHeroBioData({ body: bioBody, dropCap: bioDropCap, links: bioLinks });
+    setHeroBioData({
+      showBioText: bioShowBioText,
+      showBioLinks: bioShowBioLinks,
+      enableAnimation: bioEnableAnimation,
+      body: bioBody,
+      dropCap: bioDropCap,
+      links: bioLinks,
+    });
     return () => clearHeroBioData();
-  }, [bioBody, bioDropCap, bioLinks]);
+  }, [bioBody, bioDropCap, bioEnableAnimation, bioLinks, bioShowBioText, bioShowBioLinks]);
 
   // ---- Footer text (“footer bio”) bottom-left ----
   const showFooterText: boolean = !!(props as any)?.showFooterText;
@@ -1851,13 +1837,22 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         >
           <div className="pr-0 md:pr-[320px]">
             {shouldShowFeatured ? (
-              <div className="text-base tracking-tighter flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <span className="font-bold uppercase">{featuredLabel}</span>
+              <div
+                className="flex flex-wrap items-baseline gap-x-2 gap-y-1"
+                onMouseEnter={() => setFeaturedHoverActive(true)}
+                onMouseLeave={() => setFeaturedHoverActive(false)}
+                onPointerEnter={() => setFeaturedHoverActive(true)}
+                onPointerLeave={() => setFeaturedHoverActive(false)}
+                onFocusCapture={() => setFeaturedHoverActive(true)}
+                onBlurCapture={() => setFeaturedHoverActive(false)}
+              >
+                <span className="text-base tracking-tighter font-serif font-bold uppercase">{featuredLabel}</span>
 
                 <UnderlineLink
                   href={`/projects/${featuredResolved!.slug}`}
+                  active={featuredHoverActive}
                   hoverUnderline
-                  className="group inline-flex items-baseline gap-2"
+                  className="inline-flex items-baseline text-lg md:text-xl font-serif font-normal tracking-tighter"
                   data-cursor="link"
                   onClick={(e) => {
                     const href = `/projects/${featuredResolved!.slug}`;
@@ -1872,10 +1867,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
                     handleTransitionClick(e, href);
                   }}
                 >
-                  <span className="inline-flex items-baseline gap-2">
-                    <span className="font-serif tracking-tighter">{featuredResolved!.title}</span>
-                    <InlineArrow />
-                  </span>
+                  {featuredResolved!.title}
                 </UnderlineLink>
               </div>
             ) : null}
@@ -2012,7 +2004,14 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       {/* Desktop BioBlock overlay (stays) */}
       <div className="absolute right-6 top-6 z-30 hidden md:block">
         <span data-hero-main-title className="block">
-          <BioBlock body={bioBody} dropCap={bioDropCap} links={bioLinks} />
+          <BioBlock
+            showBioText={bioShowBioText}
+            showBioLinks={bioShowBioLinks}
+            enableAnimation={bioEnableAnimation}
+            body={bioBody}
+            dropCap={bioDropCap}
+            links={bioLinks}
+          />
         </span>
       </div>
     </section>

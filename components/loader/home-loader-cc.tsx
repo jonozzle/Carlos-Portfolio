@@ -217,6 +217,11 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       if (!root || !nameRow || !bigC || !smallC || !restFirst || !restSecond) return;
 
       const isMobile = window.matchMedia("(max-width: 767px)").matches;
+      const mobileTravelY = Math.round(
+        (window.visualViewport?.height && Number.isFinite(window.visualViewport.height)
+          ? window.visualViewport.height
+          : window.innerHeight) || window.innerHeight
+      );
       const safariDesktop = isDesktopSafari();
       const cGpu = safariDesktop
         ? { force3D: true, backfaceVisibility: "hidden" as const, transformOrigin: "50% 50%" }
@@ -273,6 +278,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
         autoAlpha: 1,
         xPercent: 0,
         yPercent: 0,
+        y: 0,
         willChange: "transform",
         ...(safariDesktop ? { force3D: true, backfaceVisibility: "hidden" as const } : {}),
       });
@@ -281,7 +287,8 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
       if (pageRoot) {
         gsap.set(pageRoot, {
           xPercent: isMobile ? 0 : 100,
-          yPercent: isMobile ? 100 : 0,
+          yPercent: 0,
+          y: isMobile ? mobileTravelY : 0,
           opacity: 1,
           willChange: "transform",
           ...(safariDesktop ? { force3D: true, backfaceVisibility: "hidden" as const } : {}),
@@ -445,7 +452,8 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
           root,
           {
             xPercent: isMobile ? 0 : -100,
-            yPercent: isMobile ? -100 : 0,
+            yPercent: 0,
+            y: isMobile ? -mobileTravelY : 0,
             duration: TRANSITION_DUR,
             ease: "power3.inOut",
           },
@@ -458,6 +466,7 @@ export default function HomeLoaderCC({ enable = true, positionOnly = false }: Pr
             {
               xPercent: 0,
               yPercent: 0,
+              y: 0,
               duration: TRANSITION_DUR,
               ease: "power3.inOut",
               clearProps: "transform,willChange",

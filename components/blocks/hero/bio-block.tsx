@@ -22,6 +22,9 @@ type BioBlockProps = {
   body?: any[] | null; // Sanity PortableText
   dropCap?: boolean | null;
   links?: HeroLink[] | null; // separate link list under the body
+  showBioText?: boolean | null;
+  showBioLinks?: boolean | null;
+  enableAnimation?: boolean | null;
   interaction?: "hover" | "click"; // hover for desktop, click for mobile
 };
 
@@ -83,6 +86,9 @@ export default function BioBlock({
   body = null,
   dropCap = false,
   links = null,
+  showBioText = true,
+  showBioLinks = true,
+  enableAnimation = false,
   interaction = "hover",
 }: BioBlockProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -187,8 +193,13 @@ export default function BioBlock({
       .filter((l) => !!l.label && !!l.href);
   }, [links]);
 
-  const useClick = interaction === "click";
+  const animationEnabled = enableAnimation === true;
+  const useClick = animationEnabled && interaction === "click";
+  const showBody = showBioText !== false;
+  const showLinks = showBioLinks !== false;
   const hasBody = Array.isArray(body) && body.length > 0;
+  const hasLinks = showLinks && safeLinks.length > 0;
+  const shouldRenderBioContent = showBody || hasLinks;
 
   useGSAP(
     () => {
@@ -201,11 +212,11 @@ export default function BioBlock({
       const restSecondEl = restSecondRef.current;
       const bioEl = bioRef.current;
 
-      if (!box || !inner || !nameRow || !bigCEl || !smallCEl || !restFirstEl || !restSecondEl || !bioEl) return;
+      if (!box || !inner || !nameRow || !bigCEl || !smallCEl || !restFirstEl || !restSecondEl) return;
 
       const SQUARE_SIZE = 64; // closed square
       const EXPANDED_WIDTH = SQUARE_SIZE + 220;
-      const EXPANDED_MIN_HEIGHT = SQUARE_SIZE + 110;
+      const EXPANDED_MIN_HEIGHT = shouldRenderBioContent ? SQUARE_SIZE + 110 : SQUARE_SIZE;
 
       // CLOSED small-c pose (relative to big C center)
       const SMALL_C_CLOSED = {
@@ -226,7 +237,9 @@ export default function BioBlock({
         gsap.set(box, { autoAlpha: 0 });
 
         // Clear/normalize any prior inline props that might linger between rebuilds
-        gsap.set([bigCEl, smallCEl, restFirstEl, restSecondEl, bioEl], { clearProps: "transform" });
+        const clearTargets: HTMLElement[] = [bigCEl, smallCEl, restFirstEl, restSecondEl];
+        if (bioEl) clearTargets.push(bioEl);
+        gsap.set(clearTargets, { clearProps: "transform" });
 
         // Measure inner content for expanded height
         gsap.set(inner, { width: EXPANDED_WIDTH, height: "auto" });
@@ -262,7 +275,7 @@ export default function BioBlock({
         gsap.set(restSecondEl, { opacity: 0, x: 4, clipPath: "inset(0 100% 0 0)" });
 
         // Bio hidden
-        gsap.set(bioEl, { opacity: 0, y: 8 });
+        if (bioEl) gsap.set(bioEl, { opacity: 0, y: 8 });
 
         // --- CLOSED STATE: center combined bounds of the two Cs in the square ---
         const boxRect = box.getBoundingClientRect();
@@ -358,7 +371,8 @@ export default function BioBlock({
             },
             0.1
           )
-          .to(
+        if (bioEl && shouldRenderBioContent) {
+          tl.to(
             bioEl,
             {
               opacity: 1,
@@ -368,8 +382,14 @@ export default function BioBlock({
             },
             0.2
           );
+        }
 
         tlRef.current = tl;
+
+        if (!animationEnabled) {
+          tl.progress(0).pause();
+          return;
+        }
 
         // Restore state after rebuild
         if (useClick) {
@@ -436,11 +456,13 @@ export default function BioBlock({
   }, [isOpen, useClick]);
 
   const handleEnter = () => {
+    if (!animationEnabled) return;
     if (useClick) return;
     tlRef.current?.play();
   };
 
   const handleLeave = () => {
+    if (!animationEnabled) return;
     if (useClick) return;
     tlRef.current?.reverse();
   };
@@ -462,15 +484,15 @@ export default function BioBlock({
   return (
     <div
       ref={rootRef}
-      role="button"
-      tabIndex={0}
-      className="inline-block cursor-pointer transform-gpu"
-      data-cursor="link"
+      role={animationEnabled ? "button" : undefined}
+      tabIndex={animationEnabled ? 0 : undefined}
+      className={clsx("inline-block transform-gpu", animationEnabled && "cursor-pointer")}
+      data-cursor={animationEnabled ? "link" : undefined}
       aria-expanded={useClick ? isOpen : undefined}
-      onMouseEnter={useClick ? undefined : handleEnter}
-      onMouseLeave={useClick ? undefined : handleLeave}
-      onFocus={useClick ? undefined : handleEnter}
-      onBlur={useClick ? undefined : handleLeave}
+      onMouseEnter={animationEnabled && !useClick ? handleEnter : undefined}
+      onMouseLeave={animationEnabled && !useClick ? handleLeave : undefined}
+      onFocus={animationEnabled && !useClick ? handleEnter : undefined}
+      onBlur={animationEnabled && !useClick ? handleLeave : undefined}
       onClick={useClick ? handleClick : undefined}
       onKeyDown={useClick ? handleKeyDown : undefined}
     >
@@ -516,41 +538,45 @@ export default function BioBlock({
           </div>
 
           {/* Bio copy – revealed once expanded, sits under the 64px title band */}
-          <div className="px-3 pb-4 pt-16">
-            <div ref={bioRef} className="pointer-events-auto">
-              {hasBody ? (
-                <div className={clsx("it-pt")}>
-                  <PortableText value={body as any} components={ptComponents as any} />
-                </div>
-              ) : (
-                <p className="text-sm tracking-normal mb-3 font-sans max-w-[33ch] leading-snug text-left">{text}</p>
-              )}
+          {shouldRenderBioContent ? (
+            <div className="px-3 pb-4 pt-16">
+              <div ref={bioRef} className="pointer-events-auto">
+                {showBody ? (
+                  hasBody ? (
+                    <div className={clsx("it-pt")}>
+                      <PortableText value={body as any} components={ptComponents as any} />
+                    </div>
+                  ) : (
+                    <p className="text-sm tracking-normal mb-3 font-sans max-w-[33ch] leading-snug text-left">{text}</p>
+                  )
+                ) : null}
 
-              {safeLinks.length ? (
-                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                  {safeLinks.map((l) => {
-                    const external = isLikelyExternal(l.href!);
-                    const target = l.newTab || external ? "_blank" : undefined;
-                    const rel = target ? "noreferrer" : undefined;
+                {hasLinks ? (
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                    {safeLinks.map((l) => {
+                      const external = isLikelyExternal(l.href!);
+                      const target = l.newTab || external ? "_blank" : undefined;
+                      const rel = target ? "noreferrer" : undefined;
 
-                    return (
-                      <UnderlineLink
-                        key={l.key}
-                        href={l.href!}
-                        target={target}
-                        rel={rel}
-                        hoverUnderline
-                        data-cursor="link"
-                        className="opacity-90 hover:opacity-100"
-                      >
-                        {l.label}
-                      </UnderlineLink>
-                    );
-                  })}
-                </div>
-              ) : null}
+                      return (
+                        <UnderlineLink
+                          key={l.key}
+                          href={l.href!}
+                          target={target}
+                          rel={rel}
+                          hoverUnderline
+                          data-cursor="link"
+                          className="opacity-90 hover:opacity-100"
+                        >
+                          {l.label}
+                        </UnderlineLink>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </div>
     </div>

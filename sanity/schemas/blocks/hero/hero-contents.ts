@@ -81,16 +81,39 @@ export default defineType({
     // -----------------------
     defineField({
       name: "bio",
-      title: "Bio",
+      title: "Red block",
       type: "object",
       fieldset: "bio",
       icon: TypeIcon,
+      options: { collapsible: true, collapsed: true },
       fields: [
+        defineField({
+          name: "showBioText",
+          title: "Show bio text",
+          type: "boolean",
+          initialValue: true,
+          description: "Turns the body copy inside the red block on/off.",
+        }),
+        defineField({
+          name: "showBioLinks",
+          title: "Show bio links",
+          type: "boolean",
+          initialValue: true,
+          description: "Turns the link row inside the red block on/off.",
+        }),
+        defineField({
+          name: "enableAnimation",
+          title: "Enable animation",
+          type: "boolean",
+          initialValue: false,
+          description: "When off, hover/click does not animate the red block.",
+        }),
         defineField({
           name: "body",
           title: "Body",
           type: "array",
           of: [{ type: "block" }],
+          hidden: ({ parent }) => parent?.showBioText === false,
           description: "Editable bio body text (title is intentionally not editable here).",
         }),
         defineField({
@@ -98,12 +121,14 @@ export default defineType({
           title: "Drop cap",
           type: "boolean",
           initialValue: false,
+          hidden: ({ parent }) => parent?.showBioText === false,
           description: "Applies a drop cap to the first text block.",
         }),
         defineField({
           name: "links",
           title: "Bio links",
           type: "array",
+          hidden: ({ parent }) => parent?.showBioLinks === false,
           of: [
             {
               type: "object",
@@ -147,7 +172,7 @@ export default defineType({
         select: { body: "body" },
         prepare({ body }) {
           const hasBody = Array.isArray(body) && body.length > 0;
-          return { title: "Bio", subtitle: hasBody ? "Custom body" : "No body" };
+          return { title: "Red block", subtitle: hasBody ? "Custom body" : "No body" };
         },
       },
     }),
