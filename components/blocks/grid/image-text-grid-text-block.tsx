@@ -13,6 +13,8 @@ type Props = {
   justifySelf?: "start" | "center" | "end" | null;
   alignSelf?: "start" | "center" | "end" | null;
   presetWidth?: { width: string; minWidth: string } | null;
+  mobilePaddingX?: "none" | "sm" | "md" | "lg" | null;
+  mobilePaddingY?: "none" | "sm" | "md" | "lg" | null;
 };
 
 type StyleCfg = {
@@ -45,6 +47,34 @@ function cfgForStyle(styleKey: string): StyleCfg {
   }
 }
 
+function mobilePaddingXClass(value: Props["mobilePaddingX"]) {
+  switch (value) {
+    case "none":
+      return "px-0";
+    case "sm":
+      return "px-6";
+    case "lg":
+      return "px-16";
+    case "md":
+    default:
+      return "px-10";
+  }
+}
+
+function mobilePaddingYClass(value: Props["mobilePaddingY"]) {
+  switch (value) {
+    case "none":
+      return "py-0";
+    case "sm":
+      return "py-6";
+    case "lg":
+      return "py-16";
+    case "md":
+    default:
+      return "py-10";
+  }
+}
+
 export default function ImageTextGridTextBlock({
   gridColumn,
   gridRow,
@@ -53,6 +83,8 @@ export default function ImageTextGridTextBlock({
   justifySelf,
   alignSelf,
   presetWidth,
+  mobilePaddingX,
+  mobilePaddingY,
 }: Props) {
   const firstBlockKey = useMemo(() => {
     if (!dropCap) return null;
@@ -116,7 +148,13 @@ export default function ImageTextGridTextBlock({
       }}
     >
       <div className="w-full md:h-full overflow-visible md:overflow-hidden flex items-start">
-        <div className="w-full max-w-full it-pt px-16 py-16 md:p-0">
+        <div
+          className={clsx(
+            "w-full max-w-full it-pt md:p-0",
+            mobilePaddingXClass(mobilePaddingX),
+            mobilePaddingYClass(mobilePaddingY)
+          )}
+        >
           {body?.length ? <PortableText value={body} components={components as any} /> : <div className="text-xs opacity-60">No text</div>}
         </div>
       </div>

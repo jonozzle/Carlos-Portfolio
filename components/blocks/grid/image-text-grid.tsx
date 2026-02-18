@@ -261,6 +261,8 @@ export default function ImageTextGrid(props: Props) {
                   gridRow={area.gridRow}
                   body={(item as any).body ?? null}
                   dropCap={(item as any).dropCap ?? null}
+                  mobilePaddingX={(item as any).mobilePaddingX ?? null}
+                  mobilePaddingY={(item as any).mobilePaddingY ?? null}
                   justifySelf={justifySelf}
                   alignSelf={alignSelf}
                   presetWidth={presetWidth}

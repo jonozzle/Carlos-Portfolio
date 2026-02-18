@@ -6,6 +6,8 @@ export const spacerBlockQuery = groq`
   _type == "spacer" => {
     _type,
     _key,
+    desktopSize,
+    mobileSize,
     size
   }
 `;

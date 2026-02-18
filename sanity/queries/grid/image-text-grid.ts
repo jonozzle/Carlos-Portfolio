@@ -51,6 +51,8 @@ export const imageTextGridQuery = groq`
         rowEnd,
         colStart,
         colEnd,
+        mobilePaddingX,
+        mobilePaddingY,
         dropCap,
         body
       }

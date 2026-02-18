@@ -7,6 +7,13 @@ export default defineType({
   title: "Grid Text",
   type: "object",
   icon: TypeIcon,
+  fieldsets: [
+    {
+      name: "mobile",
+      title: "Mobile",
+      options: { collapsible: true, collapsed: true },
+    },
+  ],
   fields: [
     defineField({
       name: "usePresetPosition",
@@ -99,6 +106,40 @@ export default defineType({
       type: "boolean",
       initialValue: false,
     }),
+    defineField({
+      name: "mobilePaddingX",
+      title: "Padding width (mobile)",
+      type: "string",
+      fieldset: "mobile",
+      description: "Horizontal padding below md breakpoint.",
+      options: {
+        layout: "dropdown",
+        list: [
+          { title: "None", value: "none" },
+          { title: "Small", value: "sm" },
+          { title: "Medium", value: "md" },
+          { title: "Large", value: "lg" },
+        ],
+      },
+      initialValue: "md",
+    }),
+    defineField({
+      name: "mobilePaddingY",
+      title: "Padding height (mobile)",
+      type: "string",
+      fieldset: "mobile",
+      description: "Vertical padding below md breakpoint.",
+      options: {
+        layout: "dropdown",
+        list: [
+          { title: "None", value: "none" },
+          { title: "Small", value: "sm" },
+          { title: "Medium", value: "md" },
+          { title: "Large", value: "lg" },
+        ],
+      },
+      initialValue: "md",
+    }),
 
     defineField({
       name: "body",
@@ -119,13 +160,27 @@ export default defineType({
       presetX: "presetX",
       presetY: "presetY",
       presetWidth: "presetWidth",
+      mobilePaddingX: "mobilePaddingX",
+      mobilePaddingY: "mobilePaddingY",
     },
-    prepare({ rowStart, rowEnd, colStart, colEnd, dropCap, usePresetPosition, presetX, presetY, presetWidth }) {
+    prepare({
+      rowStart,
+      rowEnd,
+      colStart,
+      colEnd,
+      dropCap,
+      usePresetPosition,
+      presetX,
+      presetY,
+      presetWidth,
+      mobilePaddingX,
+      mobilePaddingY,
+    }) {
       return {
         title: "Grid Text",
         subtitle: usePresetPosition
-          ? `preset: ${presetX ?? "center"} / ${presetY ?? "center"} • ${presetWidth ?? "w50"}${dropCap ? " • drop cap" : ""}`
-          : `r ${rowStart ?? "?"}–${rowEnd ?? "?"}, c ${colStart ?? "?"}–${colEnd ?? "?"}${dropCap ? " • drop cap" : ""}`,
+          ? `preset: ${presetX ?? "center"} / ${presetY ?? "center"} • ${presetWidth ?? "w50"} • mobile px:${mobilePaddingX ?? "md"} py:${mobilePaddingY ?? "md"}${dropCap ? " • drop cap" : ""}`
+          : `r ${rowStart ?? "?"}–${rowEnd ?? "?"}, c ${colStart ?? "?"}–${colEnd ?? "?"} • mobile px:${mobilePaddingX ?? "md"} py:${mobilePaddingY ?? "md"}${dropCap ? " • drop cap" : ""}`,
       };
     },
   },
