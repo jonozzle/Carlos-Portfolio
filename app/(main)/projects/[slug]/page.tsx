@@ -83,19 +83,22 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         <HScrollerWrapper>
             <ThemeSetter theme={project.theme ?? null} />
 
-            <section data-panel-height="viewport" className="h-panel relative w-screen md:w-auto overflow-hidden">
+            <section
+                data-panel-height="auto"
+                className="relative w-screen h-auto overflow-visible md:w-auto md:h-screen md:overflow-hidden"
+            >
                 <div className="h-full flex flex-col md:flex-row md:items-stretch">
                     <div className="w-full md:w-[50vw] md:shrink-0 px-6 md:px-10" data-hero-page-animate>
                         <div className="h-full flex flex-col">
                             <div className="pt-6 md:pt-10 text-center">
                                 <div className="text-sm md:text-base font-serif leading-tight tracking-tighter flex flex-col items-center">
-                                    {project.year && <span className="mb-0 md:text-xl">{project.year}</span>}
+                                    {project.year && <span className="mb-0 text-base md:text-xl">{project.year}</span>}
                                     {project.client && <span className="">{project.client}</span>}
                                 </div>
                             </div>
 
                             {hasDetails || hasBlockText ? (
-                                <div className="mt-8 md:mt-10 px-6 flex flex-col gap-8">
+                                <div className="mt-8 md:mt-10 px-10 md:px-6 flex flex-col gap-8">
                                     {hasDetails ? <ProjectDetails details={details} /> : null}
                                     {hasBlockText ? (
                                         <BlockTextSection

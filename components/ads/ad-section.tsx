@@ -54,6 +54,7 @@ type Orientation = "horizontal" | "vertical";
 type SectionWidth = "narrow" | "medium" | "wide" | "full" | "auto";
 
 type MobileHeight =
+    | "auto"
     | "ratio-1-1"
     | "ratio-4-5"
     | "ratio-3-4"
@@ -61,8 +62,13 @@ type MobileHeight =
     | "vh-100"
     | "vh-50";
 
-function mobileHeightStyle(opt: MobileHeight | null | undefined): React.CSSProperties {
+function mobileHeightStyle(
+    opt: MobileHeight | null | undefined,
+    autoAspectRatio: string | null
+): React.CSSProperties {
     switch (opt) {
+        case "auto":
+            return { aspectRatio: autoAspectRatio ?? "4 / 5" };
         case "vh-100":
             return { height: "100vh" };
         case "vh-50":
@@ -168,6 +174,25 @@ export default function AdSection({
 
         return null;
     }, [desktopSectionWidth, imgs]);
+
+    const mobileAutoAspectRatio = useMemo(() => {
+        for (const img of imgs ?? []) {
+            const width = img.asset?.width;
+            const height = img.asset?.height;
+            if (
+                typeof width === "number" &&
+                Number.isFinite(width) &&
+                width > 0 &&
+                typeof height === "number" &&
+                Number.isFinite(height) &&
+                height > 0
+            ) {
+                return `${Math.round(width)} / ${Math.round(height)}`;
+            }
+        }
+
+        return null;
+    }, [imgs]);
 
     const applyTheme = useCallback(
         (allowIdle?: boolean, force?: boolean) => {
@@ -299,6 +324,9 @@ export default function AdSection({
     }, [desktopAutoDimensions, desktopSectionWidth, effectiveParallaxAmount, isDesktop, lockCrossAxisBleed, viewportHeight]);
 
     const sliderLabel = title ?? "Ad section";
+    const shouldAvoidCropOnMobileAutoNoParallax =
+        !isDesktop && mobileCfg.height === "auto" && effectiveParallaxEnabled === false;
+    const sliderObjectFit: "cover" | "contain" = shouldAvoidCropOnMobileAutoNoParallax ? "contain" : "cover";
 
     return (
         <section
@@ -332,7 +360,7 @@ export default function AdSection({
         >
             <div
                 className={clsx("relative w-full", isDesktop ? "h-full" : "h-auto")}
-                style={!isDesktop ? mobileHeightStyle(mobileCfg.height) : undefined}
+                style={!isDesktop ? mobileHeightStyle(mobileCfg.height, mobileAutoAspectRatio) : undefined}
             >
                 {isVertical ? (
                     <VerticalImageSlider
@@ -343,6 +371,7 @@ export default function AdSection({
                         parallaxEnabled={effectiveParallaxEnabled}
                         parallaxAmount={effectiveParallaxAmount}
                         lockCrossAxisBleed={lockCrossAxisBleed}
+                        objectFit={sliderObjectFit}
                     />
                 ) : (
                     <HorizontalImageSlider
@@ -353,6 +382,7 @@ export default function AdSection({
                         parallaxEnabled={effectiveParallaxEnabled}
                         parallaxAmount={effectiveParallaxAmount}
                         lockCrossAxisBleed={lockCrossAxisBleed}
+                        objectFit={sliderObjectFit}
                     />
                 )}
             </div>

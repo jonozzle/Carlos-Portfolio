@@ -124,6 +124,7 @@ export default defineType({
           type: "string",
           options: {
             list: [
+              { title: "Auto (image ratio)", value: "auto" },
               { title: "Square (1:1)", value: "ratio-1-1" },
               { title: "Portrait (4:5)", value: "ratio-4-5" },
               { title: "Portrait (3:4)", value: "ratio-3-4" },
@@ -235,7 +236,9 @@ export default defineType({
       const mParLabel = mParallaxEnabled === false ? "parallax off" : `parallax ${mParallaxAmount || "md"}`;
 
       const mHeightLabel =
-        mHeight === "vh-100"
+        mHeight === "auto"
+          ? "Auto"
+          : mHeight === "vh-100"
           ? "100vh"
           : mHeight === "vh-50"
             ? "50vh"

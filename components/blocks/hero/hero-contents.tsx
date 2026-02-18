@@ -19,6 +19,7 @@ import { getActiveHomeSection, saveActiveHomeSectionNow } from "@/lib/home-secti
 import { lockAppScroll } from "@/lib/scroll-lock";
 import { fadeOutPageRoot } from "@/lib/transitions/page-fade";
 import { clearHeroBioData, setHeroBioData } from "@/lib/hero-bio-store";
+import { APP_EVENTS } from "@/lib/app-events";
 import { PortableText } from "@portabletext/react";
 import clsx from "clsx";
 
@@ -623,6 +624,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   const effectiveLinksLayout: LinksLayoutMode = isBelowDesktop ? "two-column" : linksLayoutFromSanity;
 
   const showScrollHint: boolean = !!(props as any)?.showScrollHint;
+  const showMobileScrollHint: boolean = (props as any)?.showMobileScrollHint ?? true;
 
   const featuredLabelRaw: string = (props as any)?.featuredLabel ?? "";
   const featuredLabel = useMemo(() => withColon(featuredLabelRaw), [featuredLabelRaw]);
@@ -863,6 +865,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
 
   const footerRef = useRef<HTMLDivElement | null>(null);
   const scrollHintWrapRef = useRef<HTMLDivElement | null>(null);
+  const mobileScrollHintArrowRef = useRef<SVGGElement | null>(null);
 
   const getNextSectionEl = useCallback(() => {
     const root = containerRef.current;
@@ -940,6 +943,56 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     if (!next) return;
     scrollToSection(next);
   }, [getNextSectionEl, scrollToSection]);
+
+  const [mobileScrollHintHidden, setMobileScrollHintHidden] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isBelowDesktop || !showMobileScrollHint || !loaderDone) {
+      setMobileScrollHintHidden(false);
+      return;
+    }
+
+    let raf = 0;
+    const sync = () => {
+      const shouldHide = getCurrentScrollY() > 16;
+      setMobileScrollHintHidden((prev) => (prev === shouldHide ? prev : shouldHide));
+    };
+    const scheduleSync = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        sync();
+      });
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") scheduleSync();
+    };
+    const onScrollTriggerEvent = () => scheduleSync();
+
+    scheduleSync();
+    window.addEventListener("scroll", scheduleSync, { passive: true });
+    window.addEventListener("resize", scheduleSync);
+    window.addEventListener(APP_EVENTS.SCROLL_END, scheduleSync as EventListener);
+    window.addEventListener(APP_EVENTS.HOME_HS_RESTORED, scheduleSync as EventListener);
+    window.addEventListener(APP_EVENTS.NAV_END, scheduleSync as EventListener);
+    window.addEventListener("pageshow", scheduleSync as EventListener);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    ScrollTrigger.addEventListener("scrollEnd", onScrollTriggerEvent);
+    ScrollTrigger.addEventListener("refresh", onScrollTriggerEvent);
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", scheduleSync);
+      window.removeEventListener("resize", scheduleSync);
+      window.removeEventListener(APP_EVENTS.SCROLL_END, scheduleSync as EventListener);
+      window.removeEventListener(APP_EVENTS.HOME_HS_RESTORED, scheduleSync as EventListener);
+      window.removeEventListener(APP_EVENTS.NAV_END, scheduleSync as EventListener);
+      window.removeEventListener("pageshow", scheduleSync as EventListener);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      ScrollTrigger.removeEventListener("scrollEnd", onScrollTriggerEvent);
+      ScrollTrigger.removeEventListener("refresh", onScrollTriggerEvent);
+    };
+  }, [isBelowDesktop, loaderDone, showMobileScrollHint]);
 
   const isTransitioningRef = useRef(false);
   const queuedKeyRef = useRef<string | null>(null);
@@ -1450,9 +1503,10 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
     scrollHintTweenRef.current?.kill();
     scrollHintTweenRef.current = null;
 
-    const arrow = scrollHintArrowRef.current;
+    const arrow = isBelowDesktop ? mobileScrollHintArrowRef.current : scrollHintArrowRef.current;
+    const shouldShowHint = isBelowDesktop ? showMobileScrollHint : showScrollHint;
     if (!arrow) return;
-    if (!showScrollHint) return;
+    if (!shouldShowHint) return;
     if (!loaderDone) return;
     if (typeof window === "undefined") return;
 
@@ -1494,7 +1548,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
       scrollHintTweenRef.current = null;
       gsap.set(arrow, { clearProps: "willChange" });
     };
-  }, [loaderDone, showScrollHint]);
+  }, [isBelowDesktop, loaderDone, showMobileScrollHint, showScrollHint]);
 
   // ---------------------------------------
   // LINKS RENDERERS (uses effectiveLinksLayout)
@@ -1654,6 +1708,38 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   }, [bottomLinksRenderable]);
 
   const bottomLinksNode = useMemo(() => renderBottomLinks(), [renderBottomLinks]);
+  const mobileBottomLinksNode = useMemo(() => {
+    if (!bottomLinksRenderable.length) return null;
+
+    return (
+      <div className="flex flex-wrap gap-4 text-sm pointer-events-auto">
+        {bottomLinksRenderable.map((l, idx) => {
+          const label = (l?.label ?? "").trim();
+          const href = sanitizeHref(l?.href);
+          if (!label || !href) return null;
+
+          const forceNewTab = !!l?.newTab;
+          const external = isLikelyExternal(href);
+          const target = forceNewTab || external ? "_blank" : undefined;
+          const rel = target ? "noreferrer" : undefined;
+
+          return (
+            <UnderlineLink
+              key={l?._key ?? `mobile-${label}-${idx}`}
+              href={href}
+              target={target}
+              rel={rel}
+              hoverUnderline
+              data-cursor="link"
+              className="opacity-50 hover:opacity-100"
+            >
+              {label}
+            </UnderlineLink>
+          );
+        })}
+      </div>
+    );
+  }, [bottomLinksRenderable]);
 
   const copyrightTextRaw: string = (props as any)?.copyrightText ?? "";
   const copyrightText = useMemo(() => {
@@ -1671,6 +1757,7 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
   }, [copyrightText]);
 
   const shouldRenderFooter = !!footerTextNode || !!bottomLinksNode || !!copyrightNode;
+  const shouldRenderMobileFooter = shouldRenderFooter || (showMobileScrollHint && loaderDone);
 
   // ---- Arrow config ----
   const SHAFT_W = 20;
@@ -1756,7 +1843,12 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
         style={{ contain: "layout paint" }}
       >
         {/* HEADER */}
-        <div className="absolute flex-none mb-0 md:mb-4 min-h-0 md:min-h-[64px]">
+        <div
+          className={clsx(
+            "relative md:absolute flex-none min-h-0 md:min-h-[64px]",
+            shouldShowFeatured && "mb-4 md:mb-4"
+          )}
+        >
           <div className="pr-0 md:pr-[320px]">
             {shouldShowFeatured ? (
               <div className="text-base tracking-tighter flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -1790,6 +1882,60 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
           </div>
         </div>
 
+        {/* MOBILE FOOTER: footer bio + links under slideshow */}
+        {isBelowDesktop && shouldRenderMobileFooter ? (
+          <div className="md:hidden relative flex-none">
+            <div className="flex flex-col gap-4">
+              {footerTextNode}
+              {mobileBottomLinksNode}
+              {showMobileScrollHint && loaderDone ? (
+                <button
+                  type="button"
+                  onClick={handleScrollHintClick}
+                  className={clsx(
+                    "inline-flex w-fit flex-col items-start gap-2 text-current transition-opacity duration-300",
+                    mobileScrollHintHidden && "opacity-0 pointer-events-none"
+                  )}
+                  aria-label="Scroll to the next section"
+                  data-cursor="link"
+                >
+                  <svg
+                    width="12"
+                    height="54"
+                    viewBox="0 0 12 54"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="block opacity-25"
+                    aria-hidden="true"
+                  >
+                    <g transform="translate(12 0) rotate(90)">
+                      <g ref={mobileScrollHintArrowRef}>
+                        <rect
+                          x={OFFSET_X}
+                          y={SHAFT_Y}
+                          width={SHAFT_W}
+                          height={SHAFT_H}
+                          rx="1"
+                          fill="currentColor"
+                        />
+
+                        <g transform={`translate(${OFFSET_X + HEAD_X} ${HEAD_Y}) scale(${HEAD_SCALE})`}>
+                          <polygon
+                            points="4.97 2.03 0 4.06 1.18 2.03 0 0 4.97 2.03"
+                            fill="currentColor"
+                          />
+                        </g>
+                      </g>
+                    </g>
+                  </svg>
+                  <span className="text-[10px] uppercase tracking-tight opacity-25 font-serif">scroll</span>
+                </button>
+              ) : null}
+              {copyrightNode}
+            </div>
+          </div>
+        ) : null}
+
         {/* LINKS FIELD (desktop only) */}
         {!isBelowDesktop ? (
           <div className="relative flex-none md:flex-1 md:min-h-0 pointer-events-none">
@@ -1803,7 +1949,10 @@ export default function HeroContents(props: Props & { onIndexAction?: RuntimeInd
             <div className="mt-2 flex items-end gap-6">
               <div className="flex-1">{footerTextNode}</div>
 
-              <div className="flex flex-col items-end gap-2">{bottomLinksNode}</div>
+              <div className="flex flex-col items-end gap-2">
+                {bottomLinksNode}
+                {copyrightNode}
+              </div>
             </div>
           </div>
         ) : null}

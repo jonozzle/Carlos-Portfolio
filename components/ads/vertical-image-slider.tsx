@@ -22,6 +22,7 @@ type Props = {
     parallaxEnabled?: boolean;
     parallaxAmount?: "sm" | "md" | "lg";
     lockCrossAxisBleed?: boolean;
+    objectFit?: "cover" | "contain";
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -36,6 +37,7 @@ export default function VerticalImageSlider({
     parallaxEnabled = true,
     parallaxAmount = "md",
     lockCrossAxisBleed = false,
+    objectFit = "cover",
 }: Props) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const trackRef = useRef<HTMLDivElement | null>(null);
@@ -502,6 +504,7 @@ export default function VerticalImageSlider({
                                     hiQuality={90}
                                     lqipWidth={24}
                                     loading="lazy"
+                                    objectFit={objectFit}
                                 />
                             </div>
                         </div>

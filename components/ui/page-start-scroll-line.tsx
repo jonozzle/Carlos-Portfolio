@@ -31,7 +31,10 @@ export default function PageStartScrollLine({
 }: Props) {
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const progressRef = useRef<HTMLDivElement | null>(null);
-  const [isMdUp, setIsMdUp] = useState(false);
+  const [isMdUp, setIsMdUp] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(min-width: 768px)").matches;
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -52,8 +55,8 @@ export default function PageStartScrollLine({
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
-    if (!enabled || !isMdUp) return;
-    const safariDesktop = isDesktopSafari();
+    if (!enabled) return;
+    const safariDesktop = isMdUp && isDesktopSafari();
 
     let st: ScrollTrigger | null = null;
     let checkId: number | null = null;
@@ -79,10 +82,6 @@ export default function PageStartScrollLine({
       const progressEl = progressRef.current;
       if (!triggerEl || !progressEl) return false;
 
-      const horizontalST = ScrollTrigger.getById(horizontalScrollTriggerId) as ScrollTrigger | null;
-      const containerAnim = horizontalST?.animation as gsap.core.Animation | undefined;
-      if (!horizontalST || !containerAnim) return false;
-
       kill();
 
       const setScaleX = gsap.quickSetter(progressEl, "scaleX");
@@ -102,20 +101,28 @@ export default function PageStartScrollLine({
         willChange: "transform",
       });
 
-      st = ScrollTrigger.create({
-        trigger: triggerEl,
-        containerAnimation: containerAnim,
-        start: "left left",
-        end: "right 20%",
-        scrub: true,
-        onUpdate: (self) => {
-          if (!safariDesktop || !tweenScale) {
-            setScaleX(self.progress);
-            return;
-          }
-          tweenScale(self.progress);
-        },
-      });
+      if (isMdUp) {
+        const horizontalST = ScrollTrigger.getById(horizontalScrollTriggerId) as ScrollTrigger | null;
+        const containerAnim = horizontalST?.animation as gsap.core.Animation | undefined;
+        if (!horizontalST || !containerAnim) return false;
+
+        st = ScrollTrigger.create({
+          trigger: triggerEl,
+          containerAnimation: containerAnim,
+          start: "left left",
+          end: "right 20%",
+          scrub: true,
+          onUpdate: (self) => {
+            if (!safariDesktop || !tweenScale) {
+              setScaleX(self.progress);
+              return;
+            }
+            tweenScale(self.progress);
+          },
+        });
+      } else {
+        setScaleX(1);
+      }
 
       try {
         ScrollTrigger.update();
@@ -138,17 +145,21 @@ export default function PageStartScrollLine({
       trySetupLoop();
     };
 
-    window.addEventListener("hs-ready", onHsChange);
-    window.addEventListener("hs-rebuilt", onHsChange);
+    if (isMdUp) {
+      window.addEventListener("hs-ready", onHsChange);
+      window.addEventListener("hs-rebuilt", onHsChange);
+    }
 
     return () => {
-      window.removeEventListener("hs-ready", onHsChange);
-      window.removeEventListener("hs-rebuilt", onHsChange);
+      if (isMdUp) {
+        window.removeEventListener("hs-ready", onHsChange);
+        window.removeEventListener("hs-rebuilt", onHsChange);
+      }
       kill();
     };
   }, [enabled, horizontalScrollTriggerId, isMdUp, pollMs]);
 
-  if (!enabled || !isMdUp) return null;
+  if (!enabled) return null;
 
   return (
     <div ref={triggerRef} className="relative h-px w-full">

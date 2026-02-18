@@ -244,6 +244,15 @@ export default defineType({
       description: "Shows a subtle right-edge scroll indicator.",
     }),
 
+    defineField({
+      name: "showMobileScrollHint",
+      title: "Show mobile scroll hint",
+      type: "boolean",
+      fieldset: "mobile",
+      initialValue: true,
+      description: "Shows a subtle down-pointing scroll indicator below the mobile footer links.",
+    }),
+
     // -----------------------
     // MOBILE SLIDESHOW
     // -----------------------

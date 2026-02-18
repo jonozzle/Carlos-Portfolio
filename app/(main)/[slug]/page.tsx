@@ -87,8 +87,8 @@ export default async function Page({ params }: PageProps) {
       <ThemeSetter theme={page.theme ?? null} />
 
       <section
-        data-panel-height="viewport"
-        className="h-panel relative w-screen md:w-auto overflow-hidden"
+        data-panel-height="auto"
+        className="relative w-screen h-auto overflow-visible md:w-auto md:h-screen md:overflow-hidden"
       >
         <div className="h-full flex flex-col md:flex-row md:items-stretch">
           <div
@@ -99,7 +99,7 @@ export default async function Page({ params }: PageProps) {
               {hasTopLabels ? (
                 <div className="pt-6 md:pt-10 text-center">
                   <div className="text-sm md:text-base font-serif leading-tight tracking-tighter flex flex-col items-center">
-                    {label1 ? <span className="mb-0 md:text-xl">{label1}</span> : null}
+                    {label1 ? <span className="mb-0 text-base md:text-xl">{label1}</span> : null}
                     {label2 ? <span>{label2}</span> : null}
                   </div>
                 </div>
@@ -108,7 +108,7 @@ export default async function Page({ params }: PageProps) {
               ) : null}
 
               {hasDetails || hasBlockText ? (
-                <div className="mt-8 md:mt-10 px-6 flex flex-col gap-8">
+                <div className="mt-8 md:mt-10 px-10 md:px-6 flex flex-col gap-8">
                   {hasDetails ? <ProjectDetails details={details} /> : null}
                   {hasBlockText ? (
                     <BlockTextSection

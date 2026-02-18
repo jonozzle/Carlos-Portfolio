@@ -13,6 +13,7 @@ export const heroContentsQuery = groq`
     "linksLayout": coalesce(linksLayout, "grid"),
 
     "showScrollHint": coalesce(showScrollHint, false),
+    "showMobileScrollHint": coalesce(showMobileScrollHint, true),
 
     "featuredLabel": coalesce(featuredLabel, ""),
     "featuredProject": select(
