@@ -259,7 +259,7 @@ export default function ProjectIndexDrawer({
     if (!year && !client) return null;
 
     return (
-      <span className="mt-1 flex flex-col gap-0 text-xs md:text-sm leading-tight tracking-tighter opacity-60">
+      <span className="flex flex-col gap-0 text-xs md:text-sm leading-tight tracking-tighter opacity-60">
         {year ? <span className="tabular-nums">{year}</span> : null}
         {client ? <span>{client}</span> : null}
       </span>
@@ -318,7 +318,7 @@ export default function ProjectIndexDrawer({
                   alignItems: "start",
                   justifyItems: "start",
                   columnGap: "1.25rem",
-                  rowGap: "0.75rem",
+                  rowGap: "2rem",
                   minHeight: "auto",
                   maxHeight: mobileHeight || "none",
                 }
