@@ -47,7 +47,13 @@ const componentMap: Partial<Record<Block["_type"], React.ComponentType<any>>> = 
 };
 
 // Blocks
-export default function Blocks({ blocks }: { blocks: Block[] }) {
+export default function Blocks({
+  blocks,
+  heroPageAnimate = false,
+}: {
+  blocks: Block[];
+  heroPageAnimate?: boolean;
+}) {
   return (
     <>
       {blocks?.map((block, i) => {
@@ -64,6 +70,7 @@ export default function Blocks({ blocks }: { blocks: Block[] }) {
             data-section-id={block._key}
             data-section-type={block._type}
             data-section-index={i}
+            data-hero-page-animate={heroPageAnimate ? "1" : undefined}
           >
             <Component {...(block as any)} />
           </div>

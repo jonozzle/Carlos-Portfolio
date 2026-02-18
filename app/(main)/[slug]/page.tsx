@@ -138,7 +138,7 @@ export default async function Page({ params }: PageProps) {
         </div>
       </section>
 
-      <Blocks blocks={page.blocks ?? []} />
+      <Blocks blocks={page.blocks ?? []} heroPageAnimate />
     </HScrollerWrapper>
   );
 }

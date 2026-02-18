@@ -3,6 +3,7 @@
 "use client";
 
 import { useLayoutEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useThemeActions, type ThemeInput, type ThemeApplyOptions } from "@/components/theme-provider";
 import { APP_EVENTS } from "@/lib/app-events";
 
@@ -12,12 +13,20 @@ type Props =
 
 export default function ThemeSetter(props: Props) {
     const { lockTheme, resetTheme } = useThemeActions();
+    const pathname = usePathname();
 
     const isReset = "reset" in props && props.reset;
     const theme = isReset ? null : (props.theme ?? null);
 
     useLayoutEffect(() => {
         if (typeof window === "undefined") return;
+        const onHomeRoute = () => {
+            try {
+                return window.location.pathname === "/";
+            } catch {
+                return pathname === "/";
+            }
+        };
 
         // If this page sets theme during hydration, prevent ThemeProvider's boot effect
         // from re-applying DEFAULT_THEME afterwards on hard reload.
@@ -48,6 +57,7 @@ export default function ThemeSetter(props: Props) {
                     if (t) window.clearTimeout(t);
                     window.removeEventListener("hero-transition-done", onHeroDone as any);
                     (window as any).__deferHomeThemeReset = false;
+                    if (!onHomeRoute()) return;
                     // Always animate this reset (this is a navigation transition, not a cold load)
                     resetTheme({ animate: true, force: true });
                 };
@@ -75,6 +85,7 @@ export default function ThemeSetter(props: Props) {
                     done = true;
                     if (t) window.clearTimeout(t);
                     window.removeEventListener(APP_EVENTS.NAV_END, onNavEnd as any);
+                    if (!onHomeRoute()) return;
                     resetTheme({ animate: true, force: true });
                 };
 
@@ -89,12 +100,13 @@ export default function ThemeSetter(props: Props) {
                 };
             }
 
+            if (!onHomeRoute()) return;
             resetTheme(baseOpts);
             return;
         }
 
         lockTheme(theme, baseOpts);
-    }, [isReset, theme, lockTheme, resetTheme]);
+    }, [isReset, pathname, theme, lockTheme, resetTheme]);
 
     return null;
 }

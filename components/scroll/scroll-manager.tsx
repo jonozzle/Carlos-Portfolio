@@ -122,8 +122,7 @@ export default function ScrollManager() {
     const enteredKind =
       pendingKind ?? ((window as any).__pageTransitionLast as string | undefined) ?? "simple";
 
-    const hasHeroOverlay = !!(window as any).__heroPending;
-    const isHeroNav = enteredKind === "hero" && hasHeroOverlay;
+    const isHeroNav = enteredKind === "hero";
 
     if (isHeroNav) {
       // Hero destination targets are measured immediately on mount.

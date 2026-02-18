@@ -33,7 +33,10 @@ type BookmarkLinkClothProps = {
   homeFollow?: boolean;
 };
 
-const BOOKMARK_TALL_VH = 0.5;
+const BOOKMARK_TALL_DESKTOP_VH = 0.5;
+const BOOKMARK_TALL_MOBILE_DEFAULT_PX = 360;
+const BOOKMARK_TALL_MOBILE_MIN_PX = 300;
+const BOOKMARK_TALL_MOBILE_MAX_PX = 420;
 const BASE_RECT_HEIGHT = 24;
 const TAIL_HEIGHT = 40;
 const BASE_SHAPE_HEIGHT = BASE_RECT_HEIGHT + TAIL_HEIGHT;
@@ -175,9 +178,27 @@ function getTopThreshold() {
     : TOP_THRESHOLD_DESKTOP;
 }
 
-function getTargetBookmarkHeight(isHome: boolean): number {
+function isMobileViewport() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.matchMedia("(max-width: 767px)").matches;
+  } catch {
+    return false;
+  }
+}
+
+function getTallBookmarkHeightPx() {
+  if (typeof window === "undefined") return BOOKMARK_TALL_MOBILE_DEFAULT_PX;
+  if (isMobileViewport()) {
+    const vw = Math.max(320, window.innerWidth || 0);
+    return clamp(Math.round(vw * 0.95), BOOKMARK_TALL_MOBILE_MIN_PX, BOOKMARK_TALL_MOBILE_MAX_PX);
+  }
   const vh = readViewportHeight();
-  const raw = isHome ? HOME_ANCHOR_HEIGHT : vh * BOOKMARK_TALL_VH;
+  return Math.max(BASE_SHAPE_HEIGHT, vh * BOOKMARK_TALL_DESKTOP_VH);
+}
+
+function getTargetBookmarkHeight(isHome: boolean): number {
+  const raw = isHome ? HOME_ANCHOR_HEIGHT : getTallBookmarkHeightPx();
   return Math.max(BASE_SHAPE_HEIGHT, raw);
 }
 
@@ -2293,9 +2314,7 @@ export default function BookmarkLinkCloth({
 
     const updateTargetHeight = (immediate = false) => {
       if (transitionBusyRef.current) return;
-      const vh = readViewportHeight();
-      const raw = isHomeRef.current ? HOME_ANCHOR_HEIGHT : vh * BOOKMARK_TALL_VH;
-      const next = Math.max(BASE_SHAPE_HEIGHT, raw);
+      const next = getTargetBookmarkHeight(isHomeRef.current);
       if (Math.abs(next - heightTargetRef.current) < 0.5) return;
       heightTargetRef.current = next;
       tweenToHeight(next, immediate);
@@ -2643,7 +2662,7 @@ export default function BookmarkLinkCloth({
   const ariaLabel = isHome ? homeLabel ?? "Project index" : "Back";
   const defaultBookmarkHeight = isHome
     ? `${HOME_ANCHOR_HEIGHT}px`
-    : `${Math.round(BOOKMARK_TALL_VH * 100)}vh`;
+    : `${BOOKMARK_TALL_MOBILE_DEFAULT_PX}px`;
 
   return (
     <>

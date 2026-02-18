@@ -402,18 +402,10 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 
         if (hasTheme) {
             const mobile = isMobileNow();
-            const mobileDurationMs = 360;
-            lockTheme(
-                theme,
-                mobile
-                    ? { animate: true, force: true, durationMs: mobileDurationMs }
-                    : { animate: true, force: true, durationMs: 280 }
-            );
-            if (mobile && typeof window !== "undefined") {
-                (window as any).__heroThemeLockReadyAt =
-                    performance.now() + Math.min(260, Math.round(mobileDurationMs * 0.65));
-            }
+            if (mobile) lockTheme(theme, { animate: false, force: true });
+            else lockTheme(theme, { animate: true, force: true, durationMs: 280 });
         }
+        if (typeof window !== "undefined") (window as any).__heroThemeLockReadyAt = 0;
 
         const el = imgScaleRef.current;
         if (el) gsap.killTweensOf(el);

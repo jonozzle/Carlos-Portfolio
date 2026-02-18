@@ -125,7 +125,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                 </div>
             </section>
 
-            <Blocks blocks={project.blocks ?? []} />
+            <Blocks blocks={project.blocks ?? []} heroPageAnimate />
         </HScrollerWrapper>
     );
 }

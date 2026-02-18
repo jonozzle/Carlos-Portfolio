@@ -7,6 +7,7 @@ import Image from "next/image";
 import { gsap } from "gsap";
 import { completeHeroTransition } from "@/lib/hero-transition";
 import type { PendingHero } from "@/lib/transitions/state";
+import { setCurrentScrollY } from "@/lib/scroll-state";
 
 type Props = {
     src: string;
@@ -17,6 +18,9 @@ type Props = {
     /** Seed AR (e.g. from Sanity) to avoid layout shifts. */
     initialAR?: number;
 };
+
+const MOBILE_HERO_MAX_HEIGHT_PX = 520;
+const MOBILE_HERO_PORTRAIT_HEIGHT_CSS = "clamp(320px, 78vw, 520px)";
 
 function isGoodAR(n: number) {
     return Number.isFinite(n) && n > 0.05 && n < 20;
@@ -69,6 +73,22 @@ export default function HeroImage({
         };
     }, []);
 
+    const completeFromTop = (targetEl: HTMLElement) => {
+        const run = () => completeHeroTransition({ slug, targetEl, mode: "simple" });
+        if (typeof window === "undefined") {
+            run();
+            return;
+        }
+        setCurrentScrollY(0);
+        requestAnimationFrame(() => {
+            setCurrentScrollY(0);
+            requestAnimationFrame(() => {
+                setCurrentScrollY(0);
+                run();
+            });
+        });
+    };
+
     const computedStyle = useMemo((): CSSProperties | undefined => {
         if (!autoWidth) return undefined;
 
@@ -83,10 +103,10 @@ export default function HeroImage({
             if (portrait) {
                 return {
                     aspectRatio: String(ratio),
-                    height: "min(70vh, 100%)",
+                    height: MOBILE_HERO_PORTRAIT_HEIGHT_CSS,
                     width: "auto",
                     maxWidth: "100%",
-                    maxHeight: "70vh",
+                    maxHeight: `${MOBILE_HERO_MAX_HEIGHT_PX}px`,
                     marginLeft: "auto",
                     marginRight: "auto",
                 };
@@ -96,7 +116,7 @@ export default function HeroImage({
                 aspectRatio: String(ratio),
                 width: "100%",
                 height: "auto",
-                maxHeight: "70vh",
+                maxHeight: `${MOBILE_HERO_MAX_HEIGHT_PX}px`,
             };
         }
 
@@ -123,7 +143,7 @@ export default function HeroImage({
 
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
-                    completeHeroTransition({ slug, targetEl: el, mode: "simple" });
+                    completeFromTop(el);
                 });
             });
             return;
@@ -156,16 +176,16 @@ export default function HeroImage({
 
                 if (isMobile) {
                     if (r < 1) {
-                        el.style.height = "min(70vh, 100%)";
+                        el.style.height = MOBILE_HERO_PORTRAIT_HEIGHT_CSS;
                         el.style.width = "auto";
                         el.style.maxWidth = "100%";
-                        el.style.maxHeight = "70vh";
+                        el.style.maxHeight = `${MOBILE_HERO_MAX_HEIGHT_PX}px`;
                         el.style.marginLeft = "auto";
                         el.style.marginRight = "auto";
                     } else {
                         el.style.width = "100%";
                         el.style.height = "auto";
-                        el.style.maxHeight = "70vh";
+                        el.style.maxHeight = `${MOBILE_HERO_MAX_HEIGHT_PX}px`;
                         el.style.marginLeft = "";
                         el.style.marginRight = "";
                     }
@@ -187,7 +207,7 @@ export default function HeroImage({
 
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
-                        completeHeroTransition({ slug, targetEl: el, mode: "simple" });
+                        completeFromTop(el);
                     });
                 });
             };
