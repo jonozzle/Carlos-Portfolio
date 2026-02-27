@@ -43,6 +43,11 @@ const BASE_SHAPE_HEIGHT = BASE_RECT_HEIGHT + TAIL_HEIGHT;
 const HOME_ANCHOR_HEIGHT = 92;
 const TOP_THRESHOLD_DESKTOP = 24;
 const TOP_THRESHOLD_MOBILE = 96;
+const HEIGHT_BOUNCE_RATIO = 0.085;
+const HEIGHT_BOUNCE_MIN_PX = 12;
+const HEIGHT_BOUNCE_MAX_PX = 34;
+const HEIGHT_BOUNCE_OUT_DUR = 0.22;
+const HEIGHT_BOUNCE_IN_DUR = 0.62;
 
 const DROP_INNER_Y = -100;
 
@@ -1115,7 +1120,7 @@ export default function BookmarkLinkCloth({
   const isShownRef = useRef(isShown);
   const followActiveRef = useRef(false);
   const toggleSimLoopRef = useRef<((active: boolean) => void) | null>(null);
-  const heightTweenRef = useRef<gsap.core.Tween | null>(null);
+  const heightTweenRef = useRef<gsap.core.Tween | gsap.core.Timeline | null>(null);
   const heightProxyRef = useRef({ value: 0 });
   const heightTargetRef = useRef(0);
   const sizeChangedRef = useRef(false);
@@ -2298,6 +2303,36 @@ export default function BookmarkLinkCloth({
         heightTweenRef.current = null;
         heightProxyRef.current.value = nextHeight;
         applyHeight(nextHeight);
+        return;
+      }
+      const currentHeight = heightProxyRef.current.value;
+      const shouldBounceToShortHome = isHomeRef.current && nextHeight < currentHeight - 0.5;
+      if (shouldBounceToShortHome) {
+        const bump = clamp(
+          currentHeight * HEIGHT_BOUNCE_RATIO,
+          HEIGHT_BOUNCE_MIN_PX,
+          HEIGHT_BOUNCE_MAX_PX
+        );
+        const peakHeight = currentHeight + bump;
+        const tl = gsap.timeline({
+          defaults: { overwrite: "auto" },
+          onUpdate: () => applyHeight(heightProxyRef.current.value),
+          onComplete: () => {
+            heightTweenRef.current = null;
+          },
+        });
+        tl
+          .to(heightProxyRef.current, {
+            value: peakHeight,
+            duration: HEIGHT_BOUNCE_OUT_DUR,
+            ease: "power2.out",
+          })
+          .to(heightProxyRef.current, {
+            value: nextHeight,
+            duration: HEIGHT_BOUNCE_IN_DUR,
+            ease: "power2.out",
+          });
+        heightTweenRef.current = tl;
         return;
       }
       heightTweenRef.current = gsap.to(heightProxyRef.current, {

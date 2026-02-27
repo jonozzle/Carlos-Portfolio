@@ -166,9 +166,14 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     const hasTheme = !!(theme && ((theme as any).bg || (theme as any).text));
 
     const { previewTheme, clearPreview, lockTheme } = themeCtx;
+    const activeIndexRef = useRef<number | null>(activeIndex);
 
     const isActive = activeIndex === index;
     const dimState: "active" | "inactive" = isActive ? "active" : "inactive";
+
+    useEffect(() => {
+        activeIndexRef.current = activeIndex;
+    }, [activeIndex]);
 
     const [isMobile, setIsMobile] = useState(false);
     const [imgMeta, setImgMeta] = useState<{
@@ -280,7 +285,8 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
 
     const clearHover = useCallback((forceAnim?: boolean) => {
         if (navLockedRef.current) return;
-        if (hasTheme) {
+        const isStillActive = activeIndexRef.current === index;
+        if (hasTheme && isStillActive) {
             const opts = forceAnim ? { animate: true, force: true } : undefined;
             clearPreview(opts);
         }
@@ -331,7 +337,7 @@ const ProjectBlockCell = React.memo(function ProjectBlockCell({
     const handleEnter = useCallback(() => {
         if (!hoverCapable) return;
         cancelPendingLeave();
-        applyHover();
+        applyHover(true);
     }, [applyHover, cancelPendingLeave, hoverCapable]);
 
     const isPointerInside = useCallback(() => {

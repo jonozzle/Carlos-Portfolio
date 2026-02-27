@@ -43,6 +43,9 @@ const DRAWER_OPEN_DUR = 1.25;
 const DRAWER_CLOSE_DUR = 1.05;
 const DRAWER_OPEN_EASE = "power3.out";
 const DRAWER_CLOSE_EASE = "power3.inOut";
+const DRAWER_PANEL_OVERSHOOT_PERCENT = 5;
+const DRAWER_OFFSET_OVERSHOOT_PX = 28;
+const DRAWER_OVERSHOOT_RATIO = 0.24;
 const TOP_FILL_HEIGHT = 240;
 const BOOKMARK_OFFSET_VAR = "--bookmark-offset";
 
@@ -159,27 +162,50 @@ export default function ProjectIndexDrawer({
       }
 
       gsap.set(panel, { willChange: "transform", force3D: true });
-      gsap.to(panel, {
-        yPercent: -100,
-        duration: DRAWER_CLOSE_DUR,
-        ease: DRAWER_CLOSE_EASE,
-        force3D: true,
-        onComplete: () => {
-          gsap.set(panel, { pointerEvents: "none", willChange: "auto" });
-          offsetProxy.v = 0;
-          applyOffset();
-        },
-      });
+      const closeOvershootDur = Math.min(0.32, DRAWER_CLOSE_DUR * DRAWER_OVERSHOOT_RATIO);
+      const closeSettleDur = Math.max(0.2, DRAWER_CLOSE_DUR - closeOvershootDur);
+      const closePeakOffset = Math.max(panelHeight, getOffset()) + DRAWER_OFFSET_OVERSHOOT_PX;
+      const closeTl = gsap.timeline({ defaults: { overwrite: "auto" } });
+      closeTl
+        .to(panel, {
+          yPercent: DRAWER_PANEL_OVERSHOOT_PERCENT,
+          duration: closeOvershootDur,
+          ease: "power2.out",
+          force3D: true,
+        })
+        .to(panel, {
+          yPercent: -100,
+          duration: closeSettleDur,
+          ease: DRAWER_CLOSE_EASE,
+          force3D: true,
+          onComplete: () => {
+            gsap.set(panel, { pointerEvents: "none", willChange: "auto" });
+            offsetProxy.v = 0;
+            applyOffset();
+          },
+        });
       if (root) {
         gsap.killTweensOf(offsetProxy);
-        gsap.to(offsetProxy, {
-          v: 0,
-          duration: DRAWER_CLOSE_DUR,
-          ease: DRAWER_CLOSE_EASE,
-          overwrite: "auto",
-          onUpdate: applyOffset,
-          onComplete: applyOffset,
-        });
+        closeTl
+          .to(
+            offsetProxy,
+            {
+              v: closePeakOffset,
+              duration: closeOvershootDur,
+              ease: "power2.out",
+              overwrite: "auto",
+              onUpdate: applyOffset,
+            },
+            0
+          )
+          .to(offsetProxy, {
+            v: 0,
+            duration: closeSettleDur,
+            ease: DRAWER_CLOSE_EASE,
+            overwrite: "auto",
+            onUpdate: applyOffset,
+            onComplete: applyOffset,
+          });
       }
       return;
     }
@@ -189,9 +215,18 @@ export default function ProjectIndexDrawer({
 
     const tl = gsap.timeline({ defaults: { overwrite: "auto" } });
 
+    const openOvershootDur = Math.min(0.36, DRAWER_OPEN_DUR * DRAWER_OVERSHOOT_RATIO);
+    const openSettleDur = Math.max(0.2, DRAWER_OPEN_DUR - openOvershootDur);
+    const openPeakOffset = panelHeight + DRAWER_OFFSET_OVERSHOOT_PX;
+
     tl.to(panel, {
+      yPercent: DRAWER_PANEL_OVERSHOOT_PERCENT,
+      duration: openOvershootDur,
+      ease: "power2.out",
+      force3D: true,
+    }).to(panel, {
       yPercent: 0,
-      duration: DRAWER_OPEN_DUR,
+      duration: openSettleDur,
       ease: DRAWER_OPEN_EASE,
       force3D: true,
       onComplete: () => {
@@ -205,15 +240,22 @@ export default function ProjectIndexDrawer({
       tl.to(
         offsetProxy,
         {
-          v: panelHeight,
-          duration: DRAWER_OPEN_DUR,
-          ease: DRAWER_OPEN_EASE,
+          v: openPeakOffset,
+          duration: openOvershootDur,
+          ease: "power2.out",
           overwrite: "auto",
           onUpdate: applyOffset,
-          onComplete: applyOffset,
         },
         0
       );
+      tl.to(offsetProxy, {
+        v: panelHeight,
+        duration: openSettleDur,
+        ease: DRAWER_OPEN_EASE,
+        overwrite: "auto",
+        onUpdate: applyOffset,
+        onComplete: applyOffset,
+      });
     }
 
     if (itemEls.length) {
