@@ -122,7 +122,7 @@ export default function HomeBookmarkNav({ drawer }: HomeBookmarkNavProps) {
     };
   }, [isHome, open]);
 
-  const bookmarkLabel = isHome ? (open ? "Close" : "Index") : "Home";
+  const bookmarkLabel = isHome ? (open ? "Close" : "Index") : "Back";
 
   return (
     <>
